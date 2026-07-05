@@ -40,6 +40,7 @@
                     · <span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:.68rem;font-weight:500;background:rgba(var(--primary-rgb),.1);color:var(--primary)">{{ $client->category->name }}</span>
                     @endif
                     · <i class="bi bi-calendar3 me-1"></i>{{ $client->joining_date?->format('d M Y') ?? '—' }}
+                    · <i class="bi bi-person-check me-1"></i>Assigned to <span id="assignedToName">{{ $client->assignedUser?->name ?? 'Unassigned' }}</span>
                 </div>
                 <div class="mt-2">
                     <div class="d-flex align-items-center gap-2">
@@ -52,10 +53,15 @@
                 </div>
             </div>
             <div class="d-flex gap-2 ms-auto">
-                @can('manage clients')
+                @can('update', $client)
                 <a href="{{ route('clients.edit', $client) }}" class="btn btn-sm btn-outline-warning">
                     <i class="bi bi-pencil me-1"></i>Edit
                 </a>
+                @endcan
+                @can('transfer', $client)
+                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#transferOwnerModal">
+                    <i class="bi bi-arrow-left-right me-1"></i>Transfer
+                </button>
                 @endcan
                 <div class="dropdown">
                     <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
@@ -129,9 +135,11 @@
         <div class="card section-card">
             <div class="card-header py-3 d-flex align-items-center justify-content-between">
                 <h6 class="fw-bold mb-0">Product Updates</h6>
+                @can('update', $client)
                 <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addProductModal">
                     <i class="bi bi-plus-lg me-1"></i>Add Update
                 </button>
+                @endcan
             </div>
             <div class="card-body p-0">
                 <div id="productList">
@@ -148,9 +156,11 @@
         <div class="card section-card">
             <div class="card-header py-3 d-flex align-items-center justify-content-between">
                 <h6 class="fw-bold mb-0">Payment History</h6>
+                @can('update', $client)
                 <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addPaymentModal">
                     <i class="bi bi-plus-lg me-1"></i>Add Payment
                 </button>
+                @endcan
             </div>
             <div id="paymentSummary" class="px-3 pb-2"></div>
             <div class="card-body p-0">
@@ -187,9 +197,11 @@
             </div>
             <div class="col-6 col-md-3">
                 <div class="card d-flex align-items-center justify-content-center py-3">
+                    @can('update', $client)
                     <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addDocModal">
                         <i class="bi bi-upload me-1"></i>Upload Document
                     </button>
+                    @endcan
                 </div>
             </div>
         </div>
@@ -209,9 +221,11 @@
         <div class="card section-card">
             <div class="card-header py-3 d-flex align-items-center justify-content-between">
                 <h6 class="fw-bold mb-0">Meetings</h6>
+                @can('manage-meetings')
                 <button class="btn btn-sm btn-primary" id="addMeetingBtn" data-bs-toggle="modal" data-bs-target="#addMeetingModal">
                     <i class="bi bi-plus-lg me-1"></i>Schedule Meeting
                 </button>
+                @endcan
             </div>
             <div class="card-body p-0" id="meetingsList">
                 <div class="text-center py-5">
@@ -241,6 +255,16 @@
 
     {{-- ── ACTIVITY TAB ── --}}
     <div class="tab-pane fade" id="tab-activity">
+        <div class="card section-card mb-3">
+            <div class="card-header py-3">
+                <h6 class="fw-bold mb-0">Ownership History</h6>
+            </div>
+            <div class="card-body" id="ownershipHistoryList">
+                <div class="text-center py-5">
+                    <div class="spinner-border spinner-border-sm" style="color:var(--primary)"></div>
+                </div>
+            </div>
+        </div>
         <div class="card section-card">
             <div class="card-header py-3">
                 <h6 class="fw-bold mb-0">Activity Log</h6>
@@ -249,6 +273,35 @@
                 <div class="text-center py-5">
                     <div class="spinner-border spinner-border-sm" style="color:var(--primary)"></div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- Transfer Ownership Modal --}}
+<div class="modal fade" id="transferOwnerModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-3">
+                <h6 class="modal-title fw-bold">Transfer Client</h6>
+                <button class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label fw-semibold small">New Owner <span class="text-danger">*</span></label>
+                <select id="transferNewOwner" class="form-select mb-3">
+                    <option value=""></option>
+                    @foreach($users as $u)
+                    @if($u->id !== $client->assigned_to)
+                    <option value="{{ $u->id }}">{{ $u->name }}</option>
+                    @endif
+                    @endforeach
+                </select>
+                <label class="form-label fw-semibold small">Note (optional)</label>
+                <textarea id="transferNote" class="form-control" rows="2"></textarea>
+            </div>
+            <div class="modal-footer py-2">
+                <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button id="transferConfirm" class="btn btn-sm btn-primary">Transfer</button>
             </div>
         </div>
     </div>
@@ -718,6 +771,32 @@ function loadActivity() {
     });
 }
 
+function loadOwnershipHistory() {
+    $('#ownershipHistoryList').html('<div class="text-center py-5"><div class="spinner-border spinner-border-sm" style="color:var(--primary)"></div></div>');
+    $.get(baseUrl + '/ownership-history')
+    .done(function (res) {
+        var items = res.data || [];
+        if (!items.length) {
+            $('#ownershipHistoryList').html('<p class="text-muted small">No ownership changes yet.</p>');
+            return;
+        }
+        var html = '<div class="timeline">';
+        items.forEach(function (row) {
+            html += '<div class="timeline-item"><div class="t-dot done"></div><div class="ms-1">'
+                 +  '<strong>' + esc(row.from) + '</strong> <i class="bi bi-arrow-right mx-1"></i> <strong>' + esc(row.to) + '</strong>'
+                 +  ' by <em>' + esc(row.by) + '</em>'
+                 +  (row.note ? '<div class="text-muted small mt-1">' + esc(row.note) + '</div>' : '')
+                 +  '<div class="text-muted small">' + esc(row.date) + '</div>'
+                 +  '</div></div>';
+        });
+        html += '</div>';
+        $('#ownershipHistoryList').html(html);
+    })
+    .fail(function () {
+        $('#ownershipHistoryList').html('<div class="text-center py-4 small c-red"><i class="bi bi-exclamation-circle me-1"></i>Failed to load ownership history.</div>');
+    });
+}
+
 // ── Product Updates ────────────────────────────────────────────────────────
 function loadProducts() {
     $.get(baseUrl + '/products').done(function (data) {
@@ -732,7 +811,7 @@ function loadProducts() {
                 <td>${u.remarks || '—'}</td>
                 <td>${u.created_by?.name || '—'}</td>
                 <td>${new Date(u.created_at).toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'})}</td>
-                <td><button class="btn btn-xs btn-outline-danger delete-product" data-id="${u.id}"><i class="bi bi-trash"></i></button></td>
+                <td>${canUpdateClient ? '<button class="btn btn-xs btn-outline-danger delete-product" data-id="' + u.id + '"><i class="bi bi-trash"></i></button>' : ''}</td>
             </tr>`;
         });
         html += '</tbody></table></div>';
@@ -784,7 +863,7 @@ function loadPayments() {
                 <td>${p.payment_method||'—'}</td>
                 <td>${p.transaction_number||'—'}</td>
                 <td>${p.created_by?.name||'—'}</td>
-                <td><button class="btn btn-xs btn-outline-danger delete-payment" data-id="${p.id}"><i class="bi bi-trash"></i></button></td>
+                <td>${canUpdateClient ? '<button class="btn btn-xs btn-outline-danger delete-payment" data-id="' + p.id + '"><i class="bi bi-trash"></i></button>' : ''}</td>
             </tr>`;
         });
         html += '</tbody></table></div>';
@@ -881,9 +960,9 @@ function loadDocs() {
                     <div class="d-flex gap-1 justify-content-end">
                         ${(d.is_image || d.is_pdf) ? `<button class="btn btn-sm px-2 py-1 doc-preview" data-id="${d.id}" data-url="${d.preview_url}" data-title="${d.title}" data-mime="${d.mime}" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="Preview"><i class="bi bi-eye"></i></button>` : ''}
                         <a href="${d.download_url}" class="btn btn-sm px-2 py-1" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="Download"><i class="bi bi-download"></i></a>
-                        <button class="btn btn-sm px-2 py-1 doc-replace" data-id="${d.id}" data-type-id="${d.type_name}" data-title="${d.title}" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="Upload new version"><i class="bi bi-arrow-repeat"></i></button>
+                        ${canUpdateClient ? `<button class="btn btn-sm px-2 py-1 doc-replace" data-id="${d.id}" data-type-id="${d.type_name}" data-title="${d.title}" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="Upload new version"><i class="bi bi-arrow-repeat"></i></button>` : ''}
                         ${d.versions_count > 0 ? `<button class="btn btn-sm px-2 py-1 doc-history" data-id="${d.id}" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="Version history"><i class="bi bi-clock-history"></i></button>` : ''}
-                        <button class="btn btn-sm px-2 py-1 doc-delete c-red" data-id="${d.id}" style="background:var(--c-red-bg);border:1px solid var(--c-red-bg)" title="Delete"><i class="bi bi-trash"></i></button>
+                        ${canUpdateClient ? `<button class="btn btn-sm px-2 py-1 doc-delete c-red" data-id="${d.id}" style="background:var(--c-red-bg);border:1px solid var(--c-red-bg)" title="Delete"><i class="bi bi-trash"></i></button>` : ''}
                     </div>
                 </td>
             </tr>`;
@@ -1069,6 +1148,14 @@ $(document).on('click', '.btn-status', function () {
      });
 });
 
+$('#transferConfirm').on('click', function () {
+    var ownerId = $('#transferNewOwner').val();
+    if (!ownerId) { Swal.fire('Select a staff member', '', 'warning'); return; }
+    $.post('{{ route("clients.transfer", $client) }}', { new_owner_id: ownerId, note: $('#transferNote').val() })
+     .done(function () { location.reload(); })
+     .fail(function (xhr) { Swal.fire('Error', xhr.responseJSON?.message || 'Transfer failed.', 'error'); });
+});
+
 // ── Load on tab show ──────────────────────────────────────────────────────────
 $('a[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
     const target = $(e.target).attr('href');
@@ -1079,7 +1166,7 @@ $('a[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
     if (target === '#tab-docs')     loadDocs();
     if (target === '#tab-notes')    loadNotes();
     if (target === '#tab-meetings') loadMeetings();
-    if (target === '#tab-activity') loadActivity();
+    if (target === '#tab-activity') { loadActivity(); loadOwnershipHistory(); }
 });
 
 // ── Meetings ──────────────────────────────────────────────────────────────────
@@ -1098,6 +1185,7 @@ var openMeetingStatuses = ['Pending', 'Scheduled', 'Rescheduled'];
 var typeIcons = { in_person: 'bi-person-fill', phone: 'bi-telephone-fill', video: 'bi-camera-video-fill', online: 'bi-globe' };
 var canManageWorkflow = @json(auth()->user()->can('manage-workflow'));
 var canManageMeetings = @json(auth()->user()->can('manage-meetings'));
+var canUpdateClient   = @json(auth()->user()->can('update', $client));
 var currentUserId = {{ auth()->id() }};
 
 $('#meetingAssignedTo').select2({ theme: 'bootstrap-5', width: '100%', dropdownParent: $('#addMeetingModal') });
@@ -1111,7 +1199,10 @@ function loadMeetings() {
         items.forEach(function(m) { _mMap[m.id] = m; });
 
         if (!items.length) {
-            $('#meetingsList').html('<div class="text-center py-5"><i class="bi bi-calendar-x" style="font-size:2rem;color:var(--text3)"></i><div class="mt-2" style="font-size:.82rem;color:var(--text3)">No meetings scheduled yet</div><a href="{{ route("meetings.book") }}?client_id={{ $client->id }}" class="btn btn-sm btn-primary mt-3"><i class="bi bi-plus-lg me-1"></i>Book a Meeting</a></div>');
+            var bookLink = canManageMeetings
+                ? '<a href="{{ route("meetings.book") }}?client_id={{ $client->id }}" class="btn btn-sm btn-primary mt-3"><i class="bi bi-plus-lg me-1"></i>Book a Meeting</a>'
+                : '';
+            $('#meetingsList').html('<div class="text-center py-5"><i class="bi bi-calendar-x" style="font-size:2rem;color:var(--text3)"></i><div class="mt-2" style="font-size:.82rem;color:var(--text3)">No meetings scheduled yet</div>' + bookLink + '</div>');
             return;
         }
         var upcoming = items.filter(function(m) { return openMeetingStatuses.indexOf(m.status) !== -1; });
@@ -1164,7 +1255,9 @@ function meetingCard(m) {
     if (canManageWorkflow) {
         actions += '<button class="btn btn-sm py-0 px-2 m-btn-regenerate" data-id="' + m.id + '" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-size:.72rem" title="Regenerate Meet Link (Admin)"><i class="bi bi-arrow-repeat"></i></button>';
     }
-    actions += '<button class="btn btn-sm py-0 px-2 m-btn-delete c-red" data-id="' + m.id + '" style="background:var(--c-red-bg);border:1px solid var(--c-red-bg);font-size:.72rem"><i class="bi bi-trash"></i></button>';
+    if (canManageMeetings) {
+        actions += '<button class="btn btn-sm py-0 px-2 m-btn-delete c-red" data-id="' + m.id + '" style="background:var(--c-red-bg);border:1px solid var(--c-red-bg);font-size:.72rem"><i class="bi bi-trash"></i></button>';
+    }
 
     var loc  = m.location ? '<span><i class="bi bi-geo-alt me-1"></i>' + esc(m.location) + '</span>' : '';
     var link = '';

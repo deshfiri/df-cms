@@ -48,6 +48,11 @@ class Client extends Model
         return $this->belongsTo(User::class, 'assigned_to');
     }
 
+    public function ownershipTransfers()
+    {
+        return $this->hasMany(ClientOwnershipTransfer::class)->latest();
+    }
+
     public function createdBy()
     {
         return $this->belongsTo(User::class, 'created_by');

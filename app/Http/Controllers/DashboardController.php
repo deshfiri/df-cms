@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ActivityLog;
 use App\Models\Client;
 use App\Models\ClientMeeting;
+use App\Models\ClientOwnershipTransfer;
 use App\Models\ClientStageProgress;
 use App\Models\ImportLog;
 use App\Models\Payment;
@@ -71,6 +72,12 @@ class DashboardController extends Controller
             'Cancelled' => $rawStatus['Cancelled'] ?? 0,
         ];
         $total = array_sum($statusCounts);
+
+        // ── Unassigned clients (ownership feature) ─────────────────────
+        $unassignedClientCount = Client::withoutTrashed()
+            ->whereNull('assigned_to')
+            ->whereIn('client_status', ['Running', 'Warning'])
+            ->count();
 
         // ── Today's metrics ───────────────────────────────────────────
         $todayUpdates = ProductUpdate::whereDate('created_at', today())->count();
@@ -162,6 +169,17 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
+        // ── Recent ownership transfers ─────────────────────────────────
+        $recentTransfers = ClientOwnershipTransfer::with([
+                'client:id,client_name,dfid_number',
+                'previousOwner:id,name',
+                'newOwner:id,name',
+                'transferredBy:id,name',
+            ])
+            ->latest()
+            ->limit(8)
+            ->get();
+
         // ── Charts (cached for 10 minutes) ───────────────────────────
         $monthlyData    = Cache::remember('dash.monthly_clients',    600, fn () => $this->monthlyClientData());
         $monthlyPayData = Cache::remember('dash.monthly_payments',   600, fn () => $this->monthlyPaymentData());
@@ -188,7 +206,7 @@ class DashboardController extends Controller
             'recent', 'recentImports', 'recentActivities',
             'topEmployees', 'upcomingMeetings', 'scheduledMeetingsCount', 'todayMeetingsCount',
             'monthlyData', 'monthlyPayData', 'categoryData', 'workflowData',
-            'delayedCount', 'pipeline', 'myTasks'
+            'delayedCount', 'pipeline', 'myTasks', 'recentTransfers', 'unassignedClientCount'
         ));
     }
 
@@ -338,6 +356,11 @@ class DashboardController extends Controller
             ->filter(fn ($progress) => !$this->workflowService->isLocked($progress->client_id, $progress->stage))
             ->values();
 
+        $completedThisWeek = ClientStageProgress::whereHas('stage', fn ($q) => $q->whereIn('department', $departments)->where('status', true))
+            ->where('status', ClientStageProgress::STATUS_APPROVED)
+            ->where('completed_at', '>=', now()->startOfWeek())
+            ->count();
+
         $myTasks = Task::with('client:id,client_name,dfid_number')
             ->where('assigned_to', $user->id)
             ->whereNotIn('status', ['Completed', 'Cancelled'])
@@ -347,11 +370,49 @@ class DashboardController extends Controller
 
         $overdueTaskCount = Task::where('assigned_to', $user->id)->overdue()->count();
 
+        // ── My assigned clients (client-ownership feature) ────────────
+        $myClientIds = Client::where('assigned_to', $user->id)->pluck('id');
+
+        $myAssignedClientCount = Client::withoutTrashed()
+            ->where('assigned_to', $user->id)
+            ->count();
+
+        $myActiveClientCount = Client::withoutTrashed()
+            ->where('assigned_to', $user->id)
+            ->whereIn('client_status', ['Running', 'Warning'])
+            ->count();
+
+        $followUpsDueToday = Task::whereDate('due_date', today())
+            ->whereNotIn('status', ['Completed', 'Cancelled'])
+            ->where(function ($q) use ($user, $myClientIds) {
+                $q->where('assigned_to', $user->id)
+                  ->orWhereIn('client_id', $myClientIds);
+            })
+            ->count();
+
+        $recentlyAssignedClients = Client::withoutTrashed()
+            ->where('assigned_to', $user->id)
+            ->latest('updated_at')
+            ->limit(5)
+            ->get(['id', 'client_name', 'dfid_number', 'updated_at']);
+
+        $recentlyTransferredToMe = ClientOwnershipTransfer::with('client:id,client_name,dfid_number')
+            ->where('new_owner_id', $user->id)
+            ->latest()
+            ->limit(5)
+            ->get();
+
         return view('dashboard-department', [
-            'departments'      => $departments,
-            'pending'          => $pending,
-            'myTasks'          => $myTasks,
-            'overdueTaskCount' => $overdueTaskCount,
+            'departments'              => $departments,
+            'pending'                  => $pending,
+            'completedThisWeek'        => $completedThisWeek,
+            'myTasks'                  => $myTasks,
+            'overdueTaskCount'         => $overdueTaskCount,
+            'myAssignedClientCount'    => $myAssignedClientCount,
+            'myActiveClientCount'      => $myActiveClientCount,
+            'followUpsDueToday'        => $followUpsDueToday,
+            'recentlyAssignedClients'  => $recentlyAssignedClients,
+            'recentlyTransferredToMe'  => $recentlyTransferredToMe,
         ]);
     }
 }

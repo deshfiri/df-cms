@@ -22,9 +22,45 @@ class ClientPolicy
         return $user->hasPermissionTo('manage clients');
     }
 
+    /**
+     * Only Super Admin is unrestricted. Everyone else with "manage clients"
+     * (Manager included, plus Sales, Marketing, Support, ...) may only touch a
+     * client that's either unassigned or assigned to them — exemption-based
+     * rather than an enumerated role list, so it covers any role granted the
+     * permission.
+     */
     public function update(User $user, Client $client): bool
     {
-        return $user->hasPermissionTo('manage clients');
+        if (!$user->hasPermissionTo('manage clients')) {
+            return false;
+        }
+        if ($user->hasRole('Super Admin')) {
+            return true;
+        }
+
+        return $client->assigned_to === null || (int) $client->assigned_to === $user->id;
+    }
+
+    /**
+     * Transferring requires actually owning the client (an unassigned client
+     * has no owner to transfer from) — Super Admin still bypasses.
+     */
+    public function transfer(User $user, Client $client): bool
+    {
+        if (!$user->hasPermissionTo('manage clients')) {
+            return false;
+        }
+        if ($user->hasRole('Super Admin')) {
+            return true;
+        }
+
+        return $client->assigned_to !== null && (int) $client->assigned_to === $user->id;
+    }
+
+    /** Bulk (re)assignment from the client list is an admin-level action. */
+    public function bulkAssign(User $user): bool
+    {
+        return $user->hasRole(['Super Admin', 'Manager']);
     }
 
     public function delete(User $user, Client $client): bool

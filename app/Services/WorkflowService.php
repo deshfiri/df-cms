@@ -8,11 +8,13 @@ use App\Models\ClientStageProgress;
 use App\Models\Payment;
 use App\Models\User;
 use App\Models\WorkflowStage;
+use App\Notifications\StageAwaitingApproval;
 use App\Notifications\StageReadyForDepartment;
 use App\Repositories\Contracts\WorkflowRepositoryInterface;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
+use Spatie\Permission\Models\Role;
 
 class WorkflowService
 {
@@ -167,7 +169,7 @@ class WorkflowService
             $this->activityLog->log('Workflow', $autoApprove ? 'Stage Approved' : 'Stage Submitted', $client->id, null, ['stage' => $stage->name]);
 
             if ($autoApprove) {
-                $this->notifyNextDepartment($client, $stage);
+                $this->notifyNextDepartment($client, $stage, $user);
             }
 
             return $progress;
@@ -218,7 +220,7 @@ class WorkflowService
 
             $this->activityLog->log('Workflow', 'Stage Approved', $client->id, null, ['stage' => $stage->name]);
 
-            $this->notifyNextDepartment($client, $stage);
+            $this->notifyNextDepartment($client, $stage, $user);
 
             return $progress;
         });
@@ -410,7 +412,7 @@ class WorkflowService
             ]);
 
             $this->activityLog->log('Workflow', "Stage Approved ({$reason})", $client->id, null, ['stage' => $stage->name]);
-            $this->notifyNextDepartment($client, $stage);
+            $this->notifyNextDepartment($client, $stage, $actor);
 
             return $progress;
         });
@@ -483,14 +485,37 @@ class WorkflowService
         });
     }
 
-    private function notifyNextDepartment(Client $client, WorkflowStage $approvedStage): void
+    private function notifyNextDepartment(Client $client, WorkflowStage $approvedStage, ?User $actor = null): void
     {
         $next = $this->workflowRepo->nextActiveStage($approvedStage);
         if (!$next || !$next->department) {
             return;
         }
 
-        $recipients = User::role($next->department)->where('is_active', true)->get();
+        // Ensure the next stage has a progress row the moment it becomes
+        // reachable, so the owning department's dashboard ("Awaiting Your
+        // Team") reflects this client immediately — not just once someone
+        // happens to open the stage and lazily create the row.
+        $this->workflowRepo->getOrCreateProgress($client->id, $next->id);
+
+        // A stage's department is a free-text label set on the Workflow Stages
+        // admin page and doesn't have to match an existing role (e.g. "Admin"
+        // isn't a role — only "Super Admin" is). User::role() throws for an
+        // unknown role name instead of just finding nobody, so check first —
+        // a mistyped/placeholder department must never block the stage
+        // completion that got us here.
+        if (!Role::where('name', $next->department)->where('guard_name', 'web')->exists()) {
+            return;
+        }
+
+        // Several consecutive stages can share the same department (e.g. Sales
+        // owns deal_completed, meeting_scheduled, and agreement_signed back to
+        // back), so the person who just acted is often also a member of the
+        // next stage's department — don't notify them about their own work.
+        $recipients = User::role($next->department)
+            ->where('is_active', true)
+            ->when($actor, fn ($q) => $q->where('id', '!=', $actor->id))
+            ->get();
         if ($recipients->isEmpty()) {
             return;
         }

@@ -4,9 +4,11 @@
 @section('content')
 <div class="d-flex align-items-center justify-content-between mb-4">
     <h4 class="page-title mb-0"><i class="bi bi-tags me-2"></i>Categories</h4>
+    @can('manage categories')
     <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addCatModal">
         <i class="bi bi-plus-lg me-1"></i>Add Category
     </button>
+    @endcan
 </div>
 
 <div class="card section-card">

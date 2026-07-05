@@ -21,6 +21,7 @@ class MeetingService
         private readonly ActivityLogService $activityLog,
         private readonly GoogleCalendarServiceInterface $googleCalendar,
         private readonly WorkflowService $workflowService,
+        private readonly ChangeApprovalService $changeApproval,
     ) {}
 
     public function create(Client $client, array $data, User $actor): ClientMeeting
@@ -50,6 +51,11 @@ class MeetingService
 
     public function update(ClientMeeting $meeting, array $data, User $actor): ClientMeeting
     {
+        // Must run before anything below — this method syncs to Google Calendar
+        // and notifies participants as side effects, which must never fire for
+        // an edit that hasn't actually been approved yet.
+        $this->changeApproval->guard(ClientMeeting::class, $meeting->id, $meeting->only(array_keys($data)), $data, $actor);
+
         return DB::transaction(function () use ($meeting, $data, $actor) {
             $previousTime = $meeting->scheduled_at->copy();
             $old = $meeting->only(['title', 'scheduled_at', 'type', 'status']);
@@ -182,6 +188,47 @@ class MeetingService
             ->where('scheduled_at', '<', $end)
             ->whereRaw('DATE_ADD(scheduled_at, INTERVAL duration_minutes MINUTE) > ?', [$start->toDateTimeString()])
             ->first();
+    }
+
+    /**
+     * Business-hours (9:00-18:00) slot grid for one staff member on one day,
+     * stepped every 15 minutes, marking a slot unavailable if it overlaps an
+     * existing meeting of theirs or falls in the past.
+     */
+    public function availableSlots(int $userId, string $date, int $durationMinutes): array
+    {
+        $day           = Carbon::parse($date)->startOfDay();
+        $businessStart = $day->copy()->setTime(9, 0);
+        $businessEnd   = $day->copy()->setTime(18, 0);
+
+        $booked = ClientMeeting::where('assigned_to', $userId)
+            ->whereIn('status', ['Pending', 'Scheduled'])
+            ->whereBetween('scheduled_at', [$day, $day->copy()->endOfDay()])
+            ->get(['scheduled_at', 'duration_minutes'])
+            ->map(fn ($m) => [
+                'start' => $m->scheduled_at,
+                'end'   => $m->scheduled_at->copy()->addMinutes($m->duration_minutes),
+            ]);
+
+        $slots  = [];
+        $cursor = $businessStart->copy();
+
+        while ($cursor->copy()->addMinutes($durationMinutes)->lte($businessEnd)) {
+            $slotStart = $cursor->copy();
+            $slotEnd   = $slotStart->copy()->addMinutes($durationMinutes);
+
+            $overlaps = $booked->contains(fn ($b) => $slotStart->lt($b['end']) && $slotEnd->gt($b['start']));
+
+            $slots[] = [
+                'time'      => $slotStart->format('H:i'),
+                'label'     => $slotStart->format('g:i A'),
+                'available' => !$overlaps && !$slotStart->lt(now()),
+            ];
+
+            $cursor->addMinutes(15);
+        }
+
+        return $slots;
     }
 
     private function syncCreateToGoogle(ClientMeeting $meeting): void

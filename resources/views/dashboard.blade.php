@@ -116,6 +116,16 @@
     </div>
 </div>
 
+@if($unassignedClientCount > 0)
+<div class="d-flex align-items-center gap-2 mb-3 p-3" style="background:var(--c-yellow-bg);border:1px solid var(--c-yellow-bg);border-radius:var(--radius)">
+    <i class="bi bi-exclamation-triangle-fill c-yellow"></i>
+    <div class="flex-grow-1 small" style="color:var(--text)">
+        <strong>{{ $unassignedClientCount }}</strong> active {{ Str::plural('client', $unassignedClientCount) }} {{ $unassignedClientCount === 1 ? 'is' : 'are' }} not assigned to anyone yet.
+    </div>
+    <a href="{{ route('clients.index') }}?assigned_to=none" class="btn btn-sm btn-outline-secondary">Review &amp; Assign</a>
+</div>
+@endif
+
 {{-- ── 1. Top KPI Row ──────────────────────────────────────────── --}}
 @php
 $activeCount = ($statusCounts['Running'] ?? 0) + ($statusCounts['Warning'] ?? 0);
@@ -413,7 +423,9 @@ $topCards = [
                     <div class="wh"><h6><i class="bi bi-lightning-charge me-2" style="color:var(--primary)"></i>Quick Actions</h6></div>
                     <div class="p-3 d-grid gap-2">
                         <a href="{{ route('clients.create') }}" class="btn btn-sm text-start" style="background:rgba(var(--primary-rgb),.08);color:var(--primary);border:1px solid rgba(var(--primary-rgb),.15)"><i class="bi bi-person-plus me-2"></i>Add New Client</a>
+                        @can('manage-meetings')
                         <a href="{{ route('meetings.book') }}" class="btn btn-sm text-start" style="background:var(--secondary-bg);color:var(--secondary);border:1px solid var(--secondary-bg)"><i class="bi bi-calendar-plus me-2"></i>Book Meeting</a>
+                        @endcan
                         <a href="{{ route('import.index') }}" class="btn btn-sm text-start c-green" style="background:var(--c-green-bg);border:1px solid var(--c-green-bg)"><i class="bi bi-upload me-2"></i>Import Excel</a>
                         <a href="{{ route('clients.index') }}?status=Warning" class="btn btn-sm text-start c-yellow" style="background:var(--c-yellow-bg);border:1px solid var(--c-yellow-bg)"><i class="bi bi-exclamation-triangle me-2"></i>View Warning Clients</a>
                     </div>
@@ -476,6 +488,36 @@ $topCards = [
                     <div class="fw-bold c-blue" style="font-size:1.1rem">{{ \App\Models\ClientMeeting::where('status','Completed')->count() }}</div>
                     <div style="font-size:.68rem;color:var(--text3);margin-top:2px">Completed (all time)</div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mt-1">
+    <div class="col-12">
+        <div class="dash-widget">
+            <div class="wh"><h6><i class="bi bi-arrow-left-right me-2" style="color:var(--primary)"></i>Recent Ownership Transfers</h6></div>
+            <div style="overflow-x:auto">
+                <table class="table align-middle mb-0" style="font-size:.77rem">
+                    <tbody>
+                        @forelse($recentTransfers as $t)
+                        <tr>
+                            <td class="ps-3 py-2">
+                                <a href="{{ route('clients.show', $t->client_id) }}" class="fw-semibold text-decoration-none" style="color:var(--text)">{{ $t->client->client_name ?? '—' }}</a>
+                            </td>
+                            <td>
+                                <span style="color:var(--text3)">{{ $t->previousOwner?->name ?? 'Unassigned' }}</span>
+                                <i class="bi bi-arrow-right mx-1" style="color:var(--text3)"></i>
+                                <span class="fw-semibold" style="color:var(--text)">{{ $t->newOwner?->name ?? '—' }}</span>
+                            </td>
+                            <td style="color:var(--text3)">by {{ $t->transferredBy?->name ?? 'System' }}</td>
+                            <td class="pe-3 text-end" style="color:var(--text3);white-space:nowrap">{{ $t->created_at->diffForHumans() }}</td>
+                        </tr>
+                        @empty
+                        <tr><td class="empty-state py-3"><i class="bi bi-arrow-left-right" style="font-size:1.4rem;color:var(--text3)"></i><p>No ownership transfers yet</p></td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>

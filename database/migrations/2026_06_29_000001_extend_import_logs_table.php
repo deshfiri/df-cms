@@ -15,15 +15,20 @@ return new class extends Migration
             $table->json('validation_errors')->nullable()->after('errors');
         });
 
-        // Full-text search index on clients for global search performance
-        Schema::table('clients', function (Blueprint $table) {
-            $table->fullText(['client_name', 'brand_name', 'dfid_number', 'website', 'remarks'], 'clients_fulltext');
-        });
+        // Full-text search index on clients for global search performance.
+        // Sqlite (used by the test suite) has no fulltext index support, so
+        // this is skipped there — global search itself isn't exercised by
+        // that driver either.
+        if (Schema::getConnection()->getDriverName() === 'mysql') {
+            Schema::table('clients', function (Blueprint $table) {
+                $table->fullText(['client_name', 'brand_name', 'dfid_number', 'website', 'remarks'], 'clients_fulltext');
+            });
 
-        // Full-text on notes
-        Schema::table('client_notes', function (Blueprint $table) {
-            $table->fullText(['note'], 'notes_fulltext');
-        });
+            // Full-text on notes
+            Schema::table('client_notes', function (Blueprint $table) {
+                $table->fullText(['note'], 'notes_fulltext');
+            });
+        }
     }
 
     public function down(): void
@@ -31,11 +36,14 @@ return new class extends Migration
         Schema::table('import_logs', function (Blueprint $table) {
             $table->dropColumn(['updated_rows', 'skipped_rows', 'import_duration_seconds', 'validation_errors']);
         });
-        Schema::table('clients', function (Blueprint $table) {
-            $table->dropFullText('clients_fulltext');
-        });
-        Schema::table('client_notes', function (Blueprint $table) {
-            $table->dropFullText('notes_fulltext');
-        });
+
+        if (Schema::getConnection()->getDriverName() === 'mysql') {
+            Schema::table('clients', function (Blueprint $table) {
+                $table->dropFullText('clients_fulltext');
+            });
+            Schema::table('client_notes', function (Blueprint $table) {
+                $table->dropFullText('notes_fulltext');
+            });
+        }
     }
 };

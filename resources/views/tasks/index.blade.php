@@ -184,6 +184,8 @@
 <script>
 var activeStatus = '';
 var overdueOnly  = false;
+var currentUserId  = {{ auth()->id() }};
+var canManageTasks = @json(auth()->user()->can('manage tasks'));
 
 function syncPills() {
     $('.fpill').removeClass('active');
@@ -342,7 +344,7 @@ function loadTaskDetail(id) {
             attHtml += `<div class="d-flex align-items-center gap-2 p-2 rounded mb-1" style="background:var(--surface2);border:1px solid var(--border)">
                 <i class="bi bi-paperclip"></i>
                 <a href="/tasks/${t.id}/attachments/${a.id}/download" class="flex-fill text-truncate" style="font-size:.78rem">${a.original_name}</a>
-                <button class="btn btn-sm p-0 task-att-delete" data-task="${t.id}" data-id="${a.id}" style="color:var(--text3)"><i class="bi bi-x-circle"></i></button>
+                ${(a.user_id === currentUserId || canManageTasks) ? `<button class="btn btn-sm p-0 task-att-delete" data-task="${t.id}" data-id="${a.id}" style="color:var(--text3)"><i class="bi bi-x-circle"></i></button>` : ''}
             </div>`;
         });
         $('#taskAttachList').html(attHtml);

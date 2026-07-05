@@ -14,7 +14,8 @@ use Illuminate\Support\Str;
 class TaskService
 {
     public function __construct(
-        private readonly ActivityLogService $activityLog,
+        private readonly ActivityLogService   $activityLog,
+        private readonly ChangeApprovalService $changeApproval,
     ) {}
 
     public function create(array $data): Task
@@ -39,6 +40,10 @@ class TaskService
 
     public function update(Task $task, array $data): Task
     {
+        // Guard on the full requested payload (label_ids included) before it's
+        // stripped below, so an approved change replays identically later.
+        $this->changeApproval->guard(Task::class, $task->id, $task->only(array_keys($data)), $data, Auth::user());
+
         return DB::transaction(function () use ($task, $data) {
             $labelIds = $data['label_ids'] ?? null;
             unset($data['label_ids']);

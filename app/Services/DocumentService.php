@@ -9,14 +9,17 @@ use App\Models\DocumentDownload;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Throwable;
 
 class DocumentService
 {
     public function __construct(
         private readonly ActivityLogService $activityLog,
+        private readonly FileManagerService $fileManager,
     ) {}
 
     // ── Legacy (old Document model) ──────────────────────────────
@@ -100,8 +103,26 @@ class DocumentService
                 ['document_id' => $doc->id, 'type' => $typeName, 'version' => $version]
             );
 
+            $this->mirrorToFileManager($client, $file);
+
             return $doc;
         });
+    }
+
+    /**
+     * Client documents are stored under a UUID name on the private documents
+     * disk (see above), so staff can't find them by browsing. Best-effort
+     * copy into the File Manager's shared drive, under a per-client folder,
+     * with the original filename. Never blocks the primary upload.
+     */
+    private function mirrorToFileManager(Client $client, UploadedFile $file): void
+    {
+        try {
+            $folder = 'Clients/' . str_replace(['/', '\\'], '-', trim($client->dfid_number . ' - ' . $client->client_name));
+            $this->fileManager->upload($folder, $file);
+        } catch (Throwable $e) {
+            Log::warning('File Manager: failed to mirror client document', ['client_id' => $client->id, 'error' => $e->getMessage()]);
+        }
     }
 
     public function deleteClientDocument(ClientDocument $doc): void

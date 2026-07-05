@@ -88,8 +88,11 @@ class ImportService
                     $existing = $dfid ? $this->clientRepo->findByDfid($dfid) : null;
 
                     if ($existing) {
-                        // UPDATE — only write fields that actually changed
-                        $changed = $this->diffData($existing, $data);
+                        // UPDATE — a blank cell means "leave this field as-is", not
+                        // "clear it out". Only fields the sheet actually provided a
+                        // value for are eligible to be written.
+                        $provided = array_filter($data, fn ($value) => $value !== null);
+                        $changed  = $this->diffData($existing, $provided);
 
                         if (empty($changed)) {
                             $skippedCount++;
@@ -109,7 +112,15 @@ class ImportService
                         );
                         $updatedCount++;
                     } else {
-                        // CREATE — new client
+                        // CREATE — a brand new client, so sensible defaults for
+                        // blank optional fields apply (nothing existing to protect).
+                        if (empty($data['client_status']) || !\in_array($data['client_status'], Client::$statuses, true)) {
+                            $data['client_status'] = 'Running';
+                        }
+                        if (empty($data['brand_name']) && !empty($data['client_name'])) {
+                            $data['brand_name'] = $data['client_name'];
+                        }
+
                         $client = $this->clientRepo->create(array_merge($data, [
                             'created_by' => Auth::id(),
                             'updated_by' => Auth::id(),
@@ -212,14 +223,12 @@ class ImportService
             }
         }
 
-        // Default client_status to 'Running' when absent or invalid
-        if (empty($data['client_status']) || !\in_array($data['client_status'], Client::$statuses, true)) {
-            $data['client_status'] = 'Running';
-        }
-
-        // Fallback brand_name → client_name
-        if (empty($data['brand_name']) && !empty($data['client_name'])) {
-            $data['brand_name'] = $data['client_name'];
+        // An invalid (non-blank) status string is sanitized to "not provided"
+        // rather than written as-is — a blank cell already maps to null above.
+        // Callers decide what "not provided" means: the create path below
+        // defaults it to 'Running', the update path just leaves it untouched.
+        if (!empty($data['client_status']) && !\in_array($data['client_status'], Client::$statuses, true)) {
+            $data['client_status'] = null;
         }
 
         // client_name is required

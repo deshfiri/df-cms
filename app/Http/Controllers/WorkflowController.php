@@ -14,7 +14,8 @@ class WorkflowController extends Controller
 {
     public function __construct(
         private readonly WorkflowService $workflowService,
-    ) {}
+    ) {
+    }
 
     public function index()
     {
@@ -26,10 +27,10 @@ class WorkflowController extends Controller
     public function store(Request $request): JsonResponse
     {
         $this->authorize('manage-workflow');
-        $data  = $request->validate([
-            'name'              => 'required|string|max:100',
-            'sort_order'        => 'nullable|integer',
-            'department'        => 'nullable|string|max:60',
+        $data = $request->validate([
+            'name' => 'required|string|max:100',
+            'sort_order' => 'nullable|integer',
+            'department' => 'nullable|string|max:60',
             'requires_approval' => 'nullable|boolean',
         ]);
         $stage = $this->workflowService->createStage($data);
@@ -41,9 +42,9 @@ class WorkflowController extends Controller
     {
         $this->authorize('manage-workflow');
         $data = $request->validate([
-            'name'              => 'required|string|max:100',
-            'status'            => 'boolean',
-            'department'        => 'nullable|string|max:60',
+            'name' => 'required|string|max:100',
+            'status' => 'boolean',
+            'department' => 'nullable|string|max:60',
             'requires_approval' => 'nullable|boolean',
         ]);
         $updated = $this->workflowService->updateStage($stage, $data);
@@ -83,43 +84,43 @@ class WorkflowController extends Controller
         $rows = $this->workflowService->getTimeline($client);
 
         $data = array_map(function (array $row) use ($user) {
-            $stage    = $row['stage'];
+            $stage = $row['stage'];
             $progress = $row['progress'];
-            $status   = $row['status'];
-            $locked   = $row['locked'];
+            $status = $row['status'];
+            $locked = $row['locked'];
 
             $spillClass = match ($status) {
-                'Approved'      => 'spill-approved',
-                'Submitted'     => 'spill-submitted',
+                'Approved' => 'spill-approved',
+                'Submitted' => 'spill-submitted',
                 'Need Revision' => 'spill-need-revision',
-                'Rejected'      => 'spill-rejected',
-                'In Progress'   => 'spill-in-progress',
-                default         => 'spill-pending',
+                'Rejected' => 'spill-rejected',
+                'In Progress' => 'spill-in-progress',
+                default => 'spill-pending',
             };
 
-            $ownsDept   = !$stage->department || $user->hasRole($stage->department) || $user->hasRole('Manager') || $user->hasRole('Super Admin');
-            $canSubmit  = !$locked && $ownsDept && $user->can('submit-stage') && in_array($status, ['Pending', 'In Progress', 'Need Revision']);
+            $ownsDept = !$stage->department || $user->hasRole($stage->department) || $user->hasRole('Manager') || $user->hasRole('Super Admin');
+            $canSubmit = !$locked && $ownsDept && $user->can('submit-stage') && in_array($status, ['Pending', 'In Progress', 'Need Revision']);
             $canApprove = !$locked && $ownsDept && $user->can('approve-stage') && $status === 'Submitted';
 
             return [
-                'id'                => $stage->id,
-                'name'              => $stage->name,
-                'department'        => $stage->department,
+                'id' => $stage->id,
+                'name' => $stage->name,
+                'department' => $stage->department,
                 'requires_approval' => $stage->requires_approval,
-                'status'            => $status,
-                'spill_class'       => $spillClass,
-                'locked'            => $locked,
-                'current'           => $row['current'],
-                'overdue'           => $row['overdue'],
-                'payment_lock'      => $row['payment_lock'],
-                'submitted_at'      => $progress?->submitted_at?->format('d M Y H:i'),
-                'submitted_by'      => $progress?->submittedBy?->name,
-                'completed_at'      => $progress?->completed_at?->format('d M Y H:i'),
-                'completed_by'      => $progress?->completedBy?->name,
-                'rejection_reason'  => $progress?->rejection_reason,
-                'can_submit'        => $canSubmit,
-                'can_approve'       => $canApprove,
-                'can_reject'        => $canApprove,
+                'status' => $status,
+                'spill_class' => $spillClass,
+                'locked' => $locked,
+                'current' => $row['current'],
+                'overdue' => $row['overdue'],
+                'payment_lock' => $row['payment_lock'],
+                'submitted_at' => $progress?->submitted_at?->format('d M Y H:i'),
+                'submitted_by' => $progress?->submittedBy?->name,
+                'completed_at' => $progress?->completed_at?->format('d M Y H:i'),
+                'completed_by' => $progress?->completedBy?->name,
+                'rejection_reason' => $progress?->rejection_reason,
+                'can_submit' => $canSubmit,
+                'can_approve' => $canApprove,
+                'can_reject' => $canApprove,
             ];
         }, $rows);
 
@@ -130,7 +131,7 @@ class WorkflowController extends Controller
     {
         $this->authorize('manage-workflow');
         $data = $request->validate([
-            'stage_id'  => 'required|exists:workflow_stages,id',
+            'stage_id' => 'required|exists:workflow_stages,id',
             'completed' => 'required|boolean',
         ]);
 
@@ -143,7 +144,7 @@ class WorkflowController extends Controller
     {
         $data = $request->validate([
             'stage_id' => 'required|exists:workflow_stages,id',
-            'remarks'  => 'nullable|string|max:2000',
+            'remarks' => 'nullable|string|max:2000',
         ]);
 
         try {
@@ -172,7 +173,7 @@ class WorkflowController extends Controller
     {
         $data = $request->validate([
             'stage_id' => 'required|exists:workflow_stages,id',
-            'reason'   => 'required|string|max:2000',
+            'reason' => 'required|string|max:2000',
         ]);
 
         try {

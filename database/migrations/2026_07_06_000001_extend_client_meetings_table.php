@@ -23,7 +23,11 @@ return new class extends Migration
         // Convert the fixed MySQL ENUM to a plain string so new statuses (Pending, No Show)
         // don't require a schema migration every time — matches the convention already used
         // for client_stage_progress.status and tasks.status elsewhere in this app.
-        DB::statement("ALTER TABLE client_meetings MODIFY status VARCHAR(20) NOT NULL DEFAULT 'Scheduled'");
+        // Sqlite (test suite) has no MODIFY syntax and already stores enum columns as
+        // loosely-typed text, so there's nothing to convert there.
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE client_meetings MODIFY status VARCHAR(20) NOT NULL DEFAULT 'Scheduled'");
+        }
 
         // Normalize existing lowercase values to the new Title Case status set.
         DB::table('client_meetings')->where('status', 'scheduled')->update(['status' => 'Scheduled']);
@@ -40,7 +44,9 @@ return new class extends Migration
         DB::table('client_meetings')->where('status', 'Rescheduled')->update(['status' => 'rescheduled']);
         DB::table('client_meetings')->whereIn('status', ['Pending', 'No Show'])->update(['status' => 'scheduled']);
 
-        DB::statement("ALTER TABLE client_meetings MODIFY status ENUM('scheduled','completed','cancelled','rescheduled') NOT NULL DEFAULT 'scheduled'");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE client_meetings MODIFY status ENUM('scheduled','completed','cancelled','rescheduled') NOT NULL DEFAULT 'scheduled'");
+        }
 
         Schema::table('client_meetings', function (Blueprint $table) {
             $table->dropConstrainedForeignId('assigned_to');

@@ -24,6 +24,7 @@ class NoteController extends Controller
 
     public function store(Request $request, Client $client): JsonResponse
     {
+        $this->authorize('update', $client);
         $request->validate(['note' => 'required|string|min:2']);
 
         $note = ClientNote::create([

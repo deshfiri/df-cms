@@ -4,9 +4,11 @@
 @section('content')
 <div class="d-flex align-items-center justify-content-between mb-4">
     <h4 class="page-title mb-0"><i class="bi bi-person-gear me-2"></i>System Users</h4>
+    @can('manage users')
     <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addUserModal">
         <i class="bi bi-plus-lg me-1"></i>Add User
     </button>
+    @endcan
 </div>
 
 <div class="card section-card">

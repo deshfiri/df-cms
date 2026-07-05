@@ -23,6 +23,8 @@ class ProductUpdateController extends Controller
 
     public function store(StoreProductUpdateRequest $request, Client $client): JsonResponse
     {
+        $this->authorize('update', $client);
+
         $update = $this->service->create($client, $request->validated());
 
         return response()->json([
@@ -33,6 +35,8 @@ class ProductUpdateController extends Controller
 
     public function destroy(Client $client, ProductUpdate $productUpdate): JsonResponse
     {
+        $this->authorize('update', $client);
+
         $this->service->delete($productUpdate);
 
         return response()->json(['success' => true]);

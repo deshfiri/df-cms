@@ -9,11 +9,14 @@ use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\ExportController;
+use App\Http\Controllers\FileManagerController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\NoteController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\PendingChangeController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\ProductUpdateController;
+use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\UserController;
@@ -33,6 +36,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('clients/{client}/status', [ClientController::class, 'updateStatus'])->name('clients.status');
     Route::get('clients/{client}/quick-view', [ClientController::class, 'quickView'])->name('clients.quick-view');
     Route::post('clients/bulk-delete', [ClientController::class, 'bulkDelete'])->name('clients.bulk-delete');
+    Route::post('clients/bulk-assign', [ClientController::class, 'bulkAssign'])->name('clients.bulk-assign');
 
     // Nested sub-resources under client
     Route::prefix('clients/{client}')->name('clients.')->group(function () {
@@ -46,6 +50,10 @@ Route::middleware(['auth'])->group(function () {
 
         // Activity Log
         Route::get('activity', [ClientController::class, 'activity'])->name('activity');
+
+        // Ownership
+        Route::post('transfer', [ClientController::class, 'transferOwnership'])->name('transfer');
+        Route::get('ownership-history', [ClientController::class, 'ownershipHistory'])->name('ownership-history');
 
         // Product Updates
         Route::get('products', [ProductUpdateController::class, 'index'])->name('products.index');
@@ -95,6 +103,24 @@ Route::middleware(['auth'])->group(function () {
     Route::get('import/{log}', [ImportController::class, 'show'])->name('import.show');
     Route::post('import/{log}/rollback', [ImportController::class, 'rollback'])->name('import.rollback');
 
+    // File Manager
+    Route::prefix('file-manager')->name('file-manager.')->group(function () {
+        Route::get('/',        [FileManagerController::class, 'index'])->name('index');
+        Route::get('list',     [FileManagerController::class, 'list'])->name('list');
+        Route::get('download', [FileManagerController::class, 'download'])->name('download');
+        Route::get('preview',  [FileManagerController::class, 'preview'])->name('preview');
+        Route::post('folder',  [FileManagerController::class, 'createFolder'])->name('folder.create');
+        Route::post('upload',  [FileManagerController::class, 'upload'])->name('upload');
+        Route::post('rename',  [FileManagerController::class, 'rename'])->name('rename');
+        Route::delete('/',     [FileManagerController::class, 'destroy'])->name('destroy');
+    });
+
+    // Reviews & Reports
+    Route::get('reviews', [ReviewController::class, 'index'])->name('reviews.index');
+    Route::post('reviews', [ReviewController::class, 'store'])->name('reviews.store');
+    Route::post('reviews/mine', [ReviewController::class, 'mine'])->name('reviews.mine');
+    Route::delete('reviews/{review}', [ReviewController::class, 'destroy'])->name('reviews.destroy');
+
     // Tasks (standalone)
     Route::resource('tasks', TaskController::class)->except(['create', 'edit']);
     Route::post('tasks/{task}/comments', [TaskController::class, 'storeComment'])->name('tasks.comments.store');
@@ -107,6 +133,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('meetings/book', [MeetingController::class, 'bookForm'])->name('meetings.book');
     Route::post('meetings/book', [MeetingController::class, 'bookStore'])->name('meetings.book.store');
     Route::post('meetings/check-conflict', [MeetingController::class, 'checkConflict'])->name('meetings.check-conflict');
+    Route::post('meetings/availability', [MeetingController::class, 'availability'])->name('meetings.availability');
     Route::get('meetings', [MeetingController::class, 'allMeetings'])->name('meetings.all');
 
     // Export
@@ -114,6 +141,11 @@ Route::middleware(['auth'])->group(function () {
 
     // Global search
     Route::get('search', [SearchController::class, 'global'])->name('search.global');
+
+    // Pending change approvals (Super Admin / Manager only — enforced in the controller)
+    Route::get('pending-changes', [PendingChangeController::class, 'index'])->name('pending-changes.index');
+    Route::post('pending-changes/{pendingChange}/approve', [PendingChangeController::class, 'approve'])->name('pending-changes.approve');
+    Route::post('pending-changes/{pendingChange}/reject', [PendingChangeController::class, 'reject'])->name('pending-changes.reject');
 
     // Notifications
     Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');

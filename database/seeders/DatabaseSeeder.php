@@ -25,6 +25,8 @@ class DatabaseSeeder extends Seeder
             'view reports',
             'view tasks', 'manage tasks',
             'manage-meetings',
+            'view file-manager', 'manage file-manager',
+            'view reviews',
         ];
 
         foreach ($permissions as $perm) {
@@ -105,24 +107,24 @@ class DatabaseSeeder extends Seeder
         // ── Workflow Stages (fixed 19-step client pipeline) ─────────────────
         $stages = [
             ['code' => 'deal_completed',            'name' => 'Client Deal Completed',          'department' => 'Sales',     'requires_approval' => false],
-            ['code' => 'meeting_scheduled',          'name' => 'Meeting Scheduled',               'department' => 'Sales',     'requires_approval' => true],
-            ['code' => 'agreement_signed',           'name' => 'Agreement Signed',                'department' => 'Sales',     'requires_approval' => true],
-            ['code' => 'documents_collected',        'name' => 'Client Documents Collected',      'department' => 'Document',  'requires_approval' => true],
-            ['code' => 'business_info_submitted',    'name' => 'Business Information Submitted',  'department' => 'Document',  'requires_approval' => true],
-            ['code' => 'brand_name_finalized',       'name' => 'Brand Name Finalized',            'department' => 'Design',    'requires_approval' => true],
-            ['code' => 'logo_design',                'name' => 'Logo Design',                     'department' => 'Design',    'requires_approval' => true],
-            ['code' => 'banner_design',              'name' => 'Banner Design',                   'department' => 'Design',    'requires_approval' => true],
-            ['code' => 'website_development',        'name' => 'Website Development',             'department' => 'Website',   'requires_approval' => true],
-            ['code' => 'website_approved',           'name' => 'Website Approved',                'department' => 'Website',   'requires_approval' => true],
-            ['code' => 'product_sourcing',           'name' => 'Product Sourcing',                'department' => 'Product',   'requires_approval' => true],
-            ['code' => 'product_upload',             'name' => 'Product Upload',                  'department' => 'Product',   'requires_approval' => true],
-            ['code' => 'facebook_page_setup',        'name' => 'Facebook Page Setup',             'department' => 'Marketing', 'requires_approval' => true],
-            ['code' => 'marketing_content_creation', 'name' => 'Marketing Content Creation',      'department' => 'Marketing', 'requires_approval' => true],
-            ['code' => 'video_content_creation',     'name' => 'Video Content Creation',          'department' => 'Marketing', 'requires_approval' => true],
-            ['code' => 'marketing_launch',           'name' => 'Marketing Launch',                'department' => 'Marketing', 'requires_approval' => true],
+            ['code' => 'meeting_scheduled',          'name' => 'Meeting Scheduled',               'department' => 'Sales',     'requires_approval' => false],
+            ['code' => 'agreement_signed',           'name' => 'Agreement Signed',                'department' => 'Sales',     'requires_approval' => false],
+            ['code' => 'documents_collected',        'name' => 'Client Documents Collected',      'department' => 'Document',  'requires_approval' => false],
+            ['code' => 'business_info_submitted',    'name' => 'Business Information Submitted',  'department' => 'Document',  'requires_approval' => false],
+            ['code' => 'brand_name_finalized',       'name' => 'Brand Name Finalized',            'department' => 'Design',    'requires_approval' => false],
+            ['code' => 'logo_design',                'name' => 'Logo Design',                     'department' => 'Design',    'requires_approval' => false],
+            ['code' => 'banner_design',              'name' => 'Banner Design',                   'department' => 'Design',    'requires_approval' => false],
+            ['code' => 'website_development',        'name' => 'Website Development',             'department' => 'Website',   'requires_approval' => false],
+            ['code' => 'website_approved',           'name' => 'Website Approved',                'department' => 'Website',   'requires_approval' => false],
+            ['code' => 'product_sourcing',           'name' => 'Product Sourcing',                'department' => 'Product',   'requires_approval' => false],
+            ['code' => 'product_upload',             'name' => 'Product Upload',                  'department' => 'Product',   'requires_approval' => false],
+            ['code' => 'facebook_page_setup',        'name' => 'Facebook Page Setup',             'department' => 'Marketing', 'requires_approval' => false],
+            ['code' => 'marketing_content_creation', 'name' => 'Marketing Content Creation',      'department' => 'Marketing', 'requires_approval' => false],
+            ['code' => 'video_content_creation',     'name' => 'Video Content Creation',          'department' => 'Marketing', 'requires_approval' => false],
+            ['code' => 'marketing_launch',           'name' => 'Marketing Launch',                'department' => 'Marketing', 'requires_approval' => false],
             ['code' => 'ongoing_support',            'name' => 'Ongoing Support',                 'department' => 'Support',   'requires_approval' => false],
-            ['code' => 'client_active',              'name' => 'Client Active',                   'department' => 'Support',   'requires_approval' => true],
-            ['code' => 'deal_closed',                'name' => 'Deal Closed',                     'department' => 'Admin',     'requires_approval' => true],
+            ['code' => 'client_active',              'name' => 'Client Active',                   'department' => 'Support',   'requires_approval' => false],
+            ['code' => 'deal_closed',                'name' => 'Deal Closed',                     'department' => 'Admin',     'requires_approval' => false],
         ];
 
         foreach ($stages as $i => $stage) {

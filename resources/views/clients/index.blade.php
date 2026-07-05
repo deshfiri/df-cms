@@ -91,6 +91,7 @@
                     <label class="form-label">Assigned To</label>
                     <select id="filterUser" class="form-select form-select-sm">
                         <option value="">All Users</option>
+                        <option value="none">Unassigned</option>
                         @foreach($users as $u)
                         <option value="{{ $u->id }}">{{ $u->name }}</option>
                         @endforeach
@@ -146,6 +147,7 @@ var noUpdate     = false;
     if (p.get('status'))       { activeStatus = p.get('status'); }
     if (p.get('no_update') === '1') { noUpdate = true; }
     if (p.get('search'))       { $('#globalSearch').val(p.get('search')); }
+    if (p.get('assigned_to')) { $('#filterUser').val(p.get('assigned_to')); }
     syncPills();
 })();
 

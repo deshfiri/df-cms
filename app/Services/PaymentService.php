@@ -10,7 +10,8 @@ use Illuminate\Support\Facades\DB;
 class PaymentService
 {
     public function __construct(
-        private readonly ActivityLogService $activityLog,
+        private readonly ActivityLogService   $activityLog,
+        private readonly ChangeApprovalService $changeApproval,
     ) {}
 
     public function create(Client $client, array $data): Payment
@@ -28,6 +29,8 @@ class PaymentService
 
     public function update(Payment $payment, array $data): Payment
     {
+        $this->changeApproval->guard(Payment::class, $payment->id, $payment->only(array_keys($data)), $data, Auth::user());
+
         return DB::transaction(function () use ($payment, $data) {
             $old = $payment->toArray();
             $payment->update($data);

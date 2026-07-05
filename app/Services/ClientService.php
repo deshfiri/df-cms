@@ -14,6 +14,7 @@ class ClientService
         private readonly ClientRepositoryInterface   $clientRepo,
         private readonly WorkflowRepositoryInterface $workflowRepo,
         private readonly ActivityLogService          $activityLog,
+        private readonly ChangeApprovalService        $changeApproval,
     ) {}
 
     public function create(array $data): Client
@@ -34,6 +35,8 @@ class ClientService
 
     public function update(Client $client, array $data): Client
     {
+        $this->changeApproval->guard(Client::class, $client->id, $client->only(array_keys($data)), $data, Auth::user());
+
         return DB::transaction(function () use ($client, $data) {
             $old = $client->toArray();
             $data['updated_by'] = Auth::id();
@@ -55,6 +58,14 @@ class ClientService
 
     public function updateStatus(Client $client, string $status): Client
     {
+        $this->changeApproval->guard(
+            Client::class,
+            $client->id,
+            ['client_status' => $client->client_status],
+            ['client_status' => $status],
+            Auth::user()
+        );
+
         $old = $client->client_status;
         $updated = $this->clientRepo->update($client, [
             'client_status' => $status,

@@ -42,6 +42,21 @@ class MeetingController extends Controller
         return response()->json(['success' => true, 'meeting' => $this->resource($meeting)]);
     }
 
+    public function availability(Request $request): JsonResponse
+    {
+        $this->authorize('manage-meetings');
+
+        $data = $request->validate([
+            'assigned_to'      => 'required|exists:users,id',
+            'date'             => 'required|date',
+            'duration_minutes' => 'required|integer|min:5|max:480',
+        ]);
+
+        $slots = $this->meetingService->availableSlots((int) $data['assigned_to'], $data['date'], (int) $data['duration_minutes']);
+
+        return response()->json(['slots' => $slots]);
+    }
+
     public function checkConflict(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -67,6 +82,8 @@ class MeetingController extends Controller
 
     public function bookForm(Request $request)
     {
+        $this->authorize('manage-meetings');
+
         $scheduledCount      = ClientMeeting::whereIn('status', ['Pending', 'Scheduled'])->where('scheduled_at', '>=', now())->count();
         $preselectedClient   = $request->filled('client_id')
             ? Client::with('category:id,name')->find($request->integer('client_id'))
