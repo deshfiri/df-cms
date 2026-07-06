@@ -334,7 +334,13 @@
       "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php artisan test --filter=MeetingConflictTest 2>&1 | tail -40\")",
       "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php -l app/Http/Controllers/ExportController.php && php -l app/Services/ExportService.php && php -l app/Repositories/ClientRepository.php && php -l app/Repositories/Contracts/ClientRepositoryInterface.php\")",
       "PowerShell(wsl -e bash -lc \"cd /home/deshfiri/projects/dfcp && php -l app/Models/Client.php && php -l app/Services/ClientService.php && php -l app/Services/WorkflowService.php && php -l app/Http/Controllers/ClientController.php && php -l app/Http/Controllers/WorkflowController.php && php -l app/Policies/ClientPolicy.php && php artisan route:list --name=clients.bulk 2>&1 | tail -20\")",
-      "PowerShell(wsl -e bash -lc \"cd /home/deshfiri/projects/dfcp && php artisan view:clear 2>&1 | tail -5\")"
+      "PowerShell(wsl -e bash -lc \"cd /home/deshfiri/projects/dfcp && php artisan view:clear 2>&1 | tail -5\")",
+      "PowerShell(wsl -e bash -lc \"cd /home/deshfiri/projects/dfcp && python3 -c \\\\\"import yaml,sys; yaml.safe_load\\(open\\('.github/workflows/ci-cd.yml'\\)\\); print\\('YAML OK'\\)\\\\\"\")",
+      "PowerShell(wsl -e python3 \"/mnt/c/Users/DELL-01-BELUGA/AppData/Local/Temp/claude/--wsl-localhost-Ubuntu-home-deshfiri-projects-dfcp/97627416-d6a8-4761-b428-5e1bfd016b67/scratchpad/validate_yaml.py\")",
+      "PowerShell(wsl -e bash -lc \"gh auth status 2>&1; echo '---'; which ssh sshpass ssh-keygen 2>&1\")",
+      "PowerShell(wsl -e bash -lc \"ssh-keygen -t ed25519 -C 'github-actions-deploy@dfcp' -f /tmp/dfcp_deploy_key -N '' && cat /tmp/dfcp_deploy_key.pub\")",
+      "PowerShell(wsl -e bash -lc \"cat /tmp/dfcp_deploy_key\")",
+      "PowerShell(wsl -e bash -lc \"shred -u /tmp/dfcp_deploy_key /tmp/dfcp_deploy_key.pub 2>/dev/null || rm -f /tmp/dfcp_deploy_key /tmp/dfcp_deploy_key.pub\")"
     ]
   }
 }
