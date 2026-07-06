@@ -33,7 +33,7 @@ class MeetingController extends Controller
 
         $data = $this->validateMeeting($request);
 
-        if ($conflict = $this->meetingService->findConflict($client->id, $data['scheduled_at'], $data['duration_minutes'])) {
+        if ($conflict = $this->meetingService->findConflict($client->id, $data['scheduled_at'], $data['duration_minutes'], assignedTo: $data['assigned_to'] ?? null)) {
             return $this->conflictResponse($conflict);
         }
 
@@ -64,9 +64,10 @@ class MeetingController extends Controller
             'scheduled_at'     => 'required|date',
             'duration_minutes' => 'required|integer|min:5',
             'exclude_id'       => 'nullable|integer',
+            'assigned_to'      => 'nullable|exists:users,id',
         ]);
 
-        $conflict = $this->meetingService->findConflict($data['client_id'], $data['scheduled_at'], $data['duration_minutes'], $data['exclude_id'] ?? null);
+        $conflict = $this->meetingService->findConflict($data['client_id'], $data['scheduled_at'], $data['duration_minutes'], $data['exclude_id'] ?? null, $data['assigned_to'] ?? null);
 
         if ($conflict) {
             return response()->json([
@@ -84,7 +85,7 @@ class MeetingController extends Controller
     {
         $this->authorize('manage-meetings');
 
-        $scheduledCount      = ClientMeeting::whereIn('status', ['Pending', 'Scheduled'])->where('scheduled_at', '>=', now())->count();
+        $scheduledCount      = ClientMeeting::whereIn('status', ClientMeeting::$openStatuses)->where('scheduled_at', '>=', now())->count();
         $preselectedClient   = $request->filled('client_id')
             ? Client::with('category:id,name')->find($request->integer('client_id'))
             : null;
@@ -99,7 +100,7 @@ class MeetingController extends Controller
 
         $data = $this->validateMeeting($request, requireClientId: true);
 
-        if ($conflict = $this->meetingService->findConflict($data['client_id'], $data['scheduled_at'], $data['duration_minutes'])) {
+        if ($conflict = $this->meetingService->findConflict($data['client_id'], $data['scheduled_at'], $data['duration_minutes'], assignedTo: $data['assigned_to'] ?? null)) {
             return $this->conflictResponse($conflict);
         }
 
@@ -120,6 +121,11 @@ class MeetingController extends Controller
         $this->checkBelongsToClient($client, $meeting);
 
         $data = $this->validateMeeting($request);
+
+        if ($conflict = $this->meetingService->findConflict($client->id, $data['scheduled_at'], $data['duration_minutes'], excludeId: $meeting->id, assignedTo: $data['assigned_to'] ?? null)) {
+            return $this->conflictResponse($conflict);
+        }
+
         $updated = $this->meetingService->update($meeting, $data, Auth::user());
 
         return response()->json(['success' => true, 'meeting' => $this->resource($updated)]);

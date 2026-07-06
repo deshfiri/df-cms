@@ -39,10 +39,14 @@ class WorkflowService
     /**
      * A stage is locked until every earlier active stage is Approved, and
      * also while the client's payment status blocks further progress (see
-     * getPaymentBlockReason()).
+     * getPaymentBlockReason()), or while the client is Terminated.
      */
     public function isLocked(int $clientId, WorkflowStage $stage): bool
     {
+        if ($this->clientIsTerminated($clientId)) {
+            return true;
+        }
+
         if ($this->getPaymentBlockReason($clientId, $stage) !== null) {
             return true;
         }
@@ -85,6 +89,11 @@ class WorkflowService
         return null;
     }
 
+    private function clientIsTerminated(int $clientId): bool
+    {
+        return Client::where('id', $clientId)->value('client_status') === 'Terminated';
+    }
+
     /**
      * Full ordered timeline for a client: each stage annotated with its
      * progress record plus computed completed/current/locked/overdue state.
@@ -99,8 +108,9 @@ class WorkflowService
         return $stages->map(function (WorkflowStage $stage) use ($client, $progress, &$reachedCurrent) {
             $record      = $progress->get($stage->id);
             $status      = $record->status ?? ClientStageProgress::STATUS_PENDING;
+            $terminated  = $client->client_status === 'Terminated';
             $paymentLock = $this->getPaymentBlockReason($client->id, $stage);
-            $locked      = $paymentLock !== null || $this->isLocked($client->id, $stage);
+            $locked      = $terminated || $paymentLock !== null || $this->isLocked($client->id, $stage);
 
             $isCurrent = false;
             if (!$locked && $status !== ClientStageProgress::STATUS_APPROVED && !$reachedCurrent) {
@@ -119,6 +129,7 @@ class WorkflowService
                 'progress'      => $record,
                 'status'        => $status,
                 'locked'        => $locked,
+                'terminated'    => $terminated,
                 'payment_lock'  => $paymentLock,
                 'current'       => $isCurrent,
                 'overdue'       => $overdue,
@@ -132,6 +143,10 @@ class WorkflowService
      */
     public function submitStage(Client $client, int $stageId, User $user, ?string $remarks = null): ClientStageProgress
     {
+        if ($client->client_status === 'Terminated') {
+            throw new WorkflowStageException('This client has been terminated — the workflow is locked.');
+        }
+
         $stage = $this->workflowRepo->findStage($stageId);
 
         if (!$user->hasRole('Super Admin') && !$this->userOwnsStage($user, $stage)) {
@@ -170,6 +185,8 @@ class WorkflowService
 
             if ($autoApprove) {
                 $this->notifyNextDepartment($client, $stage, $user);
+            } else {
+                $this->notifyApprovers($client, $stage, $user);
             }
 
             return $progress;
@@ -182,6 +199,10 @@ class WorkflowService
      */
     public function approveStage(Client $client, int $stageId, User $user): ClientStageProgress
     {
+        if ($client->client_status === 'Terminated') {
+            throw new WorkflowStageException('This client has been terminated — the workflow is locked.');
+        }
+
         $stage = $this->workflowRepo->findStage($stageId);
 
         if (!$user->hasRole('Super Admin') && !$user->hasPermissionTo('approve-stage')) {
@@ -231,6 +252,10 @@ class WorkflowService
      */
     public function requestRevision(Client $client, int $stageId, User $user, string $reason): ClientStageProgress
     {
+        if ($client->client_status === 'Terminated') {
+            throw new WorkflowStageException('This client has been terminated — the workflow is locked.');
+        }
+
         $stage = $this->workflowRepo->findStage($stageId);
 
         if (!$user->hasRole('Super Admin') && !$user->hasPermissionTo('approve-stage')) {
@@ -265,6 +290,10 @@ class WorkflowService
      */
     public function toggleStage(int $clientId, int $stageId, bool $completed): array
     {
+        if ($this->clientIsTerminated($clientId)) {
+            throw new WorkflowStageException('This client has been terminated — the workflow is locked.');
+        }
+
         return DB::transaction(function () use ($clientId, $stageId, $completed) {
             $progress = $this->workflowRepo->toggleStage($clientId, $stageId, $completed, Auth::id());
             $progress->update([
@@ -483,6 +512,32 @@ class WorkflowService
 
             return $progress;
         });
+    }
+
+    /**
+     * When a stage that requires_approval is submitted (not auto-approved),
+     * the department that owns approving THIS stage must be told it's
+     * waiting on them — otherwise it silently sits in "Submitted" until
+     * someone happens to open the client's timeline.
+     */
+    private function notifyApprovers(Client $client, WorkflowStage $stage, User $actor): void
+    {
+        if (!$stage->department || !Role::where('name', $stage->department)->where('guard_name', 'web')->exists()) {
+            return;
+        }
+
+        $recipients = User::role($stage->department)
+            ->where('is_active', true)
+            ->where('id', '!=', $actor->id)
+            ->get()
+            ->filter(fn (User $u) => $u->hasPermissionTo('approve-stage'))
+            ->values();
+
+        if ($recipients->isEmpty()) {
+            return;
+        }
+
+        Notification::send($recipients, new StageAwaitingApproval($client, $stage));
     }
 
     private function notifyNextDepartment(Client $client, WorkflowStage $approvedStage, ?User $actor = null): void

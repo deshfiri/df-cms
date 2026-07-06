@@ -110,6 +110,7 @@ class WorkflowController extends Controller
                 'status' => $status,
                 'spill_class' => $spillClass,
                 'locked' => $locked,
+                'terminated' => $row['terminated'],
                 'current' => $row['current'],
                 'overdue' => $row['overdue'],
                 'payment_lock' => $row['payment_lock'],
@@ -135,7 +136,11 @@ class WorkflowController extends Controller
             'completed' => 'required|boolean',
         ]);
 
-        $result = $this->workflowService->toggleStage($client->id, $data['stage_id'], $data['completed']);
+        try {
+            $result = $this->workflowService->toggleStage($client->id, $data['stage_id'], $data['completed']);
+        } catch (WorkflowStageException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
 
         return response()->json(['success' => true, 'progress' => $result['progress']]);
     }

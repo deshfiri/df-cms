@@ -197,6 +197,21 @@ class ClientController extends Controller
         return response()->json(['success' => true, 'message' => count($ids) . ' clients deleted.']);
     }
 
+    public function bulkTerminate(Request $request): JsonResponse
+    {
+        $this->authorize('terminate', Client::class);
+
+        $data = $request->validate([
+            'ids'   => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'exists:clients,id'],
+        ]);
+
+        $clients = Client::whereIn('id', $data['ids'])->get();
+        $clients->each(fn (Client $c) => $this->clientService->updateStatus($c, 'Terminated'));
+
+        return response()->json(['success' => true, 'message' => $clients->count() . ' clients terminated.']);
+    }
+
     public function transferOwnership(Request $request, Client $client): JsonResponse
     {
         $this->authorize('transfer', $client);
@@ -298,7 +313,7 @@ class ClientController extends Controller
             ->addColumn('website', fn ($c) => $c->website ? '<a href="' . e($c->website_url) . '" target="_blank" class="text-truncate d-inline-block" style="max-width:130px">' . e($c->website) . '</a>' : '-')
             ->addColumn('joining', fn ($c) => $c->joining_date?->format('d M Y') ?? '-')
             ->addColumn('progress', fn ($c) => $this->progressBadge($c))
-            ->addColumn('client_status_badge', fn ($c) => $this->statusBadge($c))
+            ->addColumn('client_status_badge', fn ($c) => $this->statusBadge($c, $request->user()))
             ->addColumn('product_status', fn ($c) => $c->latestProductStatus ? '<small class="badge bg-info">' . e($c->latestProductStatus) . '</small>' : '-')
             ->addColumn('payment_status', fn ($c) => $this->paymentBadge($c->latestPaymentStatus))
             ->addColumn('actions', fn ($c) => $this->actionButtons($c, $request->user()))
@@ -321,27 +336,34 @@ class ClientController extends Controller
           </div>';
     }
 
-    private function statusBadge(Client $client): string
+    private function statusBadge(Client $client, User $user): string
     {
         $cls = [
-            'Running'   => 'spill-running',
-            'Warning'   => 'spill-warning',
-            'Completed' => 'spill-completed',
-            'Hold'      => 'spill-hold',
-            'Cancelled' => 'spill-cancelled',
+            'Running'    => 'spill-running',
+            'Warning'    => 'spill-warning',
+            'Completed'  => 'spill-completed',
+            'Hold'       => 'spill-hold',
+            'Cancelled'  => 'spill-cancelled',
+            'Terminated' => 'spill-terminated',
         ];
         $status = $client->client_status;
         $pillClass = $cls[$status] ?? 'spill-hold';
 
+        $canTerminate = $user->can('terminate', Client::class);
+
         $items = '';
         foreach (Client::$statuses as $s) {
+            if ($s === 'Terminated' && !$canTerminate) {
+                continue;
+            }
             $dot = match($s) {
-                'Running'   => '#059669',
-                'Warning'   => '#d97706',
-                'Completed' => '#2563eb',
-                'Hold'      => '#64748b',
-                'Cancelled' => '#dc2626',
-                default     => '#94a3b8',
+                'Running'    => '#059669',
+                'Warning'    => '#d97706',
+                'Completed'  => '#2563eb',
+                'Hold'       => '#64748b',
+                'Cancelled'  => '#dc2626',
+                'Terminated' => '#7f1d1d',
+                default      => '#94a3b8',
             };
             $items .= '<div class="sd-item" data-status="' . e($s) . '">'
                     . '<span class="sd-dot" style="background:' . $dot . '"></span>'

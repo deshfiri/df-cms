@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Client;
 use App\Repositories\Contracts\ClientRepositoryInterface;
 use App\Repositories\Contracts\WorkflowRepositoryInterface;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
@@ -35,6 +36,10 @@ class ClientService
 
     public function update(Client $client, array $data): Client
     {
+        if (($data['client_status'] ?? null) === 'Terminated' && $client->client_status !== 'Terminated') {
+            $this->guardTermination();
+        }
+
         $this->changeApproval->guard(Client::class, $client->id, $client->only(array_keys($data)), $data, Auth::user());
 
         return DB::transaction(function () use ($client, $data) {
@@ -58,6 +63,10 @@ class ClientService
 
     public function updateStatus(Client $client, string $status): Client
     {
+        if ($status === 'Terminated' && $client->client_status !== 'Terminated') {
+            $this->guardTermination();
+        }
+
         $this->changeApproval->guard(
             Client::class,
             $client->id,
@@ -74,6 +83,18 @@ class ClientService
         $this->activityLog->log('Client', 'Status Changed', $client->id, $old, $status);
 
         return $updated;
+    }
+
+    /**
+     * Setting a client to Terminated permanently locks its workflow, so it's
+     * restricted to Super Admin/Manager regardless of which path (single
+     * status change, bulk terminate, or the general edit form) is used.
+     */
+    private function guardTermination(): void
+    {
+        if (!Auth::user()->can('terminate', Client::class)) {
+            throw new AuthorizationException('Only Super Admin or Manager can terminate a client.');
+        }
     }
 
     public function getDashboardData(): array

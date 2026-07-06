@@ -177,17 +177,35 @@ class MeetingService
         $meeting->delete();
     }
 
-    public function findConflict(int $clientId, string $scheduledAt, int $durationMinutes, ?int $excludeId = null): ?ClientMeeting
+    /**
+     * A conflict exists if EITHER the same client already has an overlapping
+     * meeting, OR the same staff member is already booked elsewhere at that
+     * time — checking client_id alone would let one person get double-booked
+     * across two different clients.
+     */
+    public function findConflict(int $clientId, string $scheduledAt, int $durationMinutes, ?int $excludeId = null, ?int $assignedTo = null): ?ClientMeeting
     {
         $start = Carbon::parse($scheduledAt);
         $end   = $start->copy()->addMinutes($durationMinutes);
 
-        return ClientMeeting::where('client_id', $clientId)
-            ->whereIn('status', ['Pending', 'Scheduled'])
+        // duration_minutes is validated to max:480 at the request layer, so any
+        // meeting starting before that lookback window can't possibly still be
+        // running by $start — bounding the candidate set this way lets the
+        // precise overlap check happen in PHP instead of a MySQL-only
+        // DATE_ADD() raw expression (which broke on every other DB driver,
+        // including the sqlite one this test suite runs against).
+        return ClientMeeting::where(function ($q) use ($clientId, $assignedTo) {
+                $q->where('client_id', $clientId);
+                if ($assignedTo) {
+                    $q->orWhere('assigned_to', $assignedTo);
+                }
+            })
+            ->whereIn('status', ClientMeeting::$openStatuses)
             ->when($excludeId, fn ($q) => $q->where('id', '!=', $excludeId))
             ->where('scheduled_at', '<', $end)
-            ->whereRaw('DATE_ADD(scheduled_at, INTERVAL duration_minutes MINUTE) > ?', [$start->toDateTimeString()])
-            ->first();
+            ->where('scheduled_at', '>=', $start->copy()->subMinutes(480))
+            ->get()
+            ->first(fn (ClientMeeting $m) => $m->scheduled_at->copy()->addMinutes($m->duration_minutes)->gt($start));
     }
 
     /**
@@ -202,7 +220,7 @@ class MeetingService
         $businessEnd   = $day->copy()->setTime(18, 0);
 
         $booked = ClientMeeting::where('assigned_to', $userId)
-            ->whereIn('status', ['Pending', 'Scheduled'])
+            ->whereIn('status', ClientMeeting::$openStatuses)
             ->whereBetween('scheduled_at', [$day, $day->copy()->endOfDay()])
             ->get(['scheduled_at', 'duration_minutes'])
             ->map(fn ($m) => [

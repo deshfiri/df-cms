@@ -323,7 +323,18 @@
       "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php -l app/Http/Controllers/MeetingController.php && php -l resources/views/clients/show.blade.php\")",
       "PowerShell(wsl -d Ubuntu -- bash -c \"rm -f /home/deshfiri/projects/dfcp/storage/app/tmp_check_perms.php /home/deshfiri/projects/dfcp/storage/app/tmp_run_check.sh\")",
       "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php artisan view:clear && php artisan test 2>&1 | tail -60\")",
-      "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php artisan test 2>&1 | tail -100\")"
+      "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php artisan test 2>&1 | tail -100\")",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php -l app/Services/WorkflowService.php && php -l app/Notifications/StageAwaitingApproval.php\")",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php -l tests/Feature/WorkflowAutoApprovalTest.php && php artisan test --filter=WorkflowAutoApprovalTest 2>&1 | tail -50\")",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php artisan test --filter=WorkflowAutoApprovalTest 2>&1 | tail -30\")",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php artisan test 2>&1 | tail -70\")",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php -l app/Models/ClientMeeting.php && php -l app/Services/MeetingService.php && php -l app/Http/Controllers/MeetingController.php && php -l app/Console/Commands/SendMeetingReminders.php\")",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php -l tests/Feature/MeetingConflictTest.php && php artisan test --filter=MeetingConflictTest 2>&1 | tail -60\")",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php -l app/Services/MeetingService.php && php artisan test --filter=MeetingConflictTest 2>&1 | tail -60\")",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php artisan test --filter=MeetingConflictTest 2>&1 | tail -40\")",
+      "PowerShell(wsl -d Ubuntu -- bash -c \"cd /home/deshfiri/projects/dfcp && php -l app/Http/Controllers/ExportController.php && php -l app/Services/ExportService.php && php -l app/Repositories/ClientRepository.php && php -l app/Repositories/Contracts/ClientRepositoryInterface.php\")",
+      "PowerShell(wsl -e bash -lc \"cd /home/deshfiri/projects/dfcp && php -l app/Models/Client.php && php -l app/Services/ClientService.php && php -l app/Services/WorkflowService.php && php -l app/Http/Controllers/ClientController.php && php -l app/Http/Controllers/WorkflowController.php && php -l app/Policies/ClientPolicy.php && php artisan route:list --name=clients.bulk 2>&1 | tail -20\")",
+      "PowerShell(wsl -e bash -lc \"cd /home/deshfiri/projects/dfcp && php artisan view:clear 2>&1 | tail -5\")"
     ]
   }
 }

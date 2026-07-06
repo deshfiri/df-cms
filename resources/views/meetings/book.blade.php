@@ -268,7 +268,7 @@ $(function() {
         },
         templateResult: function(c) {
             if (!c.id) return c.text;
-            var statusCls = { Running: 'spill-running', Warning: 'spill-warning', Completed: 'spill-completed', Hold: 'spill-hold', Cancelled: 'spill-cancelled' };
+            var statusCls = { Running: 'spill-running', Warning: 'spill-warning', Completed: 'spill-completed', Hold: 'spill-hold', Cancelled: 'spill-cancelled', Terminated: 'spill-terminated' };
             var spill = statusCls[c.status] || 'spill-hold';
             return $('<div class="d-flex align-items-center gap-2 py-1">' +
                 '<div class="d-flex align-items-center justify-content-center bg-primary text-white rounded-circle fw-bold flex-shrink-0" style="width:28px;height:28px;font-size:.72rem">' + (c.text ? c.text.charAt(0).toUpperCase() : '?') + '</div>' +

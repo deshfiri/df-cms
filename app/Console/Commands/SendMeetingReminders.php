@@ -29,7 +29,7 @@ class SendMeetingReminders extends Command
             $windowEnd   = $windowStart->copy()->addMinutes(5);
 
             $meetings = ClientMeeting::with(['assignedUser:id,name,email', 'createdBy:id,name,email', 'client:id,client_name,contact_email'])
-                ->whereIn('status', ['Pending', 'Scheduled'])
+                ->whereIn('status', ClientMeeting::$openStatuses)
                 ->whereNull($column)
                 ->whereBetween('scheduled_at', [$windowStart, $windowEnd])
                 ->get();

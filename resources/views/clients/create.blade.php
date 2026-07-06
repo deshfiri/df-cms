@@ -75,6 +75,7 @@
                             <label class="form-label fw-semibold small">Client Status</label>
                             <select name="client_status" class="form-select">
                                 @foreach($statuses as $s)
+                                @continue($s === 'Terminated')
                                 <option value="{{ $s }}" {{ old('client_status', 'Running') == $s ? 'selected' : '' }}>{{ $s }}</option>
                                 @endforeach
                             </select>

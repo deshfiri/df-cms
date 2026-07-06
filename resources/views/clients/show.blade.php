@@ -69,8 +69,9 @@
                     </button>
                     <ul class="dropdown-menu">
                         @foreach(\App\Models\Client::$statuses as $s)
+                        @continue($s === 'Terminated' && !auth()->user()->can('terminate', \App\Models\Client::class))
                         <li>
-                            <button class="dropdown-item small btn-status {{ $s === $client->client_status ? 'active fw-semibold' : '' }}"
+                            <button class="dropdown-item small btn-status {{ $s === $client->client_status ? 'active fw-semibold' : '' }} {{ $s === 'Terminated' ? 'text-danger' : '' }}"
                                     data-status="{{ $s }}">{{ $s }}</button>
                         </li>
                         @endforeach
@@ -682,14 +683,16 @@ $(document).on('click', '.btn-stage-override', function () {
 
 function wfStep(row) {
     var dotClass = row.status === 'Approved' ? 'wf-dot-done'
+        : (row.terminated ? 'wf-dot-locked'
         : (row.payment_lock ? 'wf-dot-overdue'
         : (row.locked ? 'wf-dot-locked'
-        : (row.overdue ? 'wf-dot-overdue' : 'wf-dot-open')));
+        : (row.overdue ? 'wf-dot-overdue' : 'wf-dot-open'))));
 
     var dotIcon = row.status === 'Approved' ? '<i class="bi bi-check-lg"></i>'
+        : (row.terminated ? '<i class="bi bi-slash-circle"></i>'
         : (row.payment_lock ? '<i class="bi bi-cash-coin"></i>'
         : (row.locked ? '<i class="bi bi-lock-fill"></i>'
-        : '<i class="bi bi-circle-fill" style="font-size:.4rem"></i>'));
+        : '<i class="bi bi-circle-fill" style="font-size:.4rem"></i>')));
 
     var deptPill = row.department
         ? '<span style="font-size:.68rem;background:rgba(var(--primary-rgb),.1);color:var(--primary);padding:2px 8px;border-radius:20px">' + esc(row.department) + '</span>'
@@ -697,12 +700,14 @@ function wfStep(row) {
 
     var overduePill = row.overdue ? '<span class="spill spill-rejected"><i class="bi bi-exclamation-triangle-fill me-1"></i>Overdue</span>' : '';
     var paymentPill = row.payment_lock ? '<span class="spill spill-rejected"><i class="bi bi-cash-coin me-1"></i>Payment Required</span>' : '';
+    var terminatedPill = row.terminated ? '<span class="spill spill-terminated"><i class="bi bi-slash-circle me-1"></i>Client Terminated</span>' : '';
 
     var meta = '';
     if (row.submitted_at) meta += 'Submitted ' + esc(row.submitted_at) + (row.submitted_by ? ' by ' + esc(row.submitted_by) : '');
     if (row.completed_at) meta += (meta ? ' · ' : '') + 'Approved ' + esc(row.completed_at) + (row.completed_by ? ' by ' + esc(row.completed_by) : '');
     var rejectionHtml = row.rejection_reason ? '<div class="c-yellow mt-1"><i class="bi bi-arrow-return-left me-1"></i>' + esc(row.rejection_reason) + '</div>' : '';
     var paymentTextHtml = row.payment_lock ? '<div class="c-red mt-1"><i class="bi bi-cash-coin me-1"></i>' + esc(row.payment_lock) + '</div>' : '';
+    var terminatedTextHtml = row.terminated ? '<div class="c-red mt-1"><i class="bi bi-slash-circle me-1"></i>This client is terminated — the workflow is locked.</div>' : '';
 
     var actions = '';
     if (row.can_submit) {
@@ -712,7 +717,7 @@ function wfStep(row) {
         actions += '<button class="btn btn-sm btn-success btn-stage-approve" data-stage="' + row.id + '"><i class="bi bi-check-lg me-1"></i>Approve</button>';
         actions += '<button class="btn btn-sm btn-outline-warning btn-stage-reject" data-stage="' + row.id + '"><i class="bi bi-arrow-return-left me-1"></i>Need Revision</button>';
     }
-    if (canManageWorkflow) {
+    if (canManageWorkflow && !row.terminated) {
         actions += '<button class="btn btn-sm btn-outline-secondary btn-stage-override" data-stage="' + row.id + '" data-completed="' + (row.status === 'Approved' ? '0' : '1') + '"><i class="bi bi-shield-lock me-1"></i>' + (row.status === 'Approved' ? 'Revert (Admin)' : 'Force Approve (Admin)') + '</button>';
     }
 
@@ -721,9 +726,9 @@ function wfStep(row) {
          + '<div class="wf-body">'
          +   '<div class="d-flex align-items-center gap-2 flex-wrap">'
          +     '<span class="fw-semibold small">' + esc(row.name) + '</span>' + deptPill
-         +     '<span class="spill ' + row.spill_class + '">' + esc(row.status) + '</span>' + overduePill + paymentPill
+         +     '<span class="spill ' + row.spill_class + '">' + esc(row.status) + '</span>' + overduePill + paymentPill + terminatedPill
          +   '</div>'
-         +   '<div class="text-muted mt-1" style="font-size:.72rem">' + meta + rejectionHtml + paymentTextHtml + '</div>'
+         +   '<div class="text-muted mt-1" style="font-size:.72rem">' + meta + rejectionHtml + paymentTextHtml + terminatedTextHtml + '</div>'
          +   '<div class="d-flex gap-2 mt-2">' + actions + '</div>'
          + '</div>'
          + '</div>';
@@ -1142,10 +1147,26 @@ $('#saveNote').on('click', function () {
 
 // ── Status Update ──────────────────────────────────────────────────────────
 $(document).on('click', '.btn-status', function () {
-    $.post('{{ route("clients.status", $client) }}', { status: $(this).data('status') })
-     .done(function (r) {
-        location.reload();
-     });
+    var status = $(this).data('status');
+
+    var apply = function () {
+        $.post('{{ route("clients.status", $client) }}', { status: status })
+         .done(function () { location.reload(); })
+         .fail(function (xhr) { Swal.fire('Error', xhr.responseJSON?.message || 'Could not update status.', 'error'); });
+    };
+
+    if (status === 'Terminated') {
+        Swal.fire({
+            title: 'Terminate this client?',
+            text: 'This will permanently lock the workflow — no further stage progress will be possible.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Terminate',
+            confirmButtonColor: '#dc3545'
+        }).then(r => { if (r.isConfirmed) apply(); });
+    } else {
+        apply();
+    }
 });
 
 $('#transferConfirm').on('click', function () {

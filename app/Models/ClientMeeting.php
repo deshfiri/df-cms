@@ -31,6 +31,13 @@ class ClientMeeting extends Model
 
     public static array $statuses = ['Pending', 'Scheduled', 'Completed', 'Cancelled', 'No Show', 'Rescheduled'];
 
+    /**
+     * Statuses that represent a meeting still occupying a real slot on
+     * someone's calendar — used for conflict/availability checks and
+     * "upcoming" listings. A rescheduled meeting is still open, just moved.
+     */
+    public static array $openStatuses = ['Pending', 'Scheduled', 'Rescheduled'];
+
     public static array $typeLabels = [
         'in_person' => 'In Person',
         'phone'     => 'Phone Call',
@@ -71,7 +78,7 @@ class ClientMeeting extends Model
 
     public function scopeUpcoming($q)
     {
-        return $q->where('scheduled_at', '>=', now())->whereIn('status', ['Pending', 'Scheduled']);
+        return $q->where('scheduled_at', '>=', now())->whereIn('status', self::$openStatuses);
     }
 
     public function scopeToday($q)
@@ -81,19 +88,19 @@ class ClientMeeting extends Model
 
     public function scopeOverdue($q)
     {
-        return $q->where('scheduled_at', '<', now())->whereIn('status', ['Pending', 'Scheduled']);
+        return $q->where('scheduled_at', '<', now())->whereIn('status', self::$openStatuses);
     }
 
     public function scopeScheduled($q)
     {
-        return $q->whereIn('status', ['Pending', 'Scheduled']);
+        return $q->whereIn('status', self::$openStatuses);
     }
 
     // ── Computed ─────────────────────────────────────────────────────────────
 
     public function getIsOverdueAttribute(): bool
     {
-        return in_array($this->status, ['Pending', 'Scheduled'], true) && $this->scheduled_at->isPast();
+        return in_array($this->status, self::$openStatuses, true) && $this->scheduled_at->isPast();
     }
 
     /**

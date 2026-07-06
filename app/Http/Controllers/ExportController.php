@@ -14,11 +14,13 @@ class ExportController extends Controller
 
     public function clients(Request $request): BinaryFileResponse
     {
+        abort_unless($request->user()->hasAnyPermission(['view clients', 'manage clients']), 403);
+
         $filters = $request->only(['status', 'category_id', 'assigned_to', 'search', 'date_from', 'date_to']);
         $format  = $request->input('format', 'excel');
         $ids     = $request->has('ids') ? explode(',', $request->ids) : null;
 
-        $path = $this->exportService->exportClients($filters, $format, $ids);
+        $path = $this->exportService->exportClients($filters, $format, $ids, $request->user());
 
         $mime = match ($format) {
             'csv'  => 'text/csv',

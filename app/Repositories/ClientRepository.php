@@ -3,6 +3,7 @@
 namespace App\Repositories;
 
 use App\Models\Client;
+use App\Models\User;
 use App\Models\WorkflowStage;
 use App\Repositories\Contracts\ClientRepositoryInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -49,9 +50,18 @@ class ClientRepository implements ClientRepositoryInterface
         $client->delete();
     }
 
-    public function allForExport(array $filters = []): Collection
+    public function allForExport(array $filters = [], ?User $scopeToUser = null): Collection
     {
-        return $this->applyFilters($this->query(), $filters)->get();
+        $query = $this->applyFilters($this->query(), $filters);
+
+        if ($scopeToUser && !$scopeToUser->hasRole('Super Admin')) {
+            $userId = $scopeToUser->id;
+            $query->where(function ($q) use ($userId) {
+                $q->whereNull('assigned_to')->orWhere('assigned_to', $userId);
+            });
+        }
+
+        return $query->get();
     }
 
     public function statusCounts(): array

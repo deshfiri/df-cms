@@ -21,7 +21,7 @@ class Client extends Model
         return ['joining_date' => 'date'];
     }
 
-    public static array $statuses = ['Running', 'Warning', 'Completed', 'Hold', 'Cancelled'];
+    public static array $statuses = ['Running', 'Warning', 'Completed', 'Hold', 'Cancelled', 'Terminated'];
 
     protected static function booted(): void
     {

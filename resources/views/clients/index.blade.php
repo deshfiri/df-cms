@@ -53,7 +53,7 @@
     <button class="fpill" data-status="" id="pillAll">
         All <span class="fcnt">{{ $totalClients }}</span>
     </button>
-    @php $pillCls = ['Running'=>'spill-running','Warning'=>'spill-warning','Completed'=>'spill-completed','Hold'=>'spill-hold','Cancelled'=>'spill-cancelled']; @endphp
+    @php $pillCls = ['Running'=>'spill-running','Warning'=>'spill-warning','Completed'=>'spill-completed','Hold'=>'spill-hold','Cancelled'=>'spill-cancelled','Terminated'=>'spill-terminated']; @endphp
     @foreach($pillCls as $st => $cls)
     <button class="fpill" data-status="{{ $st }}">
         <span class="spill {{ $cls }}" style="padding:1px 7px;font-size:.65rem">{{ $st }}</span>
@@ -256,9 +256,26 @@ $(function () {
         var $dd = $(this).closest('.status-dd');
         var id  = $dd.data('client-id');
         var st  = $(this).data('status');
-        $.post('/clients/' + id + '/status', { status: st })
-         .done(function () { window.dfTable.ajax.reload(null, false); });
         $dd.removeClass('open');
+
+        var apply = function () {
+            $.post('/clients/' + id + '/status', { status: st })
+             .done(function () { window.dfTable.ajax.reload(null, false); })
+             .fail(function (xhr) { Swal.fire('Error', xhr.responseJSON?.message || 'Could not update status.', 'error'); });
+        };
+
+        if (st === 'Terminated') {
+            Swal.fire({
+                title: 'Terminate this client?',
+                text: 'This will permanently lock the workflow — no further stage progress will be possible.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Terminate',
+                confirmButtonColor: '#dc3545'
+            }).then(r => { if (r.isConfirmed) apply(); });
+        } else {
+            apply();
+        }
     });
     $(document).on('click', function (e) {
         if (!$(e.target).closest('.status-dd').length) $('.status-dd').removeClass('open');

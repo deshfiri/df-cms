@@ -61,7 +61,7 @@
                 {{ $tB }}
             ;
 
-            --sidebar-w: 260px;
+            --sidebar-w: 280px;
             --sidebar-mini: 66px;
             --topbar-h: 58px;
 
@@ -614,7 +614,7 @@
             border-radius: 7px;
             color: var(--sb-text);
             text-decoration: none;
-            font-size: .93rem;
+            font-size: 1rem;
             font-weight: 500;
             white-space: nowrap;
             margin-bottom: 2px;
@@ -633,7 +633,7 @@
         }
 
         .sb-link i {
-            font-size: 1.05rem;
+            font-size: 1.15rem;
             width: 20px;
             text-align: center;
             flex-shrink: 0;
@@ -1056,6 +1056,12 @@
         .spill-cancelled {
             background: var(--c-red-bg);
             color: var(--c-red);
+        }
+
+        .spill-terminated {
+            background: var(--text);
+            color: var(--surface);
+            opacity: .85;
         }
 
         /* Workflow stage statuses */
@@ -2160,6 +2166,10 @@
             style="background:rgba(37,99,235,.18);color:#60a5fa;border:none;padding:3px 10px">
             <i class="bi bi-person-check me-1"></i>Assign
         </button>
+        <button id="bulkTerminateBtn" class="btn btn-sm"
+            style="background:rgba(127,29,29,.28);color:#fca5a5;border:none;padding:3px 10px">
+            <i class="bi bi-slash-circle me-1"></i>Terminate
+        </button>
         <button id="bulkDeleteBtn" class="btn btn-sm"
             style="background:rgba(239,68,68,.18);color:#f87171;border:none;padding:3px 10px">
             <i class="bi bi-trash me-1"></i>Delete
@@ -2325,7 +2335,7 @@
         });
 
         // ── Quick View Drawer ──────────────────────────────────────────────
-        const spColors = { Running: 'spill-running', Warning: 'spill-warning', Completed: 'spill-completed', Hold: 'spill-hold', Cancelled: 'spill-cancelled' };
+        const spColors = { Running: 'spill-running', Warning: 'spill-warning', Completed: 'spill-completed', Hold: 'spill-hold', Cancelled: 'spill-cancelled', Terminated: 'spill-terminated' };
 
         function openDrawer(clientId) {
             $('#qvDrawer').addClass('open');
@@ -2425,6 +2435,25 @@
                             .done(res => { Swal.fire('Deleted', res.message, 'success'); if (window.dfTable || window.table) (window.dfTable || window.table).ajax.reload(); });
                     }
                 });
+        });
+
+        $('#bulkTerminateBtn').on('click', function () {
+            var ids = $('.row-check:checked').map((i, el) => el.value).get();
+            if (!ids.length) return;
+            Swal.fire({
+                title: 'Terminate ' + ids.length + ' clients?',
+                text: 'This will permanently lock the workflow for these clients — no further stage progress will be possible.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#dc3545',
+                confirmButtonText: 'Terminate'
+            }).then(r => {
+                if (r.isConfirmed) {
+                    $.post('{{ route("clients.bulk-terminate") }}', { ids })
+                        .done(res => { Swal.fire('Terminated', res.message, 'success'); if (window.dfTable || window.table) (window.dfTable || window.table).ajax.reload(); })
+                        .fail(xhr => Swal.fire('Error', xhr.responseJSON?.message || 'Could not terminate clients.', 'error'));
+                }
+            });
         });
 
         $('#bulkAssignBtn').on('click', function () {

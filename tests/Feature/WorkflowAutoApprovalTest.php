@@ -9,6 +9,7 @@ use App\Models\ClientStageProgress;
 use App\Models\Payment;
 use App\Models\User;
 use App\Models\WorkflowStage;
+use App\Notifications\StageAwaitingApproval;
 use App\Notifications\StageReadyForDepartment;
 use App\Services\WorkflowService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -65,7 +66,7 @@ class WorkflowAutoApprovalTest extends TestCase
         return $user;
     }
 
-    private function makeStage(string $code, string $department, int $sortOrder): WorkflowStage
+    private function makeStage(string $code, string $department, int $sortOrder, bool $requiresApproval = false): WorkflowStage
     {
         // notifyNextDepartment() looks users up via User::role($department),
         // which throws if that role doesn't exist anywhere yet.
@@ -75,7 +76,7 @@ class WorkflowAutoApprovalTest extends TestCase
             'name'              => ucfirst(str_replace('_', ' ', $code)),
             'code'              => $code,
             'department'        => $department,
-            'requires_approval' => false,
+            'requires_approval' => $requiresApproval,
             'sort_order'        => $sortOrder,
             'status'            => true,
         ]);
@@ -185,5 +186,114 @@ class WorkflowAutoApprovalTest extends TestCase
         $progress = $this->workflow->submitStage($client, $stage1->id, $salesUser);
 
         $this->assertSame(ClientStageProgress::STATUS_APPROVED, $progress->status);
+    }
+
+    public function test_a_stage_requiring_approval_stays_submitted_and_notifies_the_approving_department(): void
+    {
+        Notification::fake();
+        Permission::firstOrCreate(['name' => 'approve-stage', 'guard_name' => 'web']);
+
+        $client = $this->makeClient();
+        $stage  = $this->makeStage('stage_one', 'Sales', 1, requiresApproval: true);
+
+        $submitter = $this->makeUser('Sales');
+        $approver  = $this->makeUser('Sales');
+        $approver->givePermissionTo('approve-stage');
+        $bystander = $this->makeUser('Sales'); // same department, but no approve-stage permission
+
+        $progress = $this->workflow->submitStage($client, $stage->id, $submitter);
+
+        $this->assertSame(ClientStageProgress::STATUS_SUBMITTED, $progress->status);
+        $this->assertFalse($progress->is_completed);
+
+        Notification::assertSentTo($approver, StageAwaitingApproval::class);
+        Notification::assertNotSentTo($submitter, StageAwaitingApproval::class);
+        Notification::assertNotSentTo($bystander, StageAwaitingApproval::class);
+    }
+
+    public function test_approving_a_submitted_stage_unlocks_and_notifies_the_next_department(): void
+    {
+        Notification::fake();
+        Permission::firstOrCreate(['name' => 'approve-stage', 'guard_name' => 'web']);
+
+        $client = $this->makeClient();
+        $stage1 = $this->makeStage('stage_one', 'Sales', 1, requiresApproval: true);
+        $stage2 = $this->makeStage('stage_two', 'Design', 2);
+
+        $submitter = $this->makeUser('Sales');
+        $approver  = $this->makeUser('Sales');
+        $approver->givePermissionTo('approve-stage');
+        $designUser = $this->makeUser('Design');
+
+        $this->workflow->submitStage($client, $stage1->id, $submitter);
+        $progress = $this->workflow->approveStage($client, $stage1->id, $approver);
+
+        $this->assertSame(ClientStageProgress::STATUS_APPROVED, $progress->status);
+        $this->assertTrue($progress->is_completed);
+
+        $timeline = collect($this->workflow->getTimeline($client));
+        $this->assertFalse($timeline->firstWhere('stage.id', $stage2->id)['locked']);
+
+        Notification::assertSentTo($designUser, StageReadyForDepartment::class);
+    }
+
+    public function test_a_user_without_approve_stage_permission_cannot_approve(): void
+    {
+        Permission::firstOrCreate(['name' => 'approve-stage', 'guard_name' => 'web']);
+
+        $client = $this->makeClient();
+        $stage  = $this->makeStage('stage_one', 'Sales', 1, requiresApproval: true);
+        $submitter = $this->makeUser('Sales');
+
+        $this->workflow->submitStage($client, $stage->id, $submitter);
+
+        $this->expectException(WorkflowStageException::class);
+        $this->expectExceptionMessage('You do not have permission to approve this stage.');
+
+        $this->workflow->approveStage($client, $stage->id, $submitter);
+    }
+
+    public function test_rejecting_a_submitted_stage_allows_resubmission(): void
+    {
+        Permission::firstOrCreate(['name' => 'approve-stage', 'guard_name' => 'web']);
+
+        $client = $this->makeClient();
+        $stage  = $this->makeStage('stage_one', 'Sales', 1, requiresApproval: true);
+
+        $submitter = $this->makeUser('Sales');
+        $approver  = $this->makeUser('Sales');
+        $approver->givePermissionTo('approve-stage');
+
+        $this->workflow->submitStage($client, $stage->id, $submitter);
+        $rejected = $this->workflow->requestRevision($client, $stage->id, $approver, 'Missing details');
+
+        $this->assertSame(ClientStageProgress::STATUS_NEED_REVISION, $rejected->status);
+        $this->assertSame('Missing details', $rejected->rejection_reason);
+
+        $resubmitted = $this->workflow->submitStage($client, $stage->id, $submitter, 'Added the missing details');
+
+        $this->assertSame(ClientStageProgress::STATUS_SUBMITTED, $resubmitted->status);
+        $this->assertNull($resubmitted->rejection_reason);
+    }
+
+    public function test_admin_toggle_override_does_not_notify_the_next_department(): void
+    {
+        // Documents current, deliberate behavior: toggleStage() is a manual
+        // admin correction tool, not a real workflow progression event, so it
+        // intentionally stays silent (unlike submitStage/approveStage).
+        Notification::fake();
+
+        $client = $this->makeClient();
+        $stage1 = $this->makeStage('stage_one', 'Sales', 1);
+        $this->makeStage('stage_two', 'Design', 2);
+        $designUser = $this->makeUser('Design');
+        $admin = $this->makeUser('Super Admin');
+
+        // toggleStage() reads the actor off Auth::id() internally rather than
+        // taking a User param like the other service methods.
+        $this->actingAs($admin);
+        $this->workflow->toggleStage($client->id, $stage1->id, true);
+
+        Notification::assertNotSentTo($designUser, StageReadyForDepartment::class);
     }
 }

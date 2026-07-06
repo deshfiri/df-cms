@@ -3,6 +3,7 @@
 namespace App\Repositories\Contracts;
 
 use App\Models\Client;
+use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -21,7 +22,7 @@ interface ClientRepositoryInterface
 
     public function delete(Client $client): void;
 
-    public function allForExport(array $filters = []): Collection;
+    public function allForExport(array $filters = [], ?User $scopeToUser = null): Collection;
 
     public function statusCounts(): array;
 

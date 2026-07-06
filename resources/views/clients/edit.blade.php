@@ -70,6 +70,7 @@
                             <label class="form-label fw-semibold small">Client Status</label>
                             <select name="client_status" class="form-select">
                                 @foreach($statuses as $s)
+                                @continue($s === 'Terminated' && $client->client_status !== 'Terminated' && !auth()->user()->can('terminate', \App\Models\Client::class))
                                 <option value="{{ $s }}" {{ old('client_status', $client->client_status) == $s ? 'selected' : '' }}>{{ $s }}</option>
                                 @endforeach
                             </select>

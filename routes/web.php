@@ -37,6 +37,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('clients/{client}/quick-view', [ClientController::class, 'quickView'])->name('clients.quick-view');
     Route::post('clients/bulk-delete', [ClientController::class, 'bulkDelete'])->name('clients.bulk-delete');
     Route::post('clients/bulk-assign', [ClientController::class, 'bulkAssign'])->name('clients.bulk-assign');
+    Route::post('clients/bulk-terminate', [ClientController::class, 'bulkTerminate'])->name('clients.bulk-terminate');
 
     // Nested sub-resources under client
     Route::prefix('clients/{client}')->name('clients.')->group(function () {

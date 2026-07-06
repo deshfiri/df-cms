@@ -361,7 +361,7 @@ $topCards = [
                                 <span style="font-size:.72rem;color:var(--text3)">{{ $c->dfid_number }}</span>
                             </td>
                             <td class="text-center">
-                                @php $spCls = ['Running'=>'spill-running','Warning'=>'spill-warning','Completed'=>'spill-completed','Hold'=>'spill-hold','Cancelled'=>'spill-cancelled'][$c->client_status] ?? 'spill-hold'; @endphp
+                                @php $spCls = ['Running'=>'spill-running','Warning'=>'spill-warning','Completed'=>'spill-completed','Hold'=>'spill-hold','Cancelled'=>'spill-cancelled','Terminated'=>'spill-terminated'][$c->client_status] ?? 'spill-hold'; @endphp
                                 <span class="spill {{ $spCls }}">{{ $c->client_status }}</span>
                             </td>
                             <td class="pe-3 text-end" style="font-size:.72rem;color:var(--text3)">{{ $c->joining_date?->format('d M y') ?? '—' }}</td>

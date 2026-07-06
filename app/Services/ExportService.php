@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Client;
 use App\Models\ExportLog;
+use App\Models\User;
 use App\Repositories\Contracts\ClientRepositoryInterface;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Collection;
@@ -21,12 +22,22 @@ class ExportService
         private readonly ClientRepositoryInterface $clientRepo,
     ) {}
 
-    public function exportClients(array $filters, string $format, ?array $ids = null): string
+    public function exportClients(array $filters, string $format, ?array $ids, User $user): string
     {
-        $clients = $ids
-            ? Client::with(['category', 'stageProgress', 'productUpdates', 'payments'])
-                ->whereIn('id', $ids)->get()
-            : $this->clientRepo->allForExport($filters);
+        if ($ids) {
+            $query = Client::with(['category', 'stageProgress', 'productUpdates', 'payments'])
+                ->whereIn('id', $ids);
+
+            if (!$user->hasRole('Super Admin')) {
+                $query->where(function ($q) use ($user) {
+                    $q->whereNull('assigned_to')->orWhere('assigned_to', $user->id);
+                });
+            }
+
+            $clients = $query->get();
+        } else {
+            $clients = $this->clientRepo->allForExport($filters, $user);
+        }
 
         $this->logExport($format, $filters, count($clients));
 

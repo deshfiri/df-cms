@@ -63,6 +63,15 @@ class ClientPolicy
         return $user->hasRole(['Super Admin', 'Manager']);
     }
 
+    /**
+     * Terminating a client (individually or in bulk) permanently locks its
+     * workflow, so it's restricted the same way as bulk (re)assignment.
+     */
+    public function terminate(User $user): bool
+    {
+        return $user->hasRole(['Super Admin', 'Manager']);
+    }
+
     public function delete(User $user, Client $client): bool
     {
         return $user->hasPermissionTo('delete clients');
