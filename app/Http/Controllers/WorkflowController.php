@@ -19,6 +19,7 @@ class WorkflowController extends Controller
 
     public function index()
     {
+        // stages 
         $stages = WorkflowStage::orderBy('sort_order')->get();
 
         return view('workflow.index', compact('stages'));

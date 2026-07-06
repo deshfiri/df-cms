@@ -340,7 +340,10 @@
       "PowerShell(wsl -e bash -lc \"gh auth status 2>&1; echo '---'; which ssh sshpass ssh-keygen 2>&1\")",
       "PowerShell(wsl -e bash -lc \"ssh-keygen -t ed25519 -C 'github-actions-deploy@dfcp' -f /tmp/dfcp_deploy_key -N '' && cat /tmp/dfcp_deploy_key.pub\")",
       "PowerShell(wsl -e bash -lc \"cat /tmp/dfcp_deploy_key\")",
-      "PowerShell(wsl -e bash -lc \"shred -u /tmp/dfcp_deploy_key /tmp/dfcp_deploy_key.pub 2>/dev/null || rm -f /tmp/dfcp_deploy_key /tmp/dfcp_deploy_key.pub\")"
+      "PowerShell(wsl -e bash -lc \"shred -u /tmp/dfcp_deploy_key /tmp/dfcp_deploy_key.pub 2>/dev/null || rm -f /tmp/dfcp_deploy_key /tmp/dfcp_deploy_key.pub\")",
+      "PowerShell(wsl -e bash -lc \"cd /home/deshfiri/projects/dfcp && git status && echo '---BRANCH---' && git branch --show-current && echo '---LOG---' && git log --oneline -5\")",
+      "PowerShell(wsl -e bash -lc \"cd /home/deshfiri/projects/dfcp && git show --stat HEAD && echo '---REMOTE---' && git remote -v\")",
+      "PowerShell(wsl -e bash -lc \"cd /home/deshfiri/projects/dfcp && git push origin main\")"
     ]
   }
 }
