@@ -5,16 +5,36 @@ namespace App\Services;
 use App\Models\Category;
 use App\Models\Client;
 use App\Models\ImportLog;
+use App\Models\Payment;
+use App\Models\ProductUpdate;
+use App\Models\WorkflowStage;
 use App\Repositories\Contracts\ClientRepositoryInterface;
 use App\Repositories\Contracts\WorkflowRepositoryInterface;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 
 class ImportService
 {
+    /** Sheet checkbox column → matching workflow_stages.code (a legacy flag can cover more than one granular stage). */
+    private const STAGE_FLAG_CODES = [
+        'stage_agreement_signed' => ['agreement_signed'],
+        'stage_website_done'     => ['website_development', 'website_approved'],
+        'stage_branding_done'    => ['logo_design', 'banner_design'],
+        'stage_sourcing_done'    => ['product_sourcing'],
+        'stage_content_done'     => ['marketing_content_creation'],
+        'stage_launch_done'      => ['marketing_launch'],
+    ];
+
+    /** Mappable keys that map directly onto `clients` table columns (or resolve to one, like category_name). */
+    private const CLIENT_FIELDS = [
+        'dfid_number', 'client_name', 'brand_name', 'website', 'page_link',
+        'category_name', 'joining_date', 'client_status', 'doc_status', 'remarks',
+    ];
+
     public function __construct(
         private readonly ClientRepositoryInterface   $clientRepo,
         private readonly WorkflowRepositoryInterface $workflowRepo,
@@ -64,13 +84,14 @@ class ImportService
         $errors          = [];
         $validationErrors = [];
         $seenDfids       = [];
+        $stageIdsByCode  = WorkflowStage::pluck('id', 'code');
 
         DB::beginTransaction();
         try {
             foreach ($rows as $index => $row) {
                 $rowNum = $index + 2;
                 try {
-                    $data = $this->mapRow($row, $mapping);
+                    $data = $this->mapClientFields($row, $mapping);
 
                     $dfid = $data['dfid_number'] ?? null;
 
@@ -96,21 +117,21 @@ class ImportService
 
                         if (empty($changed)) {
                             $skippedCount++;
-                            continue; // nothing changed, no need to write
+                        } else {
+                            $changed['updated_by'] = Auth::id();
+                            $old = $existing->only(array_keys($changed));
+                            $existing->update($changed);
+
+                            $this->activityLog->log(
+                                'Import',
+                                'Client Updated',
+                                $existing->id,
+                                $old,
+                                $changed
+                            );
+                            $updatedCount++;
                         }
-
-                        $changed['updated_by'] = Auth::id();
-                        $old = $existing->only(array_keys($changed));
-                        $existing->update($changed);
-
-                        $this->activityLog->log(
-                            'Import',
-                            'Client Updated',
-                            $existing->id,
-                            $old,
-                            $changed
-                        );
-                        $updatedCount++;
+                        $client = $existing;
                     } else {
                         // CREATE — a brand new client, so sensible defaults for
                         // blank optional fields apply (nothing existing to protect).
@@ -128,6 +149,41 @@ class ImportService
                         $this->workflowRepo->initClientStages($client->id);
                         $this->activityLog->log('Import', 'Client Imported', $client->id, null, $data);
                         $newCount++;
+                    }
+
+                    // ── Workflow stage flags (Website Done, Agreement, …) ──
+                    foreach ($this->mapStageFlags($row, $mapping) as $code => $done) {
+                        if ($done && isset($stageIdsByCode[$code])) {
+                            $this->workflowRepo->toggleStage($client->id, $stageIdsByCode[$code], true, Auth::id());
+                        }
+                    }
+
+                    // ── Product update / payment history (one row per client, updated in place) ──
+                    ['product' => $productData, 'payment' => $paymentData] = $this->mapProductPayment($row, $mapping);
+
+                    if (!empty($productData)) {
+                        $existingUpdate = ProductUpdate::where('client_id', $client->id)->first();
+                        if ($existingUpdate) {
+                            $existingUpdate->update($productData);
+                        } else {
+                            ProductUpdate::create($productData + [
+                                'client_id'  => $client->id,
+                                'created_by' => Auth::id(),
+                                'status'     => $productData['status'] ?? 'Processing',
+                            ]);
+                        }
+                    }
+
+                    if (!empty($paymentData)) {
+                        $existingPayment = Payment::where('client_id', $client->id)->first();
+                        if ($existingPayment) {
+                            $existingPayment->update($paymentData);
+                        } else {
+                            Payment::create($paymentData + [
+                                'client_id'  => $client->id,
+                                'created_by' => Auth::id(),
+                            ]);
+                        }
                     }
                 } catch (\InvalidArgumentException $e) {
                     // Validation error — row skipped intentionally
@@ -178,34 +234,51 @@ class ImportService
     public static function importableFields(): array
     {
         return [
+            // clients table
             'dfid_number'   => 'DFID Number',
             'client_name'   => 'Client Name',
             'brand_name'    => 'Brand / Page Name',
             'website'       => 'Website Link',
+            'page_link'     => 'Page Link (Facebook/Brand Page)',
             'category_name' => 'Category',
             'joining_date'  => 'Joining Date',
             'client_status' => 'Client Status',
             'doc_status'    => 'DOC Status',
             'remarks'       => 'Notes / Remarks',
+
+            // workflow stage flags — routed to client_stage_progress, not a clients column
+            'stage_agreement_signed' => 'Agreement Done',
+            'stage_website_done'     => 'Website Done',
+            'stage_branding_done'    => 'Branding Done',
+            'stage_sourcing_done'    => 'Sourcing Done',
+            'stage_content_done'     => 'Content Done',
+            'stage_launch_done'      => 'Launching Done',
+
+            // product_updates table (one row per client, updated in place)
+            'product_status'        => 'Product Update',
+            'product_received_date' => 'Product Received Date',
+
+            // payments table (one row per client, updated in place)
+            'payment_status' => 'Product Payment (Paid/Partial/Unpaid)',
+            'payment_date'   => 'Product Payment Date',
+            'payment_note'   => 'Note',
         ];
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private function mapRow(array $row, array $mapping): array
+    private function mapClientFields(array $row, array $mapping): array
     {
         $data = [];
-        foreach ($mapping as $field => $colIndex) {
-            if ($colIndex !== null && $colIndex !== '') {
-                $raw   = $row[(int)$colIndex] ?? null;
-                $value = ($raw !== null && trim((string)$raw) !== '') ? trim((string)$raw) : null;
-                $data[$field] = $value;
+        foreach (self::CLIENT_FIELDS as $field) {
+            if (isset($mapping[$field]) && $mapping[$field] !== '' && $mapping[$field] !== null) {
+                $data[$field] = $this->cellValue($row, $mapping[$field]);
             }
         }
 
         // Resolve category name → ID
         if (!empty($data['category_name'])) {
-            $slug = \Illuminate\Support\Str::slug($data['category_name']);
+            $slug = Str::slug($data['category_name']);
             $cat  = Category::firstOrCreate(
                 ['slug' => $slug],
                 ['name' => $data['category_name'], 'slug' => $slug]
@@ -216,11 +289,7 @@ class ImportService
 
         // Normalise joining_date
         if (!empty($data['joining_date'])) {
-            try {
-                $data['joining_date'] = \Carbon\Carbon::parse($data['joining_date'])->format('Y-m-d');
-            } catch (\Exception) {
-                $data['joining_date'] = null;
-            }
+            $data['joining_date'] = $this->parseFlexibleDate($data['joining_date']);
         }
 
         // An invalid (non-blank) status string is sanitized to "not provided"
@@ -237,6 +306,105 @@ class ImportService
         }
 
         return $data;
+    }
+
+    /**
+     * Legacy sheet checkboxes ("Website Done", "Agreement", …) → completed
+     * workflow_stages.code entries. Only truthy cells are returned — a blank or
+     * "no"-ish cell never un-completes a stage that's already done.
+     */
+    private function mapStageFlags(array $row, array $mapping): array
+    {
+        $flags = [];
+        foreach (self::STAGE_FLAG_CODES as $field => $codes) {
+            if (!isset($mapping[$field]) || $mapping[$field] === '' || $mapping[$field] === null) {
+                continue;
+            }
+            if ($this->isTruthyCell($this->cellValue($row, $mapping[$field]))) {
+                foreach ($codes as $code) {
+                    $flags[$code] = true;
+                }
+            }
+        }
+
+        return $flags;
+    }
+
+    private function isTruthyCell(?string $value): bool
+    {
+        if ($value === null) {
+            return false;
+        }
+
+        return \in_array(strtolower($value), ['done', 'true', '1', 'yes', 'y', 'x', '✓', 'checked', 'complete', 'completed'], true);
+    }
+
+    /**
+     * Product Update / Received Date → product_updates; Product Payment /
+     * Payment Date / Note → payments. Both are history tables, but the sheet
+     * only ever carries the client's latest snapshot, so only fields the sheet
+     * actually provided a value for are returned (blank = no change here too).
+     */
+    private function mapProductPayment(array $row, array $mapping): array
+    {
+        $product = [];
+        if ($status = $this->mappedCellValue($row, $mapping, 'product_status')) {
+            $product['status'] = $status;
+        }
+        if ($received = $this->mappedCellValue($row, $mapping, 'product_received_date')) {
+            if ($parsed = $this->parseFlexibleDate($received)) {
+                $product['received_date'] = $parsed;
+            }
+        }
+
+        $payment = [];
+        if ($payStatus = $this->mappedCellValue($row, $mapping, 'payment_status')) {
+            $normalized = Str::title(strtolower($payStatus));
+            if (\in_array($normalized, Payment::$statuses, true)) {
+                $payment['status'] = $normalized;
+            }
+        }
+        if ($payDate = $this->mappedCellValue($row, $mapping, 'payment_date')) {
+            if ($parsed = $this->parseFlexibleDate($payDate)) {
+                $payment['payment_date'] = $parsed;
+            }
+        }
+        if ($note = $this->mappedCellValue($row, $mapping, 'payment_note')) {
+            $payment['remarks'] = $note;
+        }
+
+        return ['product' => $product, 'payment' => $payment];
+    }
+
+    private function mappedCellValue(array $row, array $mapping, string $field): ?string
+    {
+        if (!isset($mapping[$field]) || $mapping[$field] === '' || $mapping[$field] === null) {
+            return null;
+        }
+
+        return $this->cellValue($row, $mapping[$field]);
+    }
+
+    private function cellValue(array $row, int|string $colIndex): ?string
+    {
+        $raw = $row[(int) $colIndex] ?? null;
+
+        return ($raw !== null && trim((string) $raw) !== '') ? trim((string) $raw) : null;
+    }
+
+    /**
+     * Best-effort date parse. Sheet cells sometimes hold a range like
+     * "3 May - 18 May" — take the first side of the range rather than fail.
+     * Unparseable input returns null (never overwrites an existing value).
+     */
+    private function parseFlexibleDate(string $raw): ?string
+    {
+        $first = preg_split('/\s*[-–]\s*/', $raw, 2)[0] ?? $raw;
+        try {
+            return \Carbon\Carbon::parse($first)->format('Y-m-d');
+        } catch (\Exception) {
+            return null;
+        }
     }
 
     /**

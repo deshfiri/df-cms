@@ -33,6 +33,9 @@
                     @if($client->website)
                     · <a href="{{ $client->website_url }}" target="_blank" class="text-muted">{{ $client->website }}</a>
                     @endif
+                    @if($client->page_link)
+                    · <a href="{{ $client->page_link_url }}" target="_blank" class="text-muted"><i class="bi bi-facebook me-1"></i>Page</a>
+                    @endif
                     @if($client->designs_link)
                     · <a href="{{ $client->designs_link_url }}" target="_blank" class="text-muted"><i class="bi bi-palette me-1"></i>Designs</a>
                     @endif
@@ -809,11 +812,12 @@ function loadProducts() {
             $('#productList').html('<p class="text-muted text-center py-4 small">No product updates yet.</p>');
             return;
         }
-        let html = '<div class="table-responsive"><table class="table table-sm align-middle mb-0" style="font-size:.83rem"><thead><tr><th>Status</th><th>Remarks</th><th>By</th><th>Date</th><th></th></tr></thead><tbody>';
+        let html = '<div class="table-responsive"><table class="table table-sm align-middle mb-0" style="font-size:.83rem"><thead><tr><th>Status</th><th>Remarks</th><th>Received</th><th>By</th><th>Date</th><th></th></tr></thead><tbody>';
         data.forEach(function (u) {
             html += `<tr>
                 <td><span class="badge bg-info">${u.status}</span></td>
                 <td>${u.remarks || '—'}</td>
+                <td>${u.received_date ? new Date(u.received_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—'}</td>
                 <td>${u.created_by?.name || '—'}</td>
                 <td>${new Date(u.created_at).toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'})}</td>
                 <td>${canUpdateClient ? '<button class="btn btn-xs btn-outline-danger delete-product" data-id="' + u.id + '"><i class="bi bi-trash"></i></button>' : ''}</td>

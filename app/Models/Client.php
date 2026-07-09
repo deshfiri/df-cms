@@ -11,7 +11,7 @@ class Client extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'dfid_number', 'client_name', 'brand_name', 'website', 'contact_email', 'designs_link',
+        'dfid_number', 'client_name', 'brand_name', 'website', 'page_link', 'contact_email', 'designs_link',
         'category_id', 'joining_date', 'assigned_to', 'client_status',
         'remarks', 'doc_status', 'created_by', 'updated_by',
     ];
@@ -142,6 +142,15 @@ class Client extends Model
             return $this->designs_link;
         }
         return 'https://' . $this->designs_link;
+    }
+
+    public function getPageLinkUrlAttribute(): ?string
+    {
+        if (!$this->page_link) return null;
+        if (str_starts_with($this->page_link, 'http://') || str_starts_with($this->page_link, 'https://')) {
+            return $this->page_link;
+        }
+        return 'https://' . $this->page_link;
     }
 
     // ── Scopes ───────────────────────────────────────────────────────────────

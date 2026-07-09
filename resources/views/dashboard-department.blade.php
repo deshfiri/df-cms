@@ -1,9 +1,9 @@
 @extends('layouts.app')
-@section('title', $departments->implode(' / ') . ' Dashboard')
+@section('title', ($departments->implode(' / ') ?: 'My') . ' Dashboard')
 
 @section('content')
     <div class="mb-3">
-        <h4 class="page-title mb-0">{{ $departments->implode(' / ') }} Team Dashboard</h4>
+        <h4 class="page-title mb-0">{{ $departments->implode(' / ') ?: 'My' }} Team Dashboard</h4>
         <div style="font-size:.7rem;color:var(--text3);margin-top:2px">
             Showing only work assigned to your team{{ $departments->count() > 1 ? 's' : '' }}
         </div>
@@ -110,7 +110,7 @@
         <div class="col-lg-7">
             <div class="card section-card">
                 <div class="card-header py-3">
-                    <h6 class="fw-bold mb-0">Clients Waiting on {{ $departments->implode(' / ') }}</h6>
+                    <h6 class="fw-bold mb-0">Clients Waiting on {{ $departments->implode(' / ') ?: 'Your Team' }}</h6>
                 </div>
                 <div class="card-body p-0">
                     @forelse($pending as $row)
@@ -165,4 +165,65 @@
             </div>
         </div>
     </div>
+
+    @if($paymentSummary)
+        <div class="row g-3 mt-1">
+            <div class="col-6 col-md-3">
+                <div class="card text-center py-3">
+                    <div class="fw-bold fs-4 mb-0 c-green">৳{{ number_format($paymentSummary['todayAmount'], 0) }}</div>
+                    <div style="font-size:.69rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">Collected
+                        Today</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card text-center py-3">
+                    <div class="fw-bold fs-4 mb-0" style="color:var(--primary)">৳{{ number_format($paymentSummary['thisMonthAmount'], 0) }}</div>
+                    <div style="font-size:.69rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">Collected
+                        This Month</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card text-center py-3">
+                    <div class="fw-bold fs-4 mb-0 c-yellow">{{ $paymentSummary['pendingCount'] }}</div>
+                    <div style="font-size:.69rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">Unpaid
+                        Invoices</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card text-center py-3">
+                    <div class="fw-bold fs-4 mb-0 c-red">৳{{ number_format($paymentSummary['pendingAmount'], 0) }}</div>
+                    <div style="font-size:.69rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">Unpaid
+                        Amount</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3 mt-1">
+            <div class="col-12">
+                <div class="card section-card">
+                    <div class="card-header py-3">
+                        <h6 class="fw-bold mb-0">Recent Payments</h6>
+                    </div>
+                    <div class="card-body p-0">
+                        @forelse($recentPayments as $p)
+                            <div class="d-flex align-items-center gap-3 p-3" style="border-bottom:1px solid var(--border)">
+                                <div class="flex-grow-1">
+                                    <div class="fw-semibold small" style="color:var(--text)">{{ $p->client->client_name ?? '—' }}</div>
+                                    <div style="font-size:.72rem;color:var(--text3)">{{ $p->payment_date?->format('d M Y') ?? '—' }} · {{ $p->payment_method }}</div>
+                                </div>
+                                <div class="fw-semibold small" style="color:var(--text)">৳{{ number_format($p->amount, 0) }}</div>
+                                @php $cls = ['Paid' => 'spill-completed', 'Partial' => 'spill-warning', 'Unpaid' => 'spill-hold'][$p->status] ?? 'spill-hold'; @endphp
+                                <span class="spill {{ $cls }}">{{ $p->status }}</span>
+                            </div>
+                        @empty
+                            <div class="text-center py-5" style="color:var(--text3)">
+                                <i class="bi bi-cash-coin" style="font-size:2rem"></i>
+                                <div class="mt-2" style="font-size:.82rem">No payments recorded yet.</div>
+                            </div>
+                        @endforelse
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 @endsection

@@ -3,8 +3,10 @@
 namespace App\Providers;
 
 use App\Models\Client;
+use App\Models\EmployeeRequest;
 use App\Models\Task;
 use App\Policies\ClientPolicy;
+use App\Policies\EmployeeRequestPolicy;
 use App\Policies\TaskPolicy;
 use App\Services\Contracts\GoogleCalendarServiceInterface;
 use App\Services\GoogleCalendarService;
@@ -23,6 +25,7 @@ class AppServiceProvider extends ServiceProvider
     {
         Gate::policy(Client::class, ClientPolicy::class);
         Gate::policy(Task::class, TaskPolicy::class);
+        Gate::policy(EmployeeRequest::class, EmployeeRequestPolicy::class);
 
         // Super Admins bypass all gates
         Gate::before(function ($user, $ability) {

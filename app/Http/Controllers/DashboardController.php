@@ -7,6 +7,7 @@ use App\Models\Client;
 use App\Models\ClientMeeting;
 use App\Models\ClientOwnershipTransfer;
 use App\Models\ClientStageProgress;
+use App\Models\EmployeeRequest;
 use App\Models\ImportLog;
 use App\Models\Payment;
 use App\Models\ProductUpdate;
@@ -24,36 +25,37 @@ class DashboardController extends Controller
 
     /** Pipeline segment label => the workflow_stages.code values it aggregates. */
     private const PIPELINE_SEGMENTS = [
-        'Deal'      => ['deal_completed', 'agreement_signed'],
-        'Meeting'   => ['meeting_scheduled'],
+        'Deal' => ['deal_completed', 'agreement_signed'],
+        'Meeting' => ['meeting_scheduled'],
         'Documents' => ['documents_collected', 'business_info_submitted'],
-        'Design'    => ['brand_name_finalized', 'logo_design', 'banner_design'],
-        'Website'   => ['website_development', 'website_approved'],
-        'Products'  => ['product_sourcing', 'product_upload'],
+        'Design' => ['brand_name_finalized', 'logo_design', 'banner_design'],
+        'Website' => ['website_development', 'website_approved'],
+        'Products' => ['product_sourcing', 'product_upload'],
         'Marketing' => ['facebook_page_setup', 'marketing_content_creation', 'video_content_creation', 'marketing_launch'],
-        'Support'   => ['ongoing_support', 'client_active', 'deal_closed'],
+        'Support' => ['ongoing_support', 'client_active', 'deal_closed'],
     ];
 
     /** Department => the section label shown on that team's dashboard, matching how each team actually talks about their queue. */
     private const DEPARTMENT_SECTION_LABELS = [
-        'Sales'     => 'Deals & Meetings',
-        'Document'  => 'Document Queue',
-        'Design'    => 'Design Queue',
-        'Website'   => 'Website Tasks',
-        'Product'   => 'Product Queue',
+        'Sales' => 'Deals & Meetings',
+        'Document' => 'Document Queue',
+        'Design' => 'Design Queue',
+        'Website' => 'Website Tasks',
+        'Product' => 'Product Queue',
         'Marketing' => 'Campaign Tasks',
-        'Support'   => 'Active Client Support',
+        'Support' => 'Active Client Support',
     ];
 
     public function __construct(
         private readonly WorkflowService $workflowService,
-    ) {}
+    ) {
+    }
 
     public function index()
     {
         $user = Auth::user();
 
-        if (!$user->hasRole(['Super Admin', 'Manager']) && $user->hasRole(self::DEPARTMENT_ROLES)) {
+        if (!$user->hasRole(['Super Admin', 'Manager'])) {
             return $this->departmentDashboard($user);
         }
 
@@ -65,10 +67,10 @@ class DashboardController extends Controller
             ->toArray();
 
         $statusCounts = [
-            'Running'   => $rawStatus['Running']   ?? 0,
-            'Warning'   => $rawStatus['Warning']   ?? 0,
+            'Running' => $rawStatus['Running'] ?? 0,
+            'Warning' => $rawStatus['Warning'] ?? 0,
             'Completed' => $rawStatus['Completed'] ?? 0,
-            'Hold'      => $rawStatus['Hold']      ?? 0,
+            'Hold' => $rawStatus['Hold'] ?? 0,
             'Cancelled' => $rawStatus['Cancelled'] ?? 0,
         ];
         $total = array_sum($statusCounts);
@@ -109,7 +111,7 @@ class DashboardController extends Controller
         // Clients with pending workflow stages (progress < 100%)
         $pendingWorkflow = Client::withoutTrashed()
             ->whereIn('client_status', ['Running', 'Warning'])
-            ->whereHas('stageProgress', fn ($q) => $q->where('is_completed', false))
+            ->whereHas('stageProgress', fn($q) => $q->where('is_completed', false))
             ->count();
 
         // ── Payment summary ───────────────────────────────────────────
@@ -161,8 +163,8 @@ class DashboardController extends Controller
             ->selectRaw('COUNT(clients.id) as client_count')
             ->leftJoin('clients', function ($j) {
                 $j->on('clients.assigned_to', '=', 'users.id')
-                  ->whereNull('clients.deleted_at')
-                  ->whereIn('clients.client_status', ['Running', 'Warning']);
+                    ->whereNull('clients.deleted_at')
+                    ->whereIn('clients.client_status', ['Running', 'Warning']);
             })
             ->groupBy('users.id', 'users.name')
             ->orderByDesc('client_count')
@@ -171,24 +173,24 @@ class DashboardController extends Controller
 
         // ── Recent ownership transfers ─────────────────────────────────
         $recentTransfers = ClientOwnershipTransfer::with([
-                'client:id,client_name,dfid_number',
-                'previousOwner:id,name',
-                'newOwner:id,name',
-                'transferredBy:id,name',
-            ])
+            'client:id,client_name,dfid_number',
+            'previousOwner:id,name',
+            'newOwner:id,name',
+            'transferredBy:id,name',
+        ])
             ->latest()
             ->limit(8)
             ->get();
 
         // ── Charts (cached for 10 minutes) ───────────────────────────
-        $monthlyData    = Cache::remember('dash.monthly_clients',    600, fn () => $this->monthlyClientData());
-        $monthlyPayData = Cache::remember('dash.monthly_payments',   600, fn () => $this->monthlyPaymentData());
-        $categoryData   = Cache::remember('dash.category_dist',      600, fn () => $this->categoryDistribution());
-        $workflowData   = Cache::remember('dash.workflow_completion', 600, fn () => $this->workflowCompletionData());
+        $monthlyData = Cache::remember('dash.monthly_clients', 600, fn() => $this->monthlyClientData());
+        $monthlyPayData = Cache::remember('dash.monthly_payments', 600, fn() => $this->monthlyPaymentData());
+        $categoryData = Cache::remember('dash.category_dist', 600, fn() => $this->categoryDistribution());
+        $workflowData = Cache::remember('dash.workflow_completion', 600, fn() => $this->workflowCompletionData());
 
         // ── Workflow-focused top area ─────────────────────────────────
-        $delayedCount = Cache::remember('dash.delayed_count', 600, fn () => $this->delayedClientCount());
-        $pipeline     = Cache::remember('dash.pipeline_segments', 600, fn () => $this->pipelineSegments());
+        $delayedCount = Cache::remember('dash.delayed_count', 600, fn() => $this->delayedClientCount());
+        $pipeline = Cache::remember('dash.pipeline_segments', 600, fn() => $this->pipelineSegments());
 
         $myTasks = Task::with('client:id,client_name,dfid_number')
             ->where('assigned_to', $user->id)
@@ -197,16 +199,45 @@ class DashboardController extends Controller
             ->limit(8)
             ->get();
 
+        // ── Pending employee requests (Super Admin / Manager only) ─────
+        $pendingRequests = EmployeeRequest::with('requestedBy:id,name')
+            ->pending()
+            ->latest()
+            ->limit(5)
+            ->get();
+        $pendingRequestCount = EmployeeRequest::pending()->count();
+
         return view('dashboard', compact(
-            'statusCounts', 'total',
-            'todayUpdates', 'todayPayments', 'todayPaymentCount',
-            'pendingPayments', 'pendingPaymentAmount',
-            'clientsWithoutUpdate', 'pendingWorkflow',
-            'thisMonthPayments', 'lastMonthPayments', 'paymentGrowth',
-            'recent', 'recentImports', 'recentActivities',
-            'topEmployees', 'upcomingMeetings', 'scheduledMeetingsCount', 'todayMeetingsCount',
-            'monthlyData', 'monthlyPayData', 'categoryData', 'workflowData',
-            'delayedCount', 'pipeline', 'myTasks', 'recentTransfers', 'unassignedClientCount'
+            'statusCounts',
+            'total',
+            'todayUpdates',
+            'todayPayments',
+            'todayPaymentCount',
+            'pendingPayments',
+            'pendingPaymentAmount',
+            'clientsWithoutUpdate',
+            'pendingWorkflow',
+            'thisMonthPayments',
+            'lastMonthPayments',
+            'paymentGrowth',
+            'recent',
+            'recentImports',
+            'recentActivities',
+            'topEmployees',
+            'upcomingMeetings',
+            'scheduledMeetingsCount',
+            'todayMeetingsCount',
+            'monthlyData',
+            'monthlyPayData',
+            'categoryData',
+            'workflowData',
+            'delayedCount',
+            'pipeline',
+            'myTasks',
+            'recentTransfers',
+            'unassignedClientCount',
+            'pendingRequests',
+            'pendingRequestCount'
         ));
     }
 
@@ -233,11 +264,11 @@ class DashboardController extends Controller
     private function pipelineSegments(): array
     {
         $activeClientIds = Client::withoutTrashed()->whereIn('client_status', ['Running', 'Warning'])->pluck('id');
-        $totalActive     = $activeClientIds->count();
+        $totalActive = $activeClientIds->count();
 
         $segments = [];
         foreach (self::PIPELINE_SEGMENTS as $label => $codes) {
-            $stageIds   = WorkflowStage::whereIn('code', $codes)->pluck('id');
+            $stageIds = WorkflowStage::whereIn('code', $codes)->pluck('id');
             $stageCount = $stageIds->count();
 
             if ($stageCount === 0 || $totalActive === 0) {
@@ -252,7 +283,7 @@ class DashboardController extends Controller
                 ->groupBy('client_id')
                 ->pluck('cnt', 'client_id');
 
-            $completedClients = $approvedCounts->filter(fn ($cnt) => $cnt >= $stageCount)->count();
+            $completedClients = $approvedCounts->filter(fn($cnt) => $cnt >= $stageCount)->count();
 
             $activeInSegment = ClientStageProgress::whereIn('client_id', $activeClientIds)
                 ->whereIn('stage_id', $stageIds)
@@ -268,9 +299,9 @@ class DashboardController extends Controller
                 ->count('client_id');
 
             $segments[] = [
-                'label'    => $label,
-                'active'   => $activeInSegment,
-                'delayed'  => $delayedInSegment,
+                'label' => $label,
+                'active' => $activeInSegment,
+                'delayed' => $delayedInSegment,
                 'progress' => (int) round(($completedClients / $totalActive) * 100),
             ];
         }
@@ -290,8 +321,8 @@ class DashboardController extends Controller
             ->orderBy('month')
             ->pluck('count', 'month');
 
-        $labels = collect(range(1, 12))->map(fn ($m) => date('M', mktime(0, 0, 0, $m, 1)));
-        $data   = collect(range(1, 12))->map(fn ($m) => $rows->get($m, 0));
+        $labels = collect(range(1, 12))->map(fn($m) => date('M', mktime(0, 0, 0, $m, 1)));
+        $data = collect(range(1, 12))->map(fn($m) => $rows->get($m, 0));
 
         return ['labels' => $labels->values()->all(), 'data' => $data->values()->all()];
     }
@@ -305,8 +336,8 @@ class DashboardController extends Controller
             ->orderBy('month')
             ->pluck('total', 'month');
 
-        $labels = collect(range(1, 12))->map(fn ($m) => date('M', mktime(0, 0, 0, $m, 1)));
-        $data   = collect(range(1, 12))->map(fn ($m) => (float)($rows->get($m, 0)));
+        $labels = collect(range(1, 12))->map(fn($m) => date('M', mktime(0, 0, 0, $m, 1)));
+        $data = collect(range(1, 12))->map(fn($m) => (float) ($rows->get($m, 0)));
 
         return ['labels' => $labels->values()->all(), 'data' => $data->values()->all()];
     }
@@ -320,8 +351,8 @@ class DashboardController extends Controller
             ->get();
 
         return [
-            'labels' => $rows->map(fn ($r) => $r->category?->name ?? 'Unknown')->all(),
-            'data'   => $rows->pluck('count')->all(),
+            'labels' => $rows->map(fn($r) => $r->category?->name ?? 'Unknown')->all(),
+            'data' => $rows->pluck('count')->all(),
         ];
     }
 
@@ -336,7 +367,7 @@ class DashboardController extends Controller
 
         return [
             'labels' => $stages->pluck('name')->all(),
-            'data'   => $stages->map(fn ($s) => $completedCounts->get($s->id, 0))->all(),
+            'data' => $stages->map(fn($s) => $completedCounts->get($s->id, 0))->all(),
         ];
     }
 
@@ -346,17 +377,17 @@ class DashboardController extends Controller
         $departments = $user->getRoleNames()->intersect(self::DEPARTMENT_ROLES)->values();
 
         $pending = ClientStageProgress::with(['client:id,client_name,dfid_number,client_status', 'stage'])
-            ->whereHas('stage', fn ($q) => $q->whereIn('department', $departments)->where('status', true))
+            ->whereHas('stage', fn($q) => $q->whereIn('department', $departments)->where('status', true))
             ->whereIn('status', [
                 ClientStageProgress::STATUS_PENDING,
                 ClientStageProgress::STATUS_SUBMITTED,
                 ClientStageProgress::STATUS_NEED_REVISION,
             ])
             ->get()
-            ->filter(fn ($progress) => !$this->workflowService->isLocked($progress->client_id, $progress->stage))
+            ->filter(fn($progress) => !$this->workflowService->isLocked($progress->client_id, $progress->stage))
             ->values();
 
-        $completedThisWeek = ClientStageProgress::whereHas('stage', fn ($q) => $q->whereIn('department', $departments)->where('status', true))
+        $completedThisWeek = ClientStageProgress::whereHas('stage', fn($q) => $q->whereIn('department', $departments)->where('status', true))
             ->where('status', ClientStageProgress::STATUS_APPROVED)
             ->where('completed_at', '>=', now()->startOfWeek())
             ->count();
@@ -386,7 +417,7 @@ class DashboardController extends Controller
             ->whereNotIn('status', ['Completed', 'Cancelled'])
             ->where(function ($q) use ($user, $myClientIds) {
                 $q->where('assigned_to', $user->id)
-                  ->orWhereIn('client_id', $myClientIds);
+                    ->orWhereIn('client_id', $myClientIds);
             })
             ->count();
 
@@ -402,17 +433,40 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
+        // ── Payment panel (Accounts / anyone with payment visibility) ──
+        $paymentSummary = null;
+        $recentPayments = null;
+
+        if ($user->can('view payments')) {
+            $paymentSummary = [
+                'todayAmount' => Payment::whereDate('payment_date', today())->where('status', 'Paid')->sum('amount'),
+                'thisMonthAmount' => Payment::where('status', 'Paid')
+                    ->whereMonth('payment_date', now()->month)
+                    ->whereYear('payment_date', now()->year)
+                    ->sum('amount'),
+                'pendingCount' => Payment::where('status', 'Unpaid')->count(),
+                'pendingAmount' => Payment::where('status', 'Unpaid')->sum('amount'),
+            ];
+
+            $recentPayments = Payment::with('client:id,client_name,dfid_number')
+                ->latest('payment_date')
+                ->limit(6)
+                ->get();
+        }
+
         return view('dashboard-department', [
-            'departments'              => $departments,
-            'pending'                  => $pending,
-            'completedThisWeek'        => $completedThisWeek,
-            'myTasks'                  => $myTasks,
-            'overdueTaskCount'         => $overdueTaskCount,
-            'myAssignedClientCount'    => $myAssignedClientCount,
-            'myActiveClientCount'      => $myActiveClientCount,
-            'followUpsDueToday'        => $followUpsDueToday,
-            'recentlyAssignedClients'  => $recentlyAssignedClients,
-            'recentlyTransferredToMe'  => $recentlyTransferredToMe,
+            'departments' => $departments,
+            'pending' => $pending,
+            'completedThisWeek' => $completedThisWeek,
+            'myTasks' => $myTasks,
+            'overdueTaskCount' => $overdueTaskCount,
+            'myAssignedClientCount' => $myAssignedClientCount,
+            'myActiveClientCount' => $myActiveClientCount,
+            'followUpsDueToday' => $followUpsDueToday,
+            'recentlyAssignedClients' => $recentlyAssignedClients,
+            'recentlyTransferredToMe' => $recentlyTransferredToMe,
+            'paymentSummary' => $paymentSummary,
+            'recentPayments' => $recentPayments,
         ]);
     }
 }

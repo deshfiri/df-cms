@@ -19,6 +19,20 @@
             max(0, (int) round($tG * .82)),
             max(0, (int) round($tB * .82))
         );
+        // Sidebar is a permanently dark surface, so we shade the theme color
+        // toward black (scaling every channel down keeps hue/saturation intact)
+        // rather than using it at full brightness — keeps white nav text readable
+        // no matter how light a theme color is picked.
+        $shade = fn($f) => sprintf(
+            '#%02x%02x%02x',
+            (int) round($tR * $f),
+            (int) round($tG * $f),
+            (int) round($tB * $f)
+        );
+        $sbBgTop = $shade(.30);
+        $sbBgBottom = $shade(.16);
+        $sbBgTopDarkMode = $shade(.20);
+        $sbBgBottomDarkMode = $shade(.10);
     @endphp
     <title>@yield('title', 'Dashboard') — {{ $appName }}</title>
 
@@ -73,7 +87,12 @@
             --text2: #475569;
             --text3: #94a3b8;
 
-            --sb-bg: #0f172a;
+            --sb-bg-top:
+                {{ $sbBgTop }}
+            ;
+            --sb-bg-bottom:
+                {{ $sbBgBottom }}
+            ;
             --sb-text: rgba(255, 255, 255, .55);
             --sb-hover: rgba(255, 255, 255, .07);
             --sb-active: rgba(255, 255, 255, .1);
@@ -259,8 +278,8 @@
 
         [data-theme="dark"] .tb-search-box:focus-within {
             background: #1f2a40;
-            border-color: var(--c-blue);
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, .2);
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(var(--primary-rgb), .2);
         }
 
         [data-theme="dark"] .tb-kbd {
@@ -271,7 +290,12 @@
 
         /* ── Dark mode sidebar upgrades ─────────────────────────────── */
         [data-theme="dark"] #sidebar {
-            background: #080e1a;
+            --sb-bg-top:
+                {{ $sbBgTopDarkMode }}
+            ;
+            --sb-bg-bottom:
+                {{ $sbBgBottomDarkMode }}
+            ;
             border-right: 1px solid #1a2a38;
         }
 
@@ -285,13 +309,13 @@
         }
 
         [data-theme="dark"] .sb-link.active {
-            background: rgba(59, 130, 246, .16);
+            background: rgba(var(--primary-rgb), .16);
             color: #F8FAFC;
-            box-shadow: inset 3px 0 0 #3B82F6;
+            box-shadow: inset 3px 0 0 var(--primary);
         }
 
         [data-theme="dark"] .sb-link.active i {
-            color: #3B82F6;
+            color: var(--primary);
         }
 
         [data-theme="dark"] .sb-section {
@@ -523,7 +547,7 @@
             left: 0;
             width: var(--sidebar-w);
             height: 100vh;
-            background: var(--sb-bg);
+            background: linear-gradient(180deg, var(--sb-bg-top), var(--sb-bg-bottom));
             display: flex;
             flex-direction: column;
             z-index: 1040;
@@ -988,18 +1012,18 @@
         }
 
         [data-theme="dark"] .btn-primary {
-            --bs-btn-bg: #2563EB;
-            --bs-btn-border-color: #2563EB;
-            --bs-btn-hover-bg: #3B82F6;
-            --bs-btn-hover-border-color: #3B82F6;
-            --bs-btn-active-bg: #1D4ED8;
-            --bs-btn-active-border-color: #1D4ED8;
+            --bs-btn-bg: var(--primary);
+            --bs-btn-border-color: var(--primary);
+            --bs-btn-hover-bg: var(--primary-dark);
+            --bs-btn-hover-border-color: var(--primary-dark);
+            --bs-btn-active-bg: var(--primary-dark);
+            --bs-btn-active-border-color: var(--primary-dark);
             --bs-btn-color: #fff;
-            box-shadow: 0 4px 14px rgba(37, 99, 235, .35);
+            box-shadow: 0 4px 14px rgba(var(--primary-rgb), .35);
         }
 
         [data-theme="dark"] .btn-primary:hover {
-            box-shadow: 0 4px 18px rgba(59, 130, 246, .45);
+            box-shadow: 0 4px 18px rgba(var(--primary-rgb), .45);
         }
 
         /* ── Badges ─────────────────────────────────────────────────── */
@@ -1927,6 +1951,12 @@
                 title="Clients" data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-people"></i><span class="sb-lbl">Clients</span>
             </a>
+            @can('view payments')
+            <a href="{{ route('payments.index') }}" class="sb-link {{ request()->routeIs('payments.*') ? 'active' : '' }}"
+                title="Payments" data-bs-toggle="tooltip" data-bs-placement="right">
+                <i class="bi bi-cash-coin"></i><span class="sb-lbl">Payments</span>
+            </a>
+            @endcan
 
             <a href="{{ route('meetings.all') }}"
                 class="sb-link {{ request()->routeIs('meetings.all') ? 'active' : '' }}" title="All Meetings"
@@ -1946,6 +1976,10 @@
                     <i class="bi bi-list-check"></i><span class="sb-lbl">Tasks</span>
                 </a>
             @endcan
+            <a href="{{ route('requests.index') }}" class="sb-link {{ request()->routeIs('requests.*') ? 'active' : '' }}"
+                title="Requests" data-bs-toggle="tooltip" data-bs-placement="right">
+                <i class="bi bi-inbox"></i><span class="sb-lbl">Requests</span>
+            </a>
             <a href="{{ route('reviews.index') }}" class="sb-link {{ request()->routeIs('reviews.*') ? 'active' : '' }}"
                 title="Reviews & Reports" data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-chat-square-text"></i><span class="sb-lbl">Reviews & Reports</span>

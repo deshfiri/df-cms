@@ -105,6 +105,22 @@
                         <i class="bi bi-x-lg"></i> Clear
                     </button>
                 </div>
+                <div class="col-sm-4">
+                    <label class="form-label">ID Range</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" id="filterIdFrom" class="form-control" placeholder="From #">
+                        <span class="input-group-text">–</span>
+                        <input type="number" id="filterIdTo" class="form-control" placeholder="To #">
+                    </div>
+                </div>
+                <div class="col-sm-4">
+                    <label class="form-label">DFID Range</label>
+                    <div class="input-group input-group-sm">
+                        <input type="text" id="filterDfidFrom" class="form-control" placeholder="e.g. DF925010">
+                        <span class="input-group-text">–</span>
+                        <input type="text" id="filterDfidTo" class="form-control" placeholder="e.g. DF925050">
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -181,7 +197,7 @@ $('#advToggle').on('click', function () {
 });
 $('#applyFilters').on('click',  function () { if (window.dfTable) window.dfTable.ajax.reload(); });
 $('#clearFilters').on('click', function () {
-    $('#filterCategory,#filterUser').val('');
+    $('#filterCategory,#filterUser,#filterIdFrom,#filterIdTo,#filterDfidFrom,#filterDfidTo').val('');
     activeStatus = ''; noUpdate = false; syncPills();
     if (window.dfTable) window.dfTable.search('').ajax.reload();
 });
@@ -198,6 +214,10 @@ $(function () {
                 d.category_id = $('#filterCategory').val();
                 d.assigned_to = $('#filterUser').val();
                 d.no_update   = noUpdate ? 1 : 0;
+                d.id_from     = $('#filterIdFrom').val();
+                d.id_to       = $('#filterIdTo').val();
+                d.dfid_from   = $('#filterDfidFrom').val();
+                d.dfid_to     = $('#filterDfidTo').val();
                 var gs = $('#globalSearch').val();
                 if (gs) d.search.value = gs;
                 window._dtSearch = d.search.value;

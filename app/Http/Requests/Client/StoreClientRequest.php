@@ -20,6 +20,7 @@ class StoreClientRequest extends FormRequest
             'client_name'   => ['required', 'string', 'max:255'],
             'brand_name'    => ['required', 'string', 'max:255'],
             'website'       => ['nullable', 'url', 'max:255'],
+            'page_link'     => ['nullable', 'url', 'max:255'],
             'designs_link'  => ['nullable', 'url', 'max:255'],
             'category_id'   => ['required', 'exists:categories,id'],
             'joining_date'  => ['nullable', 'date'],

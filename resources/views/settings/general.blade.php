@@ -38,6 +38,20 @@
                 <label class="form-label small fw-semibold mb-2">Presets</label>
                 <div class="d-flex flex-wrap gap-2 mb-3" id="colorPresets">
                     @php
+                    // Same shading the real sidebar uses (see layouts/app.blade.php) —
+                    // scale channels toward black so the preview matches reality.
+                    $previewHex = ltrim($themeColor, '#');
+                    $tR = hexdec(substr($previewHex, 0, 2));
+                    $tG = hexdec(substr($previewHex, 2, 2));
+                    $tB = hexdec(substr($previewHex, 4, 2));
+                    $sbShade = fn($f) => sprintf(
+                        '#%02x%02x%02x',
+                        (int) round($tR * $f),
+                        (int) round($tG * $f),
+                        (int) round($tB * $f)
+                    );
+                    $sbPreviewTop = $sbShade(.30);
+                    $sbPreviewBottom = $sbShade(.16);
                     $presets = [
                         '#1F3C88' => 'Navy (Default)',
                         '#2563EB' => 'Blue',
@@ -120,7 +134,7 @@
             </div>
             <div class="card-body">
                 {{-- Mini sidebar --}}
-                <div id="previewSidebar" class="rounded-3 p-3 mb-3" style="background:linear-gradient(180deg,{{ $themeColor }},{{ $themeColorDark }});width:180px">
+                <div id="previewSidebar" class="rounded-3 p-3 mb-3" style="background:linear-gradient(180deg,{{ $sbPreviewTop }},{{ $sbPreviewBottom }});width:180px">
                     <div id="previewBrand" class="d-flex align-items-center gap-2 pb-2 mb-2" style="border-bottom:1px solid rgba(255,255,255,.15)">
                         @if($appLogo)
                         <img id="previewLogoImg" src="{{ asset($appLogo) }}" alt="Logo" style="max-height:32px;max-width:120px;object-fit:contain">
@@ -179,6 +193,14 @@ function hexToRgb(hex) {
     return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
 }
 
+// Scales channels toward black (keeps hue/saturation) — matches the PHP
+// $sbShade() in this view and layouts/app.blade.php, used for the sidebar.
+function shade(hex, f) {
+    const [r, g, b] = hexToRgb(hex);
+    const c = v => Math.round(v * f);
+    return `#${c(r).toString(16).padStart(2,'0')}${c(g).toString(16).padStart(2,'0')}${c(b).toString(16).padStart(2,'0')}`;
+}
+
 function isValidHex(v) { return /^#[0-9A-Fa-f]{6}$/.test(v); }
 
 // ── Apply theme color live ────────────────────────────────────────────────────
@@ -218,8 +240,12 @@ function applyTheme(color) {
         el.style.setProperty('--bs-btn-active-border-color', color);
     });
 
-    // Mini sidebar preview
-    $('#previewSidebar').css('background', `linear-gradient(180deg, ${color}, ${dark})`);
+    // Sidebar (real one + mini preview) — shaded toward black, not full brightness
+    const sbTop = shade(color, .30);
+    const sbBottom = shade(color, .16);
+    root.style.setProperty('--sb-bg-top',    sbTop);
+    root.style.setProperty('--sb-bg-bottom', sbBottom);
+    $('#previewSidebar').css('background', `linear-gradient(180deg, ${sbTop}, ${sbBottom})`);
 
     // Highlight active preset
     $('.color-preset').css('box-shadow', '').css('transform', '');

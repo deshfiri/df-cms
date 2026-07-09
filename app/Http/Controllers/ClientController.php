@@ -297,6 +297,18 @@ class ClientController extends Controller
             $query->whereIn('client_status', ['Running', 'Warning'])
                   ->whereDoesntHave('productUpdates', fn ($q) => $q->where('created_at', '>=', now()->subDays(30)));
         }
+        if ($request->filled('id_from')) {
+            $query->where('id', '>=', (int) $request->id_from);
+        }
+        if ($request->filled('id_to')) {
+            $query->where('id', '<=', (int) $request->id_to);
+        }
+        if ($request->filled('dfid_from')) {
+            $query->where('dfid_number', '>=', trim($request->dfid_from));
+        }
+        if ($request->filled('dfid_to')) {
+            $query->where('dfid_number', '<=', trim($request->dfid_to));
+        }
 
         // Global search handled here (bypasses Yajra column-based SQL search which fails on relations)
         $searchTerm = $request->input('search.value');

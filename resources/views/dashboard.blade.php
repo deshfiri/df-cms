@@ -92,7 +92,7 @@
 [data-theme="dark"] .chart-card { background: #111827; border-color: #1f2d40; box-shadow: 0 4px 20px rgba(0,0,0,.4); }
 [data-theme="dark"] .chart-title { color: var(--text3); letter-spacing: .08em; }
 [data-theme="dark"] .pipeline-card { background: #111827; border-color: #1f2d40; }
-[data-theme="dark"] .pipeline-card:hover { border-color: #3B82F6; }
+[data-theme="dark"] .pipeline-card:hover { border-color: var(--primary); }
 [data-theme="dark"] .mytask-row { border-bottom-color: #1a2a38; }
 
 /* ── Mobile ───────────────────────────────────────────────────── */
@@ -263,6 +263,34 @@ $topCards = [
         </div>
     </div>
 </div>
+
+@can('manage requests')
+<div class="row g-3 mb-4">
+    <div class="col-12">
+        <div class="dash-widget">
+            <div class="wh d-flex align-items-center justify-content-between">
+                <h6><i class="bi bi-inbox me-2" style="color:var(--primary)"></i>Pending Requests
+                    @if($pendingRequestCount)<span class="spill spill-pending ms-2" style="font-size:.65rem">{{ $pendingRequestCount }}</span>@endif
+                </h6>
+                <a href="{{ route('requests.index') }}" class="btn btn-sm px-2 py-1" style="font-size:.69rem;background:rgba(var(--primary-rgb),.08);color:var(--primary);border:none">View All</a>
+            </div>
+            <div style="max-height:260px;overflow-y:auto">
+                @forelse($pendingRequests as $r)
+                <div class="d-flex align-items-center justify-content-between py-2 px-3 border-bottom" style="border-color:var(--border)">
+                    <div class="min-w-0">
+                        <div class="fw-semibold text-truncate" style="font-size:.79rem;color:var(--text)">{{ $r->subject }}</div>
+                        <div class="text-truncate" style="font-size:.68rem;color:var(--text3)">{{ $r->requestedBy?->name ?? 'Unknown' }} &middot; {{ $r->created_at->diffForHumans() }}</div>
+                    </div>
+                    <span class="spill spill-pending flex-shrink-0" style="font-size:.6rem">Pending</span>
+                </div>
+                @empty
+                <div class="empty-state py-4"><i class="bi bi-check2-circle" style="font-size:1.6rem;color:var(--text3)"></i><p style="font-size:.78rem">No pending requests</p></div>
+                @endforelse
+            </div>
+        </div>
+    </div>
+</div>
+@endcan
 
 {{-- ══════════════════════════════════════════════════════════════
      Secondary analytics — same data as before, now below the fold
@@ -543,7 +571,7 @@ var monthlyChart = new Chart(monthCtx, {
             label: 'New Clients',
             data: @json($monthlyData['data']),
             backgroundColor: isDark
-                ? function(ctx) { var g = monthCtx.createLinearGradient(0,0,0,200); g.addColorStop(0,'rgba(59,130,246,.85)'); g.addColorStop(1,'rgba(59,130,246,.3)'); return g; }
+                ? function(ctx) { var g = monthCtx.createLinearGradient(0,0,0,200); g.addColorStop(0,'rgba(' + primaryRgb + ',.85)'); g.addColorStop(1,'rgba(' + primaryRgb + ',.3)'); return g; }
                 : 'rgba(' + primaryRgb + ',.75)',
             borderRadius: 6,
             borderSkipped: false,

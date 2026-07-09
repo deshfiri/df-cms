@@ -39,10 +39,17 @@
                             @error('brand_name')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label fw-semibold small">Website / Page Link</label>
+                            <label class="form-label fw-semibold small">Website Link</label>
                             <input type="url" name="website" value="{{ old('website', $client->website) }}"
                                    class="form-control @error('website') is-invalid @enderror">
                             @error('website')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold small">Page Link (Facebook/Brand Page)</label>
+                            <input type="url" name="page_link" value="{{ old('page_link', $client->page_link) }}"
+                                   class="form-control @error('page_link') is-invalid @enderror"
+                                   placeholder="https://facebook.com/...">
+                            @error('page_link')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
                         <div class="col-md-6">
                             <label class="form-label fw-semibold small">Designs Link</label>

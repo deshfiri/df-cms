@@ -8,6 +8,7 @@ use App\Http\Controllers\SettingController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\EmployeeRequestController;
 use App\Http\Controllers\ExportController;
 use App\Http\Controllers\FileManagerController;
 use App\Http\Controllers\ImportController;
@@ -129,6 +130,17 @@ Route::middleware(['auth'])->group(function () {
     Route::post('tasks/{task}/attachments', [TaskController::class, 'storeAttachment'])->name('tasks.attachments.store');
     Route::get('tasks/{task}/attachments/{attachment}/download', [TaskController::class, 'downloadAttachment'])->name('tasks.attachments.download');
     Route::delete('tasks/{task}/attachments/{attachment}', [TaskController::class, 'destroyAttachment'])->name('tasks.attachments.destroy');
+
+    // Employee requests (standalone)
+    Route::resource('requests', EmployeeRequestController::class)
+        ->only(['index', 'store', 'destroy'])
+        ->parameters(['requests' => 'employeeRequest']);
+    Route::post('requests/{employeeRequest}/respond', [EmployeeRequestController::class, 'respond'])->name('requests.respond');
+
+    // Payments (standalone)
+    Route::get('payments', [PaymentController::class, 'all'])->name('payments.index');
+    Route::post('payments', [PaymentController::class, 'storeAny'])->name('payments.store');
+    Route::delete('payments/{payment}', [PaymentController::class, 'destroyAny'])->name('payments.destroy');
 
     // Meetings (standalone)
     Route::get('meetings/book', [MeetingController::class, 'bookForm'])->name('meetings.book');
