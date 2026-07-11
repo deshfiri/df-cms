@@ -17,7 +17,7 @@ class EmployeeRequestController extends Controller
         private readonly EmployeeRequestService $service,
     ) {}
 
-    public function index(Request $request)
+    public function index(Request $request) //first kick
     {
         if ($request->ajax()) {
             return $this->dataTable($request);

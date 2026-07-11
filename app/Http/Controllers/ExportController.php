@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Client;
 use App\Services\ExportService;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -14,7 +15,7 @@ class ExportController extends Controller
 
     public function clients(Request $request): BinaryFileResponse
     {
-        abort_unless($request->user()->hasAnyPermission(['view clients', 'manage clients']), 403);
+        $this->authorize('viewAny', Client::class);
 
         $filters = $request->only(['status', 'category_id', 'assigned_to', 'search', 'date_from', 'date_to']);
         $format  = $request->input('format', 'excel');

@@ -6,6 +6,7 @@ use App\Models\Category;
 use App\Models\Client;
 use App\Models\ClientOwnershipTransfer;
 use App\Models\User;
+use App\Notifications\ClientOwnershipBulkTransferred;
 use App\Notifications\ClientOwnershipTransferred;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
@@ -181,6 +182,29 @@ class ClientOwnershipTest extends TestCase
         $this->assertSame($newOwner->id, $clientA->fresh()->assigned_to);
         $this->assertSame($newOwner->id, $clientB->fresh()->assigned_to);
         $this->assertSame(2, ClientOwnershipTransfer::count());
+    }
+
+    public function test_bulk_assign_sends_one_consolidated_notification_instead_of_one_per_client(): void
+    {
+        Notification::fake();
+
+        $admin = $this->makeUser('Super Admin');
+        $manager = $this->makeUser('Manager');
+        $newOwner = $this->makeUser('Sales');
+        $clients = collect(range(1, 5))->map(fn () => $this->makeClient());
+
+        $response = $this->actingAs($manager)->postJson(route('clients.bulk-assign'), [
+            'ids'          => $clients->pluck('id')->all(),
+            'new_owner_id' => $newOwner->id,
+        ]);
+        $response->assertOk();
+
+        // One audit row per client, but a single batched notification per recipient.
+        $this->assertSame(5, ClientOwnershipTransfer::count());
+        Notification::assertSentTo($admin, ClientOwnershipBulkTransferred::class);
+        Notification::assertSentTo($newOwner, ClientOwnershipBulkTransferred::class);
+        Notification::assertSentTimes(ClientOwnershipBulkTransferred::class, 2);
+        Notification::assertSentTimes(ClientOwnershipTransferred::class, 0);
     }
 
     public function test_transfer_to_an_inactive_user_is_rejected(): void

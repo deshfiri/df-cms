@@ -397,7 +397,14 @@
       "PowerShell(wsl bash -lc \"cd /tmp && TOKEN=\\\\$\\(grep -oP 'name=\\\\\"csrf-token\\\\\" content=\\\\\"\\\\K[^\\\\\"]+' payments_page.html | head -1\\); curl -s -c admin_jar3 -b admin_jar3 -X DELETE http://127.0.0.1:8001/payments/77 -H \\\\\"X-CSRF-TOKEN: \\\\$TOKEN\\\\\" -H 'X-Requested-With: XMLHttpRequest' --data-urlencode \\\\\"_token=\\\\$TOKEN\\\\\" -w 'http=%{http_code}\\\\n'\")",
       "PowerShell(wsl bash /mnt/c/Users/DELL-0~1/AppData/Local/Temp/claude/--wsl-localhost-Ubuntu-home-deshfiri-projects-dfcp/3855fae2-ac8e-4845-81bc-c3620d9f4045/scratchpad/test_order.sh)",
       "PowerShell(wsl bash /mnt/c/Users/DELL-0~1/AppData/Local/Temp/claude/--wsl-localhost-Ubuntu-home-deshfiri-projects-dfcp/3855fae2-ac8e-4845-81bc-c3620d9f4045/scratchpad/test_order2.sh)",
-      "PowerShell(wsl bash -lc \"sudo -n apt-get update -y 2>&1 | tail -20\")"
+      "PowerShell(wsl bash -lc \"sudo -n apt-get update -y 2>&1 | tail -20\")",
+      "PowerShell(php artisan test --filter=ClientOwnershipTest 2>&1)",
+      "PowerShell(wsl bash -lc \"cd /home/deshfiri/projects/dfcp && php artisan test --filter=ClientOwnershipTest 2>&1 | tail -80\")",
+      "PowerShell(wsl bash -lc \"cd /home/deshfiri/projects/dfcp && php artisan test 2>&1 | tail -40\")",
+      "PowerShell(wsl bash -lc \"cd /home/deshfiri/projects/dfcp && php artisan test 2>&1 | tail -60\")",
+      "PowerShell(wsl bash -lc \"cd /home/deshfiri/projects/dfcp && git status --short\")",
+      "PowerShell(wsl bash -lc \"cd /home/deshfiri/projects/dfcp && git stash && php artisan test --filter=ExportScopingTest 2>&1 | tail -30; git stash pop\")",
+      "PowerShell(wsl bash -lc \"cd /home/deshfiri/projects/dfcp && php artisan test 2>&1 | tail -20\")"
     ]
   }
 }

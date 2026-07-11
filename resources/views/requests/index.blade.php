@@ -70,9 +70,20 @@
                     <textarea id="reqMessage" class="form-control" rows="4" placeholder="Explain your request..."></textarea>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label fw-semibold small">Related Client (optional)</label>
+                    <label class="form-label fw-semibold small d-block">Request About <span class="text-danger">*</span></label>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="fpill active" id="reqTypePersonal" data-type="personal" style="flex:1;justify-content:center">
+                            <i class="bi bi-person"></i>Personal
+                        </button>
+                        <button type="button" class="fpill" id="reqTypeClient" data-type="client" style="flex:1;justify-content:center">
+                            <i class="bi bi-building"></i>Client Related
+                        </button>
+                    </div>
+                </div>
+                <div class="mb-3 d-none" id="reqClientWrap">
+                    <label class="form-label fw-semibold small">Client <span class="text-danger">*</span></label>
                     <select id="reqClient" class="form-select select2">
-                        <option value="">None</option>
+                        <option value="">Select a client...</option>
                         @foreach($clients as $c)
                         <option value="{{ $c->id }}">{{ $c->client_name }} ({{ $c->dfid_number }})</option>
                         @endforeach
@@ -156,22 +167,45 @@ $(function () {
     });
 });
 
+$('#reqTypePersonal, #reqTypeClient').on('click', function () {
+    $('#reqTypePersonal, #reqTypeClient').removeClass('active');
+    $(this).addClass('active');
+    const isClient = $(this).data('type') === 'client';
+    $('#reqClientWrap').toggleClass('d-none', !isClient);
+    if (!isClient) {
+        $('#reqClient').val('').trigger('change');
+    }
+});
+
+$('#newRequestModal').on('hidden.bs.modal', function () {
+    $('#reqSubject,#reqMessage').val('');
+    $('#reqClient').val('').trigger('change');
+    $('#reqTypeClient').removeClass('active');
+    $('#reqTypePersonal').addClass('active');
+    $('#reqClientWrap').addClass('d-none');
+});
+
 $('#saveRequest').on('click', function () {
-    const subject = $('#reqSubject').val().trim();
-    const message = $('#reqMessage').val().trim();
+    const subject   = $('#reqSubject').val().trim();
+    const message   = $('#reqMessage').val().trim();
+    const isClient  = $('#reqTypeClient').hasClass('active');
+    const clientId  = $('#reqClient').val() || null;
+
     if (!subject || !message) {
         Swal.fire('Missing', 'Subject and message are required.', 'warning');
+        return;
+    }
+    if (isClient && !clientId) {
+        Swal.fire('Missing', 'Please select a client for this request.', 'warning');
         return;
     }
 
     $.post('{{ route("requests.store") }}', {
         subject: subject,
         message: message,
-        client_id: $('#reqClient').val() || null,
+        client_id: isClient ? clientId : null,
     }).done(function () {
         bootstrap.Modal.getInstance('#newRequestModal').hide();
-        $('#reqSubject,#reqMessage').val('');
-        $('#reqClient').val('').trigger('change');
         window.reqTable.ajax.reload();
         Swal.fire({ icon: 'success', title: 'Request submitted', timer: 1200, showConfirmButton: false });
     }).fail(function (xhr) {
