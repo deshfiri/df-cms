@@ -404,7 +404,8 @@
       "PowerShell(wsl bash -lc \"cd /home/deshfiri/projects/dfcp && php artisan test 2>&1 | tail -60\")",
       "PowerShell(wsl bash -lc \"cd /home/deshfiri/projects/dfcp && git status --short\")",
       "PowerShell(wsl bash -lc \"cd /home/deshfiri/projects/dfcp && git stash && php artisan test --filter=ExportScopingTest 2>&1 | tail -30; git stash pop\")",
-      "PowerShell(wsl bash -lc \"cd /home/deshfiri/projects/dfcp && php artisan test 2>&1 | tail -20\")"
+      "PowerShell(wsl bash -lc \"cd /home/deshfiri/projects/dfcp && php artisan test 2>&1 | tail -20\")",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
