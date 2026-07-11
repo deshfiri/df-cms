@@ -305,7 +305,6 @@ class DashboardController extends Controller
                 'progress' => (int) round(($completedClients / $totalActive) * 100),
             ];
         }
-
         return $segments;
     }
 
