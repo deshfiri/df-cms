@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\InvalidatesPerformanceBoard;
 use Illuminate\Database\Eloquent\Model;
 
 class Payment extends Model
 {
+    use InvalidatesPerformanceBoard;
+
     protected $fillable = [
-        'client_id', 'amount', 'payment_date', 'payment_method',
+        'client_id', 'invoice_id', 'amount', 'payment_date', 'payment_method',
         'transaction_number', 'status', 'remarks', 'created_by',
     ];
 
@@ -30,5 +33,10 @@ class Payment extends Model
     public function createdBy()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function invoice()
+    {
+        return $this->belongsTo(Invoice::class);
     }
 }

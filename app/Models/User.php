@@ -40,4 +40,24 @@ class User extends Authenticatable
     {
         return $this->hasMany(ClientNote::class);
     }
+
+    public function salesTargets()
+    {
+        return $this->hasMany(SalesTarget::class);
+    }
+
+    public function capacity()
+    {
+        return $this->hasOne(EmployeeCapacity::class);
+    }
+
+    public function satisfactionRatings()
+    {
+        return $this->hasMany(ClientSatisfactionRating::class, 'employee_id');
+    }
+
+    public function taskRevisionsRequested()
+    {
+        return $this->hasMany(TaskRevision::class, 'requested_by');
+    }
 }

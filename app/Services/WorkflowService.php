@@ -8,9 +8,12 @@ use App\Models\ClientStageProgress;
 use App\Models\Payment;
 use App\Models\User;
 use App\Models\WorkflowStage;
+use App\Notifications\Portal\JourneyStageUpdated;
+use App\Notifications\Portal\ServiceCompleted;
 use App\Notifications\StageAwaitingApproval;
 use App\Notifications\StageReadyForDepartment;
 use App\Repositories\Contracts\WorkflowRepositoryInterface;
+use App\Services\Portal\NotifiesPortalUsers;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
@@ -18,6 +21,8 @@ use Spatie\Permission\Models\Role;
 
 class WorkflowService
 {
+    use NotifiesPortalUsers;
+
     public function __construct(
         private readonly WorkflowRepositoryInterface $workflowRepo,
         private readonly ActivityLogService          $activityLog,
@@ -184,6 +189,8 @@ class WorkflowService
             $this->activityLog->log('Workflow', $autoApprove ? 'Stage Approved' : 'Stage Submitted', $client->id, null, ['stage' => $stage->name]);
 
             if ($autoApprove) {
+                $this->notifyPortalUsers($client, new JourneyStageUpdated($progress));
+                $this->notifyIfDepartmentCompleted($client, $stage);
                 $this->notifyNextDepartment($client, $stage, $user);
             } else {
                 $this->notifyApprovers($client, $stage, $user);
@@ -241,6 +248,8 @@ class WorkflowService
 
             $this->activityLog->log('Workflow', 'Stage Approved', $client->id, null, ['stage' => $stage->name]);
 
+            $this->notifyPortalUsers($client, new JourneyStageUpdated($progress));
+            $this->notifyIfDepartmentCompleted($client, $stage);
             $this->notifyNextDepartment($client, $stage, $user);
 
             return $progress;
@@ -278,6 +287,8 @@ class WorkflowService
             ]);
 
             $this->activityLog->log('Workflow', 'Stage Needs Revision', $client->id, null, ['stage' => $stage->name, 'reason' => $reason]);
+
+            $this->notifyPortalUsers($client, new JourneyStageUpdated($progress));
 
             return $progress;
         });
@@ -538,6 +549,32 @@ class WorkflowService
         }
 
         Notification::send($recipients, new StageAwaitingApproval($client, $stage));
+    }
+
+    /**
+     * Tells the client when every stage sharing $stage's department has now
+     * been Approved — i.e. that "service" (department grouping, see
+     * PortalServiceGroupingService) just moved from Active to Completed.
+     */
+    private function notifyIfDepartmentCompleted(Client $client, WorkflowStage $stage): void
+    {
+        if (!$stage->department) {
+            return;
+        }
+
+        $departmentStageIds = WorkflowStage::active()->where('department', $stage->department)->pluck('id');
+        if ($departmentStageIds->isEmpty()) {
+            return;
+        }
+
+        $approvedCount = ClientStageProgress::where('client_id', $client->id)
+            ->whereIn('stage_id', $departmentStageIds)
+            ->where('status', ClientStageProgress::STATUS_APPROVED)
+            ->count();
+
+        if ($approvedCount === $departmentStageIds->count()) {
+            $this->notifyPortalUsers($client, new ServiceCompleted($stage));
+        }
     }
 
     private function notifyNextDepartment(Client $client, WorkflowStage $approvedStage, ?User $actor = null): void

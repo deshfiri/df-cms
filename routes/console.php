@@ -9,3 +9,8 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('meetings:send-reminders')->everyFiveMinutes();
+Schedule::command('portal:mark-overdue-invoices')->daily();
+Schedule::command('portal:send-deadline-reminders')->daily();
+
+// Finalize the just-ended month's KPI scores into monthly_performance_snapshots.
+Schedule::command('performance:snapshot --previous')->monthlyOn(1, '02:00');

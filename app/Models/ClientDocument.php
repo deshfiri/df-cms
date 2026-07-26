@@ -19,16 +19,22 @@ class ClientDocument extends Model
         'title', 'description', 'remarks',
         'original_name', 'stored_name', 'disk', 'path', 'extension', 'mime_type', 'file_size',
         'version', 'parent_id', 'expiry_date', 'tags',
+        'is_client_visible', 'visible_to_client_at', 'is_client_submitted', 'submitted_by_portal_user_id',
+        'client_review_status', 'reviewed_by', 'reviewed_at', 'review_note', 'stage_id',
     ];
 
     protected function casts(): array
     {
         return [
-            'expiry_date'    => 'date',
-            'tags'           => 'array',
-            'file_size'      => 'integer',
-            'version'        => 'integer',
-            'download_count' => 'integer',
+            'expiry_date'           => 'date',
+            'tags'                  => 'array',
+            'file_size'             => 'integer',
+            'version'               => 'integer',
+            'download_count'        => 'integer',
+            'is_client_visible'     => 'boolean',
+            'visible_to_client_at'  => 'datetime',
+            'is_client_submitted'   => 'boolean',
+            'reviewed_at'           => 'datetime',
         ];
     }
 
@@ -60,6 +66,26 @@ class ClientDocument extends Model
     public function downloads(): HasMany
     {
         return $this->hasMany(DocumentDownload::class, 'document_id');
+    }
+
+    public function stage(): BelongsTo
+    {
+        return $this->belongsTo(WorkflowStage::class, 'stage_id');
+    }
+
+    public function submittedByPortalUser(): BelongsTo
+    {
+        return $this->belongsTo(ClientPortalUser::class, 'submitted_by_portal_user_id');
+    }
+
+    public function reviewedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function scopeClientVisible($query)
+    {
+        return $query->where('is_client_visible', true);
     }
 
     public function getFileSizeHumanAttribute(): string

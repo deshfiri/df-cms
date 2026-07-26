@@ -38,6 +38,11 @@ class DatabaseSeeder extends Seeder
             'manage file-manager',
             'view reviews',
             'manage requests',
+            'view ads',
+            'manage ads',
+            'view performance',
+            'manage performance',
+            'monitor chats',
         ];
 
         foreach ($permissions as $perm) {
@@ -53,13 +58,13 @@ class DatabaseSeeder extends Seeder
         // WorkflowService). Super Admin bypasses this via Gate::before.
         $roles = [
             'Super Admin' => $permissions,
-            'Manager' => ['view clients', 'manage clients', 'delete clients', 'manage payments', 'view payments', 'manage products', 'manage documents', 'manage-workflow', 'approve-stage', 'import clients', 'export clients', 'view reports', 'view tasks', 'manage tasks', 'manage-meetings', 'manage requests'],
+            'Manager' => ['view clients', 'manage clients', 'delete clients', 'manage payments', 'view payments', 'manage products', 'manage documents', 'manage-workflow', 'approve-stage', 'import clients', 'export clients', 'view reports', 'view tasks', 'manage tasks', 'manage-meetings', 'manage requests', 'view ads', 'manage ads', 'view performance', 'manage performance'],
             'Sales' => ['view clients', 'manage clients', 'submit-stage', 'approve-stage', 'view tasks', 'manage tasks', 'manage-meetings'],
             'Document' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks'],
             'Design' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks'],
             'Website' => ['view clients', 'submit-stage', 'approve-stage', 'view tasks'],
             'Product' => ['view clients', 'manage products', 'submit-stage', 'approve-stage', 'view tasks'],
-            'Marketing' => ['view clients', 'manage clients', 'manage products', 'manage documents', 'export clients', 'submit-stage', 'approve-stage', 'view tasks'],
+            'Marketing' => ['view clients', 'manage clients', 'manage products', 'manage documents', 'export clients', 'submit-stage', 'approve-stage', 'view tasks', 'view ads', 'manage ads'],
             'Support' => ['view clients', 'manage clients', 'submit-stage', 'approve-stage', 'view tasks', 'manage tasks'],
             'Accounts' => ['view clients', 'manage payments', 'view payments', 'export clients', 'view reports'],
             'Content' => ['view clients', 'manage documents'],

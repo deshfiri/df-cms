@@ -186,6 +186,7 @@ var activeStatus = '';
 var overdueOnly  = false;
 var currentUserId  = {{ auth()->id() }};
 var canManageTasks = @json(auth()->user()->can('manage tasks'));
+var revisionReasons = @json($reasonCategories);
 
 function syncPills() {
     $('.fpill').removeClass('active');
@@ -313,6 +314,7 @@ $(document).on('click', '.task-edit', function () {
 function loadTaskDetail(id) {
     $.get('/tasks/' + id).done(function (r) {
         const t = r.task;
+        const revOptions = revisionReasons.map(c => `<option value="${c}">${c}</option>`).join('');
         $('#taskDetailTitle').text(t.title);
         let html = `<div class="mb-3">
             <div class="d-flex gap-2 flex-wrap mb-2">
@@ -336,6 +338,21 @@ function loadTaskDetail(id) {
                 <input type="text" id="taskCommentInput" class="form-control form-control-sm" placeholder="Add a comment…">
                 <button class="btn btn-sm btn-primary" id="taskCommentSend" data-id="${t.id}">Send</button>
             </div>
+        </div>
+        <div class="mt-3">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <label class="form-label fw-semibold small mb-0">Revisions</label>
+                ${canManageTasks ? `<button class="btn btn-sm btn-outline-warning py-0 px-2" id="taskReviseToggle" style="font-size:.72rem"><i class="bi bi-arrow-counterclockwise me-1"></i>Request Revision</button>` : ''}
+            </div>
+            <div id="taskReviseForm" class="d-none p-2 rounded mb-2" style="background:var(--surface2);border:1px solid var(--border)">
+                <select id="taskReviseReason" class="form-select form-select-sm mb-2">${revOptions}</select>
+                <textarea id="taskReviseNote" class="form-control form-control-sm mb-2" rows="2" placeholder="Note (optional) — what needs to change?"></textarea>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span style="font-size:.68rem;color:var(--text3)">“Employee Mistake” is the only reason counted against the quality KPI.</span>
+                    <button class="btn btn-sm btn-warning py-0 px-2" id="taskReviseSubmit" data-id="${t.id}" style="font-size:.72rem">Submit</button>
+                </div>
+            </div>
+            <div id="taskRevisionList"></div>
         </div>`;
         $('#taskDetailBody').html(html);
 
@@ -358,6 +375,18 @@ function loadTaskDetail(id) {
         });
         $('#taskCommentList').html(cmtHtml);
 
+        let revHtml = (t.revisions && t.revisions.length) ? '' : '<div class="text-muted small">No revisions.</div>';
+        (t.revisions || []).forEach(rv => {
+            revHtml += `<div class="p-2 rounded mb-1" style="background:var(--surface2);border:1px solid var(--border)">
+                <div style="font-size:.76rem">
+                    <span class="spill ${rv.reason_category === 'Employee Mistake' ? 'spill-cancelled' : 'spill-hold'}">${rv.reason_category}</span>
+                    <span class="text-muted" style="font-size:.68rem"> by ${rv.requested_by?.name || 'User'} · ${(rv.created_at || '').substring(0, 10)}</span>
+                </div>
+                ${rv.note ? `<div style="font-size:.78rem;margin-top:2px">${rv.note}</div>` : ''}
+            </div>`;
+        });
+        $('#taskRevisionList').html(revHtml);
+
         $('#taskFileInput').off('change').on('change', function () {
             const file = this.files[0];
             if (!file) return;
@@ -374,6 +403,24 @@ $(document).on('click', '#taskCommentSend', function () {
     const comment = $.trim($('#taskCommentInput').val());
     if (!comment) return;
     $.post('/tasks/' + id + '/comments', { comment }).done(() => loadTaskDetail(id));
+});
+
+$(document).on('click', '#taskReviseToggle', function () {
+    $('#taskReviseForm').toggleClass('d-none');
+});
+
+$(document).on('click', '#taskReviseSubmit', function () {
+    const id = $(this).data('id');
+    $.post('/tasks/' + id + '/revisions', {
+        reason_category: $('#taskReviseReason').val(),
+        note: $.trim($('#taskReviseNote').val()),
+    }).done(function () {
+        loadTaskDetail(id);
+        window.tTable.ajax.reload();
+        Swal.fire({ icon: 'success', title: 'Revision requested', timer: 1200, showConfirmButton: false });
+    }).fail(function (r) {
+        Swal.fire('Error', r.responseJSON?.message || 'Could not request revision.', 'error');
+    });
 });
 
 $(document).on('click', '.task-att-delete', function () {

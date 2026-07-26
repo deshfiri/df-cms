@@ -103,6 +103,56 @@ class Client extends Model
         return $this->hasMany(ActivityLog::class)->latest();
     }
 
+    public function portalUsers()
+    {
+        return $this->hasMany(ClientPortalUser::class);
+    }
+
+    public function projectUpdates()
+    {
+        return $this->hasMany(ClientProjectUpdate::class)->latest();
+    }
+
+    public function actionRequests()
+    {
+        return $this->hasMany(ClientActionRequest::class)->latest();
+    }
+
+    public function approvalRequests()
+    {
+        return $this->hasMany(ClientApprovalRequest::class)->latest();
+    }
+
+    public function invoices()
+    {
+        return $this->hasMany(Invoice::class)->latest();
+    }
+
+    public function adCampaigns()
+    {
+        return $this->hasMany(AdCampaign::class)->latest();
+    }
+
+    public function brands()
+    {
+        return $this->hasMany(Brand::class)->latest();
+    }
+
+    public function supportTickets()
+    {
+        return $this->hasMany(SupportTicket::class)->latest();
+    }
+
+    public function correctionRequests()
+    {
+        return $this->hasMany(ClientCorrectionRequest::class)->latest();
+    }
+
+    public function satisfactionRatings()
+    {
+        return $this->hasMany(ClientSatisfactionRating::class)->latest();
+    }
+
     // ── Computed ─────────────────────────────────────────────────────────────
 
     public function getProgressAttribute(): int

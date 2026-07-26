@@ -216,6 +216,13 @@
             --c-slate-bg: rgba(6, 182, 212, .15);
             --c-rose: #F43F5E;
             --c-rose-bg: rgba(244, 63, 94, .15);
+
+            --sb-bg-top:
+                {{ $sbBgTopDarkMode }}
+            ;
+            --sb-bg-bottom:
+                {{ $sbBgBottomDarkMode }}
+            ;
         }
 
         /* ── Reset / Base ───────────────────────────────────────────── */
@@ -290,12 +297,6 @@
 
         /* ── Dark mode sidebar upgrades ─────────────────────────────── */
         [data-theme="dark"] #sidebar {
-            --sb-bg-top:
-                {{ $sbBgTopDarkMode }}
-            ;
-            --sb-bg-bottom:
-                {{ $sbBgBottomDarkMode }}
-            ;
             border-right: 1px solid #1a2a38;
         }
 
@@ -362,17 +363,6 @@
         [data-theme="dark"] .modal-footer {
             background: #0e1929;
             border-color: #1f2d40;
-        }
-
-        /* ── Dark mode quick-view drawer ────────────────────────────── */
-        [data-theme="dark"] #qvDrawer {
-            background: #111827;
-            border-left-color: #1f2d40;
-        }
-
-        [data-theme="dark"] .qv-info-box {
-            background: #1a2235;
-            border: 1px solid #1f2d40;
         }
 
         /* ── Dark mode KPI icon glow ────────────────────────────────── */
@@ -1241,13 +1231,51 @@
             right: -500px;
             width: 460px;
             height: 100vh;
-            background: var(--surface);
-            border-left: 1px solid var(--border);
+            /* Follows the sidebar's fixed dark surface, independent of the
+               app's light/dark theme — shadowing these tokens here means
+               every descendant rule/inline var(--text) etc. picks it up too. */
+            --surface: var(--sb-bg-bottom);
+            --surface2: rgba(255, 255, 255, .06);
+            --border: var(--sb-bd);
+            --text: #fff;
+            --text2: rgba(255, 255, 255, .75);
+            --text3: var(--sb-text);
+            --c-green: #22C55E;
+            --c-green-bg: rgba(34, 197, 94, .15);
+            --c-yellow: #F59E0B;
+            --c-yellow-bg: rgba(245, 158, 11, .15);
+            --c-red: #EF4444;
+            --c-red-bg: rgba(239, 68, 68, .15);
+            --c-blue: #3B82F6;
+            --c-blue-bg: rgba(59, 130, 246, .15);
+            --c-purple: #A78BFA;
+            --c-purple-bg: rgba(167, 139, 250, .15);
+            --c-slate: #06B6D4;
+            --c-slate-bg: rgba(6, 182, 212, .15);
+            --c-rose: #F43F5E;
+            --c-rose-bg: rgba(244, 63, 94, .15);
+            background: linear-gradient(180deg, var(--sb-bg-top), var(--sb-bg-bottom));
+            border-left: 1px solid var(--sb-bd);
             box-shadow: var(--shadow-lg);
             z-index: 1050;
             display: flex;
             flex-direction: column;
             transition: right .25s cubic-bezier(.4, 0, .2, 1);
+        }
+
+        #qvDrawer .btn-outline-secondary {
+            --bs-btn-color: var(--sb-text);
+            --bs-btn-border-color: var(--sb-bd);
+            --bs-btn-hover-color: #fff;
+            --bs-btn-hover-bg: var(--sb-hover);
+            --bs-btn-hover-border-color: var(--sb-bd);
+            --bs-btn-active-color: #fff;
+            --bs-btn-active-bg: var(--sb-active);
+            --bs-btn-active-border-color: var(--sb-bd);
+        }
+
+        #qvDrawer .text-danger {
+            color: #f87171 !important;
         }
 
         #qvDrawer.open {
@@ -1952,10 +1980,18 @@
                 <i class="bi bi-people"></i><span class="sb-lbl">Clients</span>
             </a>
             @can('view payments')
-            <a href="{{ route('payments.index') }}" class="sb-link {{ request()->routeIs('payments.*') ? 'active' : '' }}"
-                title="Payments" data-bs-toggle="tooltip" data-bs-placement="right">
-                <i class="bi bi-cash-coin"></i><span class="sb-lbl">Payments</span>
-            </a>
+                <a href="{{ route('payments.index') }}"
+                    class="sb-link {{ request()->routeIs('payments.*') ? 'active' : '' }}" title="Payments"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-cash-coin"></i><span class="sb-lbl">Payments</span>
+                </a>
+            @endcan
+            @can('view ads')
+                <a href="{{ route('ads.index') }}"
+                    class="sb-link {{ request()->routeIs('ads.*') || request()->routeIs('clients.ads.*') ? 'active' : '' }}"
+                    title="Ads" data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-megaphone"></i><span class="sb-lbl">Ads</span>
+                </a>
             @endcan
 
             <a href="{{ route('meetings.all') }}"
@@ -1964,11 +2000,11 @@
                 <i class="bi bi-calendar-event"></i><span class="sb-lbl">Meetings</span>
             </a>
             @can('manage-meetings')
-            <a href="{{ route('meetings.book') }}"
-                class="sb-link {{ request()->routeIs('meetings.book') ? 'active' : '' }}" title="Book a Meeting"
-                data-bs-toggle="tooltip" data-bs-placement="right">
-                <i class="bi bi-calendar-plus"></i><span class="sb-lbl">Book Meeting</span>
-            </a>
+                <a href="{{ route('meetings.book') }}"
+                    class="sb-link {{ request()->routeIs('meetings.book') ? 'active' : '' }}" title="Book a Meeting"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-calendar-plus"></i><span class="sb-lbl">Book Meeting</span>
+                </a>
             @endcan
             @can('view tasks')
                 <a href="{{ route('tasks.index') }}" class="sb-link {{ request()->routeIs('tasks.*') ? 'active' : '' }}"
@@ -1976,14 +2012,36 @@
                     <i class="bi bi-list-check"></i><span class="sb-lbl">Tasks</span>
                 </a>
             @endcan
-            <a href="{{ route('requests.index') }}" class="sb-link {{ request()->routeIs('requests.*') ? 'active' : '' }}"
-                title="Requests" data-bs-toggle="tooltip" data-bs-placement="right">
+            <a href="{{ route('requests.index') }}"
+                class="sb-link {{ request()->routeIs('requests.*') ? 'active' : '' }}" title="Requests"
+                data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-inbox"></i><span class="sb-lbl">Requests</span>
             </a>
             <a href="{{ route('reviews.index') }}" class="sb-link {{ request()->routeIs('reviews.*') ? 'active' : '' }}"
                 title="Reviews & Reports" data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-chat-square-text"></i><span class="sb-lbl">Reviews & Reports</span>
             </a>
+            @can('view performance')
+                <a href="{{ route('performance.index') }}"
+                    class="sb-link {{ request()->routeIs('performance.*') ? 'active' : '' }}" title="Performance"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-graph-up-arrow"></i><span class="sb-lbl">Performance</span>
+                </a>
+            @endcan
+            @php $chatUnread = app(\App\Services\ChatService::class)->unreadCountFor(auth()->user()); @endphp
+            <a href="{{ route('chat.index') }}"
+                class="sb-link {{ request()->routeIs('chat.index') || request()->routeIs('chat.open') ? 'active' : '' }}" title="Chat"
+                data-bs-toggle="tooltip" data-bs-placement="right">
+                <i class="bi bi-chat-dots"></i><span class="sb-lbl">Chat</span>
+                <span id="chatUnreadBadge" style="{{ $chatUnread ? 'display:inline-flex' : 'display:none' }};margin-left:auto;background:var(--primary);color:#fff;font-size:.6rem;font-weight:700;border-radius:999px;padding:0 5px;min-width:16px;height:16px;align-items:center;justify-content:center">{{ $chatUnread ?: '' }}</span>
+            </a>
+            @can('monitor chats')
+                <a href="{{ route('chat.monitor') }}"
+                    class="sb-link {{ request()->routeIs('chat.monitor*') ? 'active' : '' }}" title="Chat Monitor"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-eye"></i><span class="sb-lbl">Chat Monitor</span>
+                </a>
+            @endcan
 
             <div class="sb-section">Operations</div>
             <a href="{{ route('import.index') }}" class="sb-link {{ request()->routeIs('import.*') ? 'active' : '' }}"
@@ -2272,6 +2330,43 @@
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <script src="https://js.pusher.com/8.4.0/pusher.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/laravel-echo@1.16.1/dist/echo.iife.js"></script>
+
+    {{-- Realtime (Laravel Reverb) — presence + personal notifications, app-wide --}}
+    <script>
+        window.CURRENT_USER_ID = {{ auth()->id() }};
+        window.OnlineUsers = new Set();
+        try {
+            window.Echo = new Echo({
+                broadcaster: 'reverb',
+                key: '{{ config('broadcasting.connections.reverb.key') }}',
+                wsHost: '{{ config('broadcasting.connections.reverb.options.host') }}',
+                wsPort: {{ (int) (config('broadcasting.connections.reverb.options.port') ?: 80) }},
+                wssPort: {{ (int) (config('broadcasting.connections.reverb.options.port') ?: 443) }},
+                forceTLS: {{ config('broadcasting.connections.reverb.options.scheme') === 'https' ? 'true' : 'false' }},
+                enabledTransports: ['ws', 'wss'],
+            });
+
+            // App-wide presence: who is currently online.
+            window.Echo.join('online')
+                .here(function (users) { window.OnlineUsers = new Set(users.map(u => u.id)); document.dispatchEvent(new CustomEvent('online-changed')); })
+                .joining(function (u) { window.OnlineUsers.add(u.id); document.dispatchEvent(new CustomEvent('online-changed', { detail: u })); })
+                .leaving(function (u) { window.OnlineUsers.delete(u.id); document.dispatchEvent(new CustomEvent('online-changed', { detail: u })); });
+
+            // Personal channel: new messages to me → bump the nav unread badge + notify open pages.
+            window.Echo.private('App.Models.User.' + window.CURRENT_USER_ID)
+                .listen('.message.sent', function (e) {
+                    document.dispatchEvent(new CustomEvent('chat-message', { detail: e }));
+                    if (window.ActiveConversationId !== e.conversation_id) {
+                        var badge = document.getElementById('chatUnreadBadge');
+                        if (badge) { badge.textContent = (parseInt(badge.textContent || '0', 10) || 0) + 1; badge.style.display = 'inline-flex'; }
+                    }
+                });
+        } catch (err) {
+            console.warn('Realtime (Reverb/Echo) unavailable:', err);
+        }
+    </script>
 
     <script>
         $.ajaxSetup({ headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' } });

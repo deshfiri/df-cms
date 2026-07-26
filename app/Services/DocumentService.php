@@ -6,6 +6,8 @@ use App\Models\Client;
 use App\Models\ClientDocument;
 use App\Models\Document;
 use App\Models\DocumentDownload;
+use App\Notifications\Portal\DocumentUploaded;
+use App\Services\Portal\NotifiesPortalUsers;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +19,8 @@ use Throwable;
 
 class DocumentService
 {
+    use NotifiesPortalUsers;
+
     public function __construct(
         private readonly ActivityLogService $activityLog,
         private readonly FileManagerService $fileManager,
@@ -92,6 +96,7 @@ class DocumentService
                 'parent_id'          => $parentId,
                 'expiry_date'        => $data['expiry_date'] ?? null,
                 'tags'               => isset($data['tags']) ? array_filter(array_map('trim', explode(',', $data['tags']))) : null,
+                'is_client_visible'  => $data['is_client_visible'] ?? false,
             ]);
 
             $typeName = $doc->documentType?->name ?? 'Document';
@@ -102,6 +107,14 @@ class DocumentService
                 null,
                 ['document_id' => $doc->id, 'type' => $typeName, 'version' => $version]
             );
+
+            // Only notify when staff uploaded it visible-from-the-start — the
+            // portal's own upload flow (client_id is_client_submitted) never
+            // passes is_client_visible here, so a client is never "notified"
+            // about their own upload.
+            if ($doc->is_client_visible) {
+                $this->notifyPortalUsers($client, new DocumentUploaded($doc));
+            }
 
             $this->mirrorToFileManager($client, $file);
 

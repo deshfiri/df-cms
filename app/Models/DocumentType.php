@@ -9,12 +9,12 @@ use Illuminate\Support\Str;
 class DocumentType extends Model
 {
     protected $fillable = [
-        'name', 'slug', 'icon', 'description', 'is_required', 'is_active', 'sort_order',
+        'name', 'slug', 'icon', 'description', 'is_required', 'is_active', 'sort_order', 'is_client_submittable',
     ];
 
     protected function casts(): array
     {
-        return ['is_required' => 'boolean', 'is_active' => 'boolean'];
+        return ['is_required' => 'boolean', 'is_active' => 'boolean', 'is_client_submittable' => 'boolean'];
     }
 
     protected static function booted(): void

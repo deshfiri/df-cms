@@ -19,6 +19,7 @@ class ClientStageProgress extends Model
         'submitted_by', 'submitted_at',
         'completed_at', 'completed_by',
         'remarks', 'rejection_reason',
+        'client_update_text', 'next_step', 'client_action_required', 'client_approval_required',
     ];
 
     protected static function booted(): void
@@ -34,9 +35,11 @@ class ClientStageProgress extends Model
     protected function casts(): array
     {
         return [
-            'is_completed' => 'boolean',
-            'completed_at' => 'datetime',
-            'submitted_at' => 'datetime',
+            'is_completed'              => 'boolean',
+            'completed_at'              => 'datetime',
+            'submitted_at'              => 'datetime',
+            'client_action_required'    => 'boolean',
+            'client_approval_required'  => 'boolean',
         ];
     }
 

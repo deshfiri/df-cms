@@ -1,8 +1,20 @@
 <?php
 
+use App\Http\Controllers\AdCampaignController;
+use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\ChatController;
+use App\Http\Controllers\ClientActionRequestController;
+use App\Http\Controllers\ClientApprovalRequestController;
+use App\Http\Controllers\ClientCorrectionRequestController;
+use App\Http\Controllers\ClientPortalAccountController;
+use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\MeetingController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PaymentProofController;
+use App\Http\Controllers\PerformanceController;
+use App\Http\Controllers\PerformanceConfigController;
+use App\Http\Controllers\ProjectUpdateController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\ClientController;
@@ -19,6 +31,7 @@ use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\ProductUpdateController;
 use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WorkflowController;
@@ -68,6 +81,22 @@ Route::middleware(['auth'])->group(function () {
         Route::put('payments/{payment}', [PaymentController::class, 'update'])->name('payments.update');
         Route::delete('payments/{payment}', [PaymentController::class, 'destroy'])->name('payments.destroy');
 
+        // Ad Campaigns
+        Route::get('ads', [AdCampaignController::class, 'index'])->name('ads.index');
+        Route::post('ads', [AdCampaignController::class, 'store'])->name('ads.store');
+        Route::get('ads/{campaign}', [AdCampaignController::class, 'show'])->name('ads.show');
+        Route::put('ads/{campaign}', [AdCampaignController::class, 'update'])->name('ads.update');
+        Route::delete('ads/{campaign}', [AdCampaignController::class, 'destroy'])->name('ads.destroy');
+        Route::post('ads/{campaign}/assign', [AdCampaignController::class, 'assign'])->name('ads.assign');
+        Route::post('ads/{campaign}/reports', [AdCampaignController::class, 'storeReport'])->name('ads.reports.store');
+        Route::delete('ads/{campaign}/reports/{report}', [AdCampaignController::class, 'destroyReport'])->name('ads.reports.destroy');
+
+        // Brands (ad-campaign grouping)
+        Route::get('brands', [BrandController::class, 'index'])->name('brands.index');
+        Route::post('brands', [BrandController::class, 'store'])->name('brands.store');
+        Route::put('brands/{brand}', [BrandController::class, 'update'])->name('brands.update');
+        Route::delete('brands/{brand}', [BrandController::class, 'destroy'])->name('brands.destroy');
+
         // Notes
         Route::get('notes', [NoteController::class, 'index'])->name('notes.index');
         Route::post('notes', [NoteController::class, 'store'])->name('notes.store');
@@ -91,6 +120,29 @@ Route::middleware(['auth'])->group(function () {
         Route::post('meetings/{meeting}/cancel',               [MeetingController::class, 'cancel'])->name('meetings.cancel');
         Route::post('meetings/{meeting}/no-show',              [MeetingController::class, 'noShow'])->name('meetings.no-show');
         Route::post('meetings/{meeting}/regenerate-link',      [MeetingController::class, 'regenerateLink'])->name('meetings.regenerate-link');
+
+        // Client Portal — project updates, action requests, approval requests, invoices, portal accounts
+        Route::get('project-updates', [ProjectUpdateController::class, 'index'])->name('project-updates.index');
+        Route::post('project-updates', [ProjectUpdateController::class, 'store'])->name('project-updates.store');
+        Route::delete('project-updates/{update}', [ProjectUpdateController::class, 'destroy'])->name('project-updates.destroy');
+
+        Route::get('action-requests', [ClientActionRequestController::class, 'index'])->name('action-requests.index');
+        Route::post('action-requests', [ClientActionRequestController::class, 'store'])->name('action-requests.store');
+        Route::post('action-requests/{actionRequest}/review', [ClientActionRequestController::class, 'review'])->name('action-requests.review');
+
+        Route::get('approval-requests', [ClientApprovalRequestController::class, 'index'])->name('approval-requests.index');
+        Route::post('approval-requests', [ClientApprovalRequestController::class, 'store'])->name('approval-requests.store');
+        Route::get('approval-requests/{approvalRequest}', [ClientApprovalRequestController::class, 'show'])->name('approval-requests.show');
+
+        Route::get('invoices', [InvoiceController::class, 'index'])->name('invoices.index');
+        Route::post('invoices', [InvoiceController::class, 'store'])->name('invoices.store');
+        Route::put('invoices/{invoice}', [InvoiceController::class, 'update'])->name('invoices.update');
+        Route::delete('invoices/{invoice}', [InvoiceController::class, 'destroy'])->name('invoices.destroy');
+
+        Route::get('portal-accounts', [ClientPortalAccountController::class, 'index'])->name('portal-accounts.index');
+        Route::post('portal-accounts', [ClientPortalAccountController::class, 'store'])->name('portal-accounts.store');
+        Route::post('portal-accounts/{portalAccount}/status', [ClientPortalAccountController::class, 'status'])->name('portal-accounts.status');
+        Route::post('portal-accounts/{portalAccount}/reset-password', [ClientPortalAccountController::class, 'resetPassword'])->name('portal-accounts.reset-password');
     });
 
     // Workflow stage management (admin)
@@ -117,6 +169,27 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('/',     [FileManagerController::class, 'destroy'])->name('destroy');
     });
 
+    // Performance / KPI scoreboard (view performance — enforced in the controller)
+    Route::get('performance', [PerformanceController::class, 'index'])->name('performance.index');
+
+    // Performance configuration (manage performance — enforced in the controller).
+    // Registered before performance/{user} so /performance/config isn't captured by the wildcard.
+    Route::get('performance/config', [PerformanceConfigController::class, 'index'])->name('performance.config');
+    Route::post('performance/config/targets', [PerformanceConfigController::class, 'storeTarget'])->name('performance.config.targets.store');
+    Route::delete('performance/config/targets/{target}', [PerformanceConfigController::class, 'destroyTarget'])->name('performance.config.targets.destroy');
+    Route::post('performance/config/weights', [PerformanceConfigController::class, 'storeWeight'])->name('performance.config.weights.store');
+    Route::delete('performance/config/weights/{weight}', [PerformanceConfigController::class, 'destroyWeight'])->name('performance.config.weights.destroy');
+    Route::post('performance/config/settings', [PerformanceConfigController::class, 'updateSettings'])->name('performance.config.settings');
+    Route::post('performance/config/capacity', [PerformanceConfigController::class, 'updateCapacity'])->name('performance.config.capacity');
+
+    // Historical scoreboard from persisted snapshots (before the {user} wildcard).
+    Route::get('performance/history', [PerformanceController::class, 'history'])->name('performance.history');
+
+    // Live workload board — active-task load vs. capacity (before the {user} wildcard).
+    Route::get('performance/workload', [PerformanceController::class, 'workload'])->name('performance.workload');
+
+    Route::get('performance/{user}', [PerformanceController::class, 'show'])->name('performance.show');
+
     // Reviews & Reports
     Route::get('reviews', [ReviewController::class, 'index'])->name('reviews.index');
     Route::post('reviews', [ReviewController::class, 'store'])->name('reviews.store');
@@ -125,6 +198,7 @@ Route::middleware(['auth'])->group(function () {
 
     // Tasks (standalone)
     Route::resource('tasks', TaskController::class)->except(['create', 'edit']);
+    Route::post('tasks/{task}/revisions', [TaskController::class, 'storeRevision'])->name('tasks.revisions.store');
     Route::post('tasks/{task}/comments', [TaskController::class, 'storeComment'])->name('tasks.comments.store');
     Route::delete('tasks/{task}/comments/{comment}', [TaskController::class, 'destroyComment'])->name('tasks.comments.destroy');
     Route::post('tasks/{task}/attachments', [TaskController::class, 'storeAttachment'])->name('tasks.attachments.store');
@@ -141,6 +215,12 @@ Route::middleware(['auth'])->group(function () {
     Route::get('payments', [PaymentController::class, 'all'])->name('payments.index');
     Route::post('payments', [PaymentController::class, 'storeAny'])->name('payments.store');
     Route::delete('payments/{payment}', [PaymentController::class, 'destroyAny'])->name('payments.destroy');
+
+    // Ad Campaigns (standalone)
+    Route::get('ads', [AdCampaignController::class, 'all'])->name('ads.index');
+    Route::post('ads', [AdCampaignController::class, 'storeAny'])->name('ads.store');
+    Route::post('ads/{campaign}/assign', [AdCampaignController::class, 'assignAny'])->name('ads.assign');
+    Route::delete('ads/{campaign}', [AdCampaignController::class, 'destroyAny'])->name('ads.destroy');
 
     // Meetings (standalone)
     Route::get('meetings/book', [MeetingController::class, 'bookForm'])->name('meetings.book');
@@ -160,10 +240,40 @@ Route::middleware(['auth'])->group(function () {
     Route::post('pending-changes/{pendingChange}/approve', [PendingChangeController::class, 'approve'])->name('pending-changes.approve');
     Route::post('pending-changes/{pendingChange}/reject', [PendingChangeController::class, 'reject'])->name('pending-changes.reject');
 
+    // Client Portal — staff-side review queues
+    Route::get('payment-proofs', [PaymentProofController::class, 'index'])->name('payment-proofs.index');
+    Route::post('payment-proofs/{proof}/verify', [PaymentProofController::class, 'verify'])->name('payment-proofs.verify');
+    Route::post('payment-proofs/{proof}/reject', [PaymentProofController::class, 'reject'])->name('payment-proofs.reject');
+
+    Route::get('correction-requests', [ClientCorrectionRequestController::class, 'index'])->name('correction-requests.index');
+    Route::post('correction-requests/{correctionRequest}/respond', [ClientCorrectionRequestController::class, 'respond'])->name('correction-requests.respond');
+
+    Route::get('support-tickets', [SupportTicketController::class, 'index'])->name('support-tickets.index');
+    Route::get('support-tickets/{ticket}', [SupportTicketController::class, 'show'])->name('support-tickets.show');
+    Route::post('support-tickets/{ticket}/reply', [SupportTicketController::class, 'reply'])->name('support-tickets.reply');
+    Route::post('support-tickets/{ticket}/assign', [SupportTicketController::class, 'assign'])->name('support-tickets.assign');
+    Route::post('support-tickets/{ticket}/status', [SupportTicketController::class, 'status'])->name('support-tickets.status');
+
     // Notifications
     Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
     Route::post('notifications/{id}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
     Route::post('notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
+
+    // Chat (Reverb realtime) — everyone can chat; monitoring gated by 'monitor chats' in the controller.
+    Route::prefix('chat')->name('chat.')->group(function () {
+        Route::get('/', [ChatController::class, 'index'])->name('index');
+        Route::get('conversations', [ChatController::class, 'conversations'])->name('conversations');
+        Route::get('users', [ChatController::class, 'users'])->name('users');
+
+        // Monitoring — literal routes before the with/{user} + {conversation} wildcards.
+        Route::get('monitor', [ChatController::class, 'monitor'])->name('monitor');
+        Route::get('monitor/conversations', [ChatController::class, 'monitorConversations'])->name('monitor.conversations');
+        Route::get('monitor/{conversation}', [ChatController::class, 'monitorShow'])->name('monitor.show');
+
+        Route::get('with/{user}', [ChatController::class, 'open'])->name('open');
+        Route::post('with/{user}', [ChatController::class, 'send'])->name('send');
+        Route::post('{conversation}/read', [ChatController::class, 'read'])->name('read');
+    });
 
     // Settings
     Route::resource('categories', CategoryController::class)->except(['create', 'edit', 'show']);
@@ -179,4 +289,6 @@ Route::middleware(['auth'])->group(function () {
     Route::post('roles/{role}/clone', [RoleController::class, 'clone'])->name('roles.clone');
     Route::resource('permissions', PermissionController::class)->only(['index', 'store', 'destroy']);
 });
+
+require __DIR__.'/portal.php';
 

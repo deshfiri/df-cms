@@ -9,10 +9,12 @@ use App\Models\Label;
 use App\Models\Task;
 use App\Models\TaskAttachment;
 use App\Models\TaskComment;
+use App\Models\TaskRevision;
 use App\Models\User;
 use App\Services\TaskService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Yajra\DataTables\Facades\DataTables;
@@ -37,8 +39,9 @@ class TaskController extends Controller
 
         $statusCounts = Task::selectRaw('status, COUNT(*) as cnt')->groupBy('status')->pluck('cnt', 'status');
         $overdueCount = Task::overdue()->count();
+        $reasonCategories = TaskRevision::$reasonCategories;
 
-        return view('tasks.index', compact('clients', 'users', 'labels', 'statusCounts', 'overdueCount'));
+        return view('tasks.index', compact('clients', 'users', 'labels', 'statusCounts', 'overdueCount', 'reasonCategories'));
     }
 
     public function store(StoreTaskRequest $request): JsonResponse
@@ -60,6 +63,7 @@ class TaskController extends Controller
             'comments.user:id,name',
             'attachments.user:id,name',
             'activities.user:id,name',
+            'revisions.requestedBy:id,name',
         ]);
 
         return response()->json(['task' => $task]);
@@ -80,6 +84,20 @@ class TaskController extends Controller
         $this->service->delete($task);
 
         return response()->json(['success' => true]);
+    }
+
+    public function storeRevision(Request $request, Task $task): JsonResponse
+    {
+        $this->authorize('manage tasks');
+
+        $data = $request->validate([
+            'reason_category' => ['required', Rule::in(TaskRevision::$reasonCategories)],
+            'note'            => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $revision = $this->service->requestRevision($task, $data);
+
+        return response()->json(['success' => true, 'revision' => $revision]);
     }
 
     public function storeComment(Request $request, Task $task): JsonResponse

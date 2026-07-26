@@ -15,7 +15,8 @@ class EmployeeRequestController extends Controller
 {
     public function __construct(
         private readonly EmployeeRequestService $service,
-    ) {}
+    ) {
+    }
 
     public function index(Request $request) //first kick
     {
@@ -23,7 +24,7 @@ class EmployeeRequestController extends Controller
             return $this->dataTable($request);
         }
 
-        $clients   = Client::withoutTrashed()->orderBy('client_name')->get(['id', 'client_name', 'dfid_number']);
+        $clients = Client::withoutTrashed()->orderBy('client_name')->get(['id', 'client_name', 'dfid_number']);
         $canManage = $request->user()->can('manage requests');
 
         return view('requests.index', compact('clients', 'canManage'));
@@ -46,7 +47,7 @@ class EmployeeRequestController extends Controller
 
         $data = $request->validate([
             'status' => ['required', Rule::in([EmployeeRequest::STATUS_APPROVED, EmployeeRequest::STATUS_REJECTED])],
-            'note'   => ['nullable', 'string', 'max:1000'],
+            'note' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $updated = $this->service->respond($employeeRequest, $data['status'], $data['note'] ?? null, $request->user());
@@ -64,7 +65,7 @@ class EmployeeRequestController extends Controller
 
     private function dataTable(Request $request): JsonResponse
     {
-        $user      = $request->user();
+        $user = $request->user();
         $canManage = $user->can('manage requests');
 
         $query = EmployeeRequest::query()->with(['requestedBy:id,name', 'client:id,client_name']);
@@ -81,12 +82,12 @@ class EmployeeRequestController extends Controller
 
         return DataTables::of($query)
             ->addIndexColumn()
-            ->addColumn('subject', fn (EmployeeRequest $r) => e($r->subject))
-            ->addColumn('requester', fn (EmployeeRequest $r) => e($r->requestedBy->name ?? '-'))
-            ->addColumn('client', fn (EmployeeRequest $r) => e($r->client->client_name ?? '-'))
-            ->addColumn('status_badge', fn (EmployeeRequest $r) => $this->statusBadge($r->status))
-            ->addColumn('created', fn (EmployeeRequest $r) => $r->created_at->format('d M Y'))
-            ->addColumn('actions', fn (EmployeeRequest $r) => $this->actionButtons($r, $user, $canManage))
+            ->addColumn('subject', fn(EmployeeRequest $r) => e($r->subject))
+            ->addColumn('requester', fn(EmployeeRequest $r) => e($r->requestedBy->name ?? '-'))
+            ->addColumn('client', fn(EmployeeRequest $r) => e($r->client->client_name ?? '-'))
+            ->addColumn('status_badge', fn(EmployeeRequest $r) => $this->statusBadge($r->status))
+            ->addColumn('created', fn(EmployeeRequest $r) => $r->created_at->format('d M Y'))
+            ->addColumn('actions', fn(EmployeeRequest $r) => $this->actionButtons($r, $user, $canManage))
             ->rawColumns(['status_badge', 'actions'])
             ->make(true);
     }
@@ -94,7 +95,7 @@ class EmployeeRequestController extends Controller
     private function statusBadge(string $status): string
     {
         $map = [
-            EmployeeRequest::STATUS_PENDING  => 'spill-pending',
+            EmployeeRequest::STATUS_PENDING => 'spill-pending',
             EmployeeRequest::STATUS_APPROVED => 'spill-approved',
             EmployeeRequest::STATUS_REJECTED => 'spill-rejected',
         ];

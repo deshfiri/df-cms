@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\InvalidatesPerformanceBoard;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Task extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, InvalidatesPerformanceBoard;
 
     public static array $priorities = ['Low', 'Medium', 'High', 'Urgent'];
     public static array $statuses   = ['Pending', 'In Progress', 'On Hold', 'Completed', 'Cancelled', 'Overdue'];
@@ -73,6 +74,11 @@ class Task extends Model
     public function labels(): BelongsToMany
     {
         return $this->belongsToMany(Label::class, 'label_task');
+    }
+
+    public function revisions(): HasMany
+    {
+        return $this->hasMany(TaskRevision::class)->latest();
     }
 
     public function getIsOverdueAttribute(): bool

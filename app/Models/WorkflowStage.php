@@ -9,13 +9,17 @@ class WorkflowStage extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = ['name', 'code', 'department', 'requires_approval', 'sort_order', 'status'];
+    protected $fillable = [
+        'name', 'code', 'department', 'requires_approval', 'sort_order', 'status',
+        'description', 'is_client_visible',
+    ];
 
     protected function casts(): array
     {
         return [
             'status'            => 'boolean',
             'requires_approval' => 'boolean',
+            'is_client_visible' => 'boolean',
         ];
     }
 

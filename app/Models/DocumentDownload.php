@@ -26,12 +26,3 @@ class DocumentDownload extends Model
         return $this->belongsTo(User::class);
     }
 }
-
-// end
-
-use Illuminate\Database\Eloquent\Model;
-
-class DocumentDownload extends Model
-{
-    //
-}
