@@ -43,6 +43,7 @@ class DatabaseSeeder extends Seeder
             'view performance',
             'manage performance',
             'monitor chats',
+            'manage workflows',
         ];
 
         foreach ($permissions as $perm) {

@@ -19,7 +19,10 @@ class WorkflowController extends Controller
 
     public function index()
     {
-        // stages 
+        // Stage management is admin-only — the nav link is hidden for everyone
+        // else, and this blocks reaching the page directly by URL.
+        $this->authorize('manage-workflow');
+
         $stages = WorkflowStage::orderBy('sort_order')->get();
 
         return view('workflow.index', compact('stages'));

@@ -26,6 +26,15 @@ class ClientController extends Controller
 
     public function index(Request $request)
     {
+        // Stage/department workers have no full client list — they work only from
+        // their My Work queue and open clients from there. Block the list (page
+        // and its DataTables ajax) even by direct URL.
+        if ($request->user()->can('submit-stage') && !$request->user()->hasRole(['Super Admin', 'Manager'])) {
+            abort_if($request->ajax(), 403);
+
+            return redirect()->route('dashboard');
+        }
+
         if ($request->ajax()) {
             return $this->dataTable($request);
         }

@@ -4,6 +4,8 @@ use App\Http\Controllers\AdCampaignController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\FlowController;
+use App\Http\Controllers\FlowItemController;
 use App\Http\Controllers\ClientActionRequestController;
 use App\Http\Controllers\ClientApprovalRequestController;
 use App\Http\Controllers\ClientCorrectionRequestController;
@@ -274,6 +276,40 @@ Route::middleware(['auth'])->group(function () {
         Route::post('with/{user}', [ChatController::class, 'send'])->name('send');
         Route::post('{conversation}/read', [ChatController::class, 'read'])->name('read');
     });
+
+    // ── Generic workflow engine ──────────────────────────────────────────
+    // Admin: build & track workflows (gated by 'manage workflows').
+    Route::middleware('can:manage workflows')->prefix('workflows')->name('workflows.')->group(function () {
+        Route::get('/', [FlowController::class, 'index'])->name('index');
+        Route::post('/', [FlowController::class, 'store'])->name('store');
+        Route::get('items', [FlowController::class, 'items'])->name('items'); // before {flow}
+        Route::get('{flow}', [FlowController::class, 'show'])->name('show');
+        Route::put('{flow}', [FlowController::class, 'update'])->name('update');
+        Route::delete('{flow}', [FlowController::class, 'destroy'])->name('destroy');
+        Route::post('{flow}/toggle', [FlowController::class, 'toggleActive'])->name('toggle');
+        Route::post('{flow}/stages', [FlowController::class, 'storeStage'])->name('stages.store');
+        Route::post('{flow}/reorder', [FlowController::class, 'reorderStages'])->name('reorder');
+        Route::put('stages/{stage}', [FlowController::class, 'updateStage'])->name('stages.update');
+        Route::delete('stages/{stage}', [FlowController::class, 'destroyStage'])->name('stages.destroy');
+        Route::post('stages/{stage}/users', [FlowController::class, 'assignUsers'])->name('stages.users');
+    });
+
+    // User: personal queue + item actions (visibility enforced in FlowService).
+    Route::get('my-queue', [FlowItemController::class, 'queue'])->name('flow.queue');
+    Route::get('my-queue/history', [FlowItemController::class, 'history'])->name('flow.history');
+    Route::post('flow-items', [FlowItemController::class, 'store'])->name('flow-items.store');
+    Route::get('flow-items/{item}', [FlowItemController::class, 'show'])->name('flow-items.show');
+    Route::put('flow-items/{item}', [FlowItemController::class, 'updateItem'])->name('flow-items.update');
+    Route::post('flow-items/{item}/claim', [FlowItemController::class, 'claim'])->name('flow-items.claim');
+    Route::post('flow-items/{item}/release', [FlowItemController::class, 'release'])->name('flow-items.release');
+    Route::post('flow-items/{item}/advance', [FlowItemController::class, 'advance'])->name('flow-items.advance');
+    Route::post('flow-items/{item}/send-back', [FlowItemController::class, 'sendBack'])->name('flow-items.send-back');
+    Route::post('flow-items/{item}/cancel', [FlowItemController::class, 'cancel'])->name('flow-items.cancel');
+    Route::post('flow-items/{item}/comments', [FlowItemController::class, 'storeComment'])->name('flow-items.comments.store');
+    Route::delete('flow-items/{item}/comments/{comment}', [FlowItemController::class, 'destroyComment'])->name('flow-items.comments.destroy');
+    Route::post('flow-items/{item}/attachments', [FlowItemController::class, 'storeAttachment'])->name('flow-items.attachments.store');
+    Route::get('flow-items/{item}/attachments/{attachment}/download', [FlowItemController::class, 'downloadAttachment'])->name('flow-items.attachments.download');
+    Route::delete('flow-items/{item}/attachments/{attachment}', [FlowItemController::class, 'destroyAttachment'])->name('flow-items.attachments.destroy');
 
     // Settings
     Route::resource('categories', CategoryController::class)->except(['create', 'edit', 'show']);

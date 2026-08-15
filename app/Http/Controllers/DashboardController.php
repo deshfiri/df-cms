@@ -375,7 +375,7 @@ class DashboardController extends Controller
     {
         $departments = $user->getRoleNames()->intersect(self::DEPARTMENT_ROLES)->values();
 
-        $pending = ClientStageProgress::with(['client:id,client_name,dfid_number,client_status', 'stage'])
+        $pending = ClientStageProgress::with(['client:id,client_name,brand_name,dfid_number,client_status,assigned_to', 'client.assignedUser:id,name', 'stage'])
             ->whereHas('stage', fn($q) => $q->whereIn('department', $departments)->where('status', true))
             ->whereIn('status', [
                 ClientStageProgress::STATUS_PENDING,

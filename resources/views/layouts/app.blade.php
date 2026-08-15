@@ -1970,15 +1970,24 @@
         </div>
 
         <nav class="sb-nav">
+            {{-- Stage/department workers get a minimal, work-queue-only menu (see dashboard-department). --}}
+            @php $isStageUser = auth()->user()->can('submit-stage') && !auth()->user()->hasRole(['Super Admin', 'Manager']); @endphp
+            @php
+                $flowNav = app(\App\Services\FlowService::class)->navSummary(auth()->user());
+                $flowParticipant = $flowNav['participant'];
+                $flowQueueCount = $flowNav['count'];
+            @endphp
             <div class="sb-section">Menu</div>
             <a href="{{ route('dashboard') }}" class="sb-link {{ request()->routeIs('dashboard') ? 'active' : '' }}"
-                title="Dashboard" data-bs-toggle="tooltip" data-bs-placement="right">
-                <i class="bi bi-speedometer2"></i><span class="sb-lbl">Dashboard</span>
+                title="{{ $isStageUser ? 'My Work' : 'Dashboard' }}" data-bs-toggle="tooltip" data-bs-placement="right">
+                <i class="bi {{ $isStageUser ? 'bi-clipboard-check' : 'bi-speedometer2' }}"></i><span class="sb-lbl">{{ $isStageUser ? 'My Work' : 'Dashboard' }}</span>
             </a>
+            @unless($isStageUser)
             <a href="{{ route('clients.index') }}" class="sb-link {{ request()->routeIs('clients.*') ? 'active' : '' }}"
                 title="Clients" data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-people"></i><span class="sb-lbl">Clients</span>
             </a>
+            @endunless
             @can('view payments')
                 <a href="{{ route('payments.index') }}"
                     class="sb-link {{ request()->routeIs('payments.*') ? 'active' : '' }}" title="Payments"
@@ -1986,6 +1995,7 @@
                     <i class="bi bi-cash-coin"></i><span class="sb-lbl">Payments</span>
                 </a>
             @endcan
+            @unless($isStageUser)
             @can('view ads')
                 <a href="{{ route('ads.index') }}"
                     class="sb-link {{ request()->routeIs('ads.*') || request()->routeIs('clients.ads.*') ? 'active' : '' }}"
@@ -1993,6 +2003,7 @@
                     <i class="bi bi-megaphone"></i><span class="sb-lbl">Ads</span>
                 </a>
             @endcan
+            @endunless
 
             <a href="{{ route('meetings.all') }}"
                 class="sb-link {{ request()->routeIs('meetings.all') ? 'active' : '' }}" title="All Meetings"
@@ -2012,6 +2023,22 @@
                     <i class="bi bi-list-check"></i><span class="sb-lbl">Tasks</span>
                 </a>
             @endcan
+            @if($flowParticipant)
+                <a href="{{ route('flow.queue') }}"
+                    class="sb-link {{ request()->routeIs('flow.queue') || request()->routeIs('flow-items.*') ? 'active' : '' }}" title="My Queue"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-inboxes"></i><span class="sb-lbl">My Queue</span>
+                    <span id="flowQueueBadge" style="{{ $flowQueueCount ? 'display:inline-flex' : 'display:none' }};margin-left:auto;background:var(--primary);color:#fff;font-size:.6rem;font-weight:700;border-radius:999px;padding:0 5px;min-width:16px;height:16px;align-items:center;justify-content:center">{{ $flowQueueCount ?: '' }}</span>
+                </a>
+            @endif
+            @can('manage workflows')
+                <a href="{{ route('workflows.index') }}"
+                    class="sb-link {{ request()->routeIs('workflows.*') ? 'active' : '' }}" title="Workflows"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-diagram-2"></i><span class="sb-lbl">Workflows</span>
+                </a>
+            @endcan
+            @unless($isStageUser)
             <a href="{{ route('requests.index') }}"
                 class="sb-link {{ request()->routeIs('requests.*') ? 'active' : '' }}" title="Requests"
                 data-bs-toggle="tooltip" data-bs-placement="right">
@@ -2021,6 +2048,7 @@
                 title="Reviews & Reports" data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-chat-square-text"></i><span class="sb-lbl">Reviews & Reports</span>
             </a>
+            @endunless
             @can('view performance')
                 <a href="{{ route('performance.index') }}"
                     class="sb-link {{ request()->routeIs('performance.*') ? 'active' : '' }}" title="Performance"
@@ -2043,20 +2071,29 @@
                 </a>
             @endcan
 
-            <div class="sb-section">Operations</div>
-            <a href="{{ route('import.index') }}" class="sb-link {{ request()->routeIs('import.*') ? 'active' : '' }}"
-                title="Import Data" data-bs-toggle="tooltip" data-bs-placement="right">
-                <i class="bi bi-upload"></i><span class="sb-lbl">Import Data</span>
-            </a>
-            <a href="#" id="exportSidebarBtn" class="sb-link" title="Export Data" data-bs-toggle="tooltip"
-                data-bs-placement="right">
-                <i class="bi bi-download"></i><span class="sb-lbl">Export Data</span>
-            </a>
-            <a href="{{ route('workflow.index') }}"
-                class="sb-link {{ request()->routeIs('workflow.*') ? 'active' : '' }}" title="Workflow Stages"
-                data-bs-toggle="tooltip" data-bs-placement="right">
-                <i class="bi bi-diagram-3"></i><span class="sb-lbl">Workflow Stages</span>
-            </a>
+            @unless($isStageUser)
+            @canany(['import clients', 'export clients', 'manage-workflow', 'view file-manager'])
+                <div class="sb-section">Operations</div>
+            @endcanany
+            @can('import clients')
+                <a href="{{ route('import.index') }}" class="sb-link {{ request()->routeIs('import.*') ? 'active' : '' }}"
+                    title="Import Data" data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-upload"></i><span class="sb-lbl">Import Data</span>
+                </a>
+            @endcan
+            @can('export clients')
+                <a href="#" id="exportSidebarBtn" class="sb-link" title="Export Data" data-bs-toggle="tooltip"
+                    data-bs-placement="right">
+                    <i class="bi bi-download"></i><span class="sb-lbl">Export Data</span>
+                </a>
+            @endcan
+            @can('manage-workflow')
+                <a href="{{ route('workflow.index') }}"
+                    class="sb-link {{ request()->routeIs('workflow.*') ? 'active' : '' }}" title="Workflow Stages"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-diagram-3"></i><span class="sb-lbl">Workflow Stages</span>
+                </a>
+            @endcan
             @can('view file-manager')
                 <a href="{{ route('file-manager.index') }}"
                     class="sb-link {{ request()->routeIs('file-manager.*') ? 'active' : '' }}" title="File Manager"
@@ -2064,6 +2101,7 @@
                     <i class="bi bi-folder2-open"></i><span class="sb-lbl">File Manager</span>
                 </a>
             @endcan
+            @endunless
 
             @canany(['manage categories', 'manage users'])
                 <div class="sb-section">Management</div>
@@ -2180,6 +2218,25 @@
                             <span class="badge mt-1 me-1"
                                 style="background:rgba(var(--primary-rgb),.12);color:var(--primary);font-size:.6rem">{{ $roleName }}</span>
                         @endforeach
+                    </li>
+                    <li>
+                        <hr class="dropdown-divider my-1">
+                    </li>
+                    <li>
+                        <label class="dropdown-item d-flex align-items-center justify-content-between mb-0" style="cursor:pointer" onclick="event.stopPropagation()">
+                            <span><i class="bi bi-volume-up me-2"></i>Message sound</span>
+                            <div class="form-check form-switch m-0 ms-3">
+                                <input class="form-check-input" type="checkbox" role="switch" id="chatSoundToggle" style="cursor:pointer">
+                            </div>
+                        </label>
+                    </li>
+                    <li>
+                        <label class="dropdown-item d-flex align-items-center justify-content-between mb-0" style="cursor:pointer" onclick="event.stopPropagation()">
+                            <span><i class="bi bi-bell me-2"></i>Desktop notifications</span>
+                            <div class="form-check form-switch m-0 ms-3">
+                                <input class="form-check-input" type="checkbox" role="switch" id="chatDesktopToggle" style="cursor:pointer">
+                            </div>
+                        </label>
                     </li>
                     <li>
                         <hr class="dropdown-divider my-1">
@@ -2333,6 +2390,79 @@
     <script src="https://js.pusher.com/8.4.0/pusher.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/laravel-echo@1.16.1/dist/echo.iife.js"></script>
 
+    {{-- Chat notification sound (synthesized — no asset). Per-user, muteable from the profile menu. --}}
+    <script>
+        window.ChatSound = (function () {
+            var ctx = null, KEY = 'dfcp_chat_sound';
+            function enabled() { return localStorage.getItem(KEY) !== 'off'; }
+            function ctxObj() {
+                if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } }
+                if (ctx && ctx.state === 'suspended') { ctx.resume(); }
+                return ctx;
+            }
+            // Browsers need a user gesture before audio can play — unlock on first click.
+            document.addEventListener('click', function unlock() { ctxObj(); document.removeEventListener('click', unlock); }, { once: true });
+            function play() {
+                if (!enabled()) return;
+                var c = ctxObj(); if (!c) return;
+                try {
+                    var t = c.currentTime;
+                    [880, 1180].forEach(function (freq, i) {
+                        var o = c.createOscillator(), g = c.createGain();
+                        o.type = 'sine'; o.frequency.value = freq;
+                        o.connect(g); g.connect(c.destination);
+                        var s = t + i * 0.12;
+                        g.gain.setValueAtTime(0.0001, s);
+                        g.gain.exponentialRampToValueAtTime(0.16, s + 0.01);
+                        g.gain.exponentialRampToValueAtTime(0.0001, s + 0.14);
+                        o.start(s); o.stop(s + 0.15);
+                    });
+                } catch (e) {}
+            }
+            return { enabled: enabled, play: play, setEnabled: function (on) { localStorage.setItem(KEY, on ? 'on' : 'off'); } };
+        })();
+
+        window.ChatNotify = (function () {
+            var KEY = 'dfcp_chat_desktop', supported = ('Notification' in window);
+            function enabledPref() { return localStorage.getItem(KEY) !== 'off'; }
+            function setEnabled(on) {
+                localStorage.setItem(KEY, on ? 'on' : 'off');
+                if (on && supported && Notification.permission === 'default') { Notification.requestPermission(); }
+            }
+            function show(e) {
+                if (!supported || !enabledPref() || Notification.permission !== 'granted') return;
+                if (!document.hidden && document.hasFocus()) return; // only when the app isn't in front
+                try {
+                    var n = new Notification(e.sender_name || 'New message', { body: e.body || '', tag: 'chat-' + e.conversation_id, renotify: true });
+                    n.onclick = function () { window.focus(); try { n.close(); } catch (x) {} if (location.pathname.indexOf('/chat') !== 0) location.href = '{{ route('chat.index') }}'; };
+                    setTimeout(function () { try { n.close(); } catch (x) {} }, 6000);
+                } catch (x) {}
+            }
+            // Ask once, on first interaction, unless the user opted out.
+            if (supported) {
+                document.addEventListener('click', function ask() {
+                    if (enabledPref() && Notification.permission === 'default') { Notification.requestPermission(); }
+                    document.removeEventListener('click', ask);
+                }, { once: true });
+            }
+            return { enabledPref: enabledPref, setEnabled: setEnabled, show: show, supported: supported };
+        })();
+
+        document.addEventListener('DOMContentLoaded', function () {
+            var s = document.getElementById('chatSoundToggle');
+            if (s) {
+                s.checked = window.ChatSound.enabled();
+                s.addEventListener('change', function () { window.ChatSound.setEnabled(s.checked); if (s.checked) window.ChatSound.play(); });
+            }
+            var d = document.getElementById('chatDesktopToggle');
+            if (d) {
+                if (!window.ChatNotify.supported || (('Notification' in window) && Notification.permission === 'denied')) { d.checked = false; d.disabled = true; }
+                else { d.checked = window.ChatNotify.enabledPref(); }
+                d.addEventListener('change', function () { window.ChatNotify.setEnabled(d.checked); });
+            }
+        });
+    </script>
+
     {{-- Realtime (Laravel Reverb) — presence + personal notifications, app-wide --}}
     <script>
         window.CURRENT_USER_ID = {{ auth()->id() }};
@@ -2358,9 +2488,20 @@
             window.Echo.private('App.Models.User.' + window.CURRENT_USER_ID)
                 .listen('.message.sent', function (e) {
                     document.dispatchEvent(new CustomEvent('chat-message', { detail: e }));
+                    if (window.ChatSound) window.ChatSound.play();
+                    if (window.ChatNotify) window.ChatNotify.show(e);
                     if (window.ActiveConversationId !== e.conversation_id) {
                         var badge = document.getElementById('chatUnreadBadge');
                         if (badge) { badge.textContent = (parseInt(badge.textContent || '0', 10) || 0) + 1; badge.style.display = 'inline-flex'; }
+                    }
+                })
+                .notification(function (n) {
+                    // Any broadcast notification → refresh the bell live.
+                    if (typeof loadNotifications === 'function') loadNotifications();
+                    // Work arrived in a workflow stage → bump the My Queue badge.
+                    if (n && n.type && n.type.indexOf('FlowItemAwaitingYou') !== -1) {
+                        var q = document.getElementById('flowQueueBadge');
+                        if (q) { q.textContent = (parseInt(q.textContent || '0', 10) || 0) + 1; q.style.display = 'inline-flex'; }
                     }
                 });
         } catch (err) {

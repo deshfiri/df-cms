@@ -14,3 +14,6 @@ Schedule::command('portal:send-deadline-reminders')->daily();
 
 // Finalize the just-ended month's KPI scores into monthly_performance_snapshots.
 Schedule::command('performance:snapshot --previous')->monthlyOn(1, '02:00');
+
+// Daily nudge for overdue workflow items.
+Schedule::command('flow:overdue-reminders')->dailyAt('08:00');
