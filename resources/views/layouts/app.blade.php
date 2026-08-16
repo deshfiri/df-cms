@@ -2575,6 +2575,45 @@
         });
     </script>
 
+    {{--
+        In-page alert for a new chat message. Complements rather than duplicates
+        the desktop notification, which only fires when the tab is NOT focused —
+        this is what you see while you are actually using the app.
+    --}}
+    <script>
+        function showMessageToast(e) {
+            if (!window.Swal || !e) return;
+
+            var body = (e.body || '').trim();
+            if (body.length > 70) body = body.slice(0, 70) + '…';
+
+            Swal.fire({
+                toast: true,
+                position: 'top-end',
+                icon: 'info',
+                title: (e.sender_name || 'Someone') + ' sent you a message',
+                text: body,
+                showConfirmButton: false,
+                timer: 5000,
+                timerProgressBar: true,
+                customClass: { popup: 'chat-toast' },
+                didOpen: function (toast) {
+                    toast.style.cursor = 'pointer';
+                    toast.addEventListener('click', function () {
+                        Swal.close();
+                        // Already on the chat page: switch threads in place
+                        // rather than reloading and losing the socket.
+                        if (window.ChatOpenThread) {
+                            window.ChatOpenThread(e.sender_id, e.sender_name);
+                        } else {
+                            window.location.href = '/chat?user=' + encodeURIComponent(e.sender_id);
+                        }
+                    });
+                },
+            });
+        }
+    </script>
+
     {{-- Realtime (Laravel Reverb) — presence + personal notifications, app-wide --}}
     @php
         $reverbKey    = config('broadcasting.connections.reverb.key');
@@ -2627,6 +2666,7 @@
                     if (window.ActiveConversationId !== e.conversation_id) {
                         var badge = document.getElementById('chatUnreadBadge');
                         if (badge) { badge.textContent = (parseInt(badge.textContent || '0', 10) || 0) + 1; badge.style.display = 'inline-flex'; }
+                        showMessageToast(e);
                     }
                 })
                 .notification(function (n) {

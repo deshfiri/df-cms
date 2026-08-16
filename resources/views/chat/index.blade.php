@@ -182,6 +182,24 @@ $(function () {
         });
     }
 
+    // Lets the message toast in the layout switch threads without a reload,
+    // and gives /chat?user={id} somewhere to land.
+    window.ChatOpenThread = function (userId, name) {
+        if (!userId) return;
+        openChat(parseInt(userId, 10), name || 'Chat');
+    };
+
+    (function openFromQueryString() {
+        var requested = new URLSearchParams(window.location.search).get('user');
+        if (!requested) return;
+
+        // Resolve the name from the conversation list once it has loaded, so
+        // the header is not left showing a placeholder.
+        $.get('/chat/with/' + requested).done(function (r) {
+            openChat(parseInt(requested, 10), r.other?.name || 'Chat');
+        });
+    })();
+
     function renderMessages(msgs) {
         if (!msgs.length) { $('#msgList').html('<div class="chat-empty" style="flex:1"><div style="font-size:.82rem;color:var(--text3)">No messages yet. Say hello 👋</div></div>'); return; }
         $('#msgList').html('');
