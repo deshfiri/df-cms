@@ -31,6 +31,44 @@
     .chat-empty { flex: 1; display: grid; place-items: center; color: var(--text3); text-align: center; }
     .chat-day { align-self: center; font-size: .66rem; color: var(--text3); background: var(--surface2); border-radius: 999px; padding: 1px 10px; margin: .25rem 0; }
     @media (max-width: 640px) { .chat-sidebar { width: 100%; } .chat-wrap.has-active .chat-sidebar { display: none; } }
+
+    /* ── Attachments ─────────────────────────────────────────────── */
+    .msg-img { display: block; max-width: 220px; max-height: 220px; border-radius: 8px; cursor: pointer; margin-top: .15rem; }
+    .msg-file {
+        display: flex; align-items: center; gap: .5rem; margin-top: .2rem;
+        padding: .4rem .55rem; border-radius: 8px; text-decoration: none;
+        background: rgba(0, 0, 0, .12);
+    }
+    .msg.them .msg-file { background: var(--surface2); color: var(--text); }
+    .msg.me .msg-file { color: #fff; }
+    .msg-file i { font-size: 1.1rem; flex-shrink: 0; }
+    .msg-file-name { font-size: .78rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .msg-file-size { font-size: .64rem; opacity: .75; }
+
+    /* Staged file, before it is sent */
+    #attachBar {
+        display: flex; align-items: center; gap: .6rem;
+        padding: .5rem .8rem; border-top: 1px solid var(--border); background: var(--surface2);
+    }
+    #attachBar.d-none { display: none !important; }
+    #attachThumb { width: 42px; height: 42px; object-fit: cover; border-radius: 6px; }
+    #attachIcon { font-size: 1.3rem; color: var(--primary); }
+    #attachName { font-size: .78rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #attachSize { font-size: .66rem; color: var(--text3); }
+    #attachClear { color: var(--text3); }
+
+    /* Drop target, only visible mid-drag */
+    #chatDropZone {
+        position: absolute; inset: 0; z-index: 5; display: none;
+        place-items: center; text-align: center;
+        background: rgba(var(--primary-rgb), .12);
+        border: 2px dashed var(--primary); border-radius: var(--radius);
+        color: var(--primary); font-size: .85rem; font-weight: 600;
+        pointer-events: none;
+    }
+    #chatDropZone.show { display: grid; }
+    #chatDropZone i { font-size: 2rem; display: block; }
+    #chatThread { position: relative; }
 </style>
 @endpush
 
@@ -80,10 +118,29 @@
             </div>
             <div class="chat-msgs" id="msgList"></div>
             <div class="chat-typing" id="typingIndicator"></div>
+            {{-- Staged attachment, shown between the thread and the input --}}
+            <div id="attachBar" class="d-none">
+                <img id="attachThumb" alt="" class="d-none">
+                <i id="attachIcon" class="bi bi-paperclip d-none"></i>
+                <div class="min-w-0 flex-grow-1">
+                    <div id="attachName"></div>
+                    <div id="attachSize"></div>
+                </div>
+                <button class="btn btn-sm p-0" id="attachClear" title="Remove"><i class="bi bi-x-lg"></i></button>
+            </div>
+
             <div class="chat-input-row">
+                <input type="file" id="msgFile" class="d-none">
+                <button class="btn btn-sm" id="msgAttach" title="Attach a file"
+                    style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">
+                    <i class="bi bi-paperclip"></i>
+                </button>
                 <input type="text" id="msgInput" class="form-control form-control-sm" placeholder="Type a message…" autocomplete="off" maxlength="5000">
                 <button class="btn btn-sm btn-primary" id="msgSend"><i class="bi bi-send"></i></button>
             </div>
+
+            {{-- Drop target overlay, shown only while dragging a file over the thread --}}
+            <div id="chatDropZone"><div><i class="bi bi-cloud-arrow-up"></i><div>Drop to send</div></div></div>
         </div>
     </div>
 </div>
@@ -207,25 +264,156 @@ $(function () {
         scrollBottom();
     }
 
+    function attachmentHtml(a) {
+        if (!a) return '';
+
+        if (a.is_image) {
+            return `<img src="${esc(a.url)}" alt="${esc(a.name)}" class="msg-img" data-full="${esc(a.url)}">`;
+        }
+
+        return `<a href="${esc(a.url)}" class="msg-file">
+                    <i class="bi bi-file-earmark-arrow-down"></i>
+                    <span class="min-w-0">
+                        <span class="msg-file-name d-block">${esc(a.name)}</span>
+                        <span class="msg-file-size">${esc(a.size)}</span>
+                    </span>
+                </a>`;
+    }
+
     function appendMessage(m) {
         const mine = m.sender_id === ME;
         const $empty = $('#msgList').find('.chat-empty');
         if ($empty.length) $('#msgList').html('');
-        $('#msgList').append(`<div class="msg ${mine ? 'me' : 'them'}">${esc(m.body)}<div class="msg-meta">${timeOf(m.created_at)}</div></div>`);
+        // An image may be sent with no caption, so the body can be empty.
+        const text = m.body ? esc(m.body) : '';
+        $('#msgList').append(`<div class="msg ${mine ? 'me' : 'them'}">${text}${attachmentHtml(m.attachment)}<div class="msg-meta">${timeOf(m.created_at)}</div></div>`);
         scrollBottom();
     }
 
+    // Open an image full size.
+    $(document).on('click', '.msg-img', function () {
+        Swal.fire({
+            imageUrl: $(this).data('full'),
+            imageAlt: 'Attachment',
+            showConfirmButton: false,
+            showCloseButton: true,
+            width: 'auto',
+            padding: '0.5rem',
+        });
+    });
+
     function scrollBottom() { const el = document.getElementById('msgList'); el.scrollTop = el.scrollHeight; }
+
+    // ── Attachments ──────────────────────────────────────────────────
+    const MAX_ATTACHMENT = 20 * 1024 * 1024;   // matches the server's max:20480
+    let pendingFile = null;
+
+    function stageFile(file) {
+        if (!file) return;
+        if (file.size > MAX_ATTACHMENT) {
+            Swal.fire('Too large', 'Attachments are limited to 20 MB.', 'info');
+            return;
+        }
+
+        pendingFile = file;
+        $('#attachBar').removeClass('d-none');
+        $('#attachName').text(file.name || 'Pasted image');
+        $('#attachSize').text(Math.max(1, Math.round(file.size / 1024)) + ' KB');
+
+        // Preview images so it is obvious what is about to be sent.
+        if (file.type && file.type.indexOf('image/') === 0) {
+            const reader = new FileReader();
+            reader.onload = e => $('#attachThumb').attr('src', e.target.result).removeClass('d-none');
+            reader.readAsDataURL(file);
+            $('#attachIcon').addClass('d-none');
+        } else {
+            $('#attachThumb').addClass('d-none').removeAttr('src');
+            $('#attachIcon').removeClass('d-none');
+        }
+
+        $('#msgInput').focus();
+    }
+
+    function clearStagedFile() {
+        pendingFile = null;
+        $('#attachBar').addClass('d-none');
+        $('#attachThumb').addClass('d-none').removeAttr('src');
+        $('#msgFile').val('');
+    }
+
+    $('#msgAttach').on('click', () => $('#msgFile').trigger('click'));
+    $('#msgFile').on('change', function () { stageFile(this.files[0]); });
+    $('#attachClear').on('click', clearStagedFile);
+
+    // Paste — screenshots arrive as a clipboard image with no filename.
+    $('#msgInput').on('paste', function (e) {
+        const items = (e.originalEvent.clipboardData || {}).items || [];
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].kind === 'file') {
+                const file = items[i].getAsFile();
+                if (file) { e.preventDefault(); stageFile(file); return; }
+            }
+        }
+    });
+
+    // Drag and drop anywhere over the open thread.
+    let dragDepth = 0;
+    const $thread = $('#chatThread');
+
+    $thread.on('dragenter dragover', function (e) {
+        if (!activeUserId) return;
+        e.preventDefault(); e.stopPropagation();
+        if (e.type === 'dragenter') dragDepth++;
+        $('#chatDropZone').addClass('show');
+    });
+    $thread.on('dragleave', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        // dragleave also fires moving between child elements, so only hide the
+        // overlay once the pointer has actually left the thread.
+        if (--dragDepth <= 0) { dragDepth = 0; $('#chatDropZone').removeClass('show'); }
+    });
+    $thread.on('drop', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        dragDepth = 0;
+        $('#chatDropZone').removeClass('show');
+        const files = e.originalEvent.dataTransfer?.files;
+        if (files && files.length) stageFile(files[0]);
+    });
+
+    // Stop a stray drop elsewhere on the page from navigating away from the app.
+    $(document).on('dragover drop', function (e) { e.preventDefault(); });
 
     // ── Send ─────────────────────────────────────────────────────────
     function send() {
         const body = $.trim($('#msgInput').val());
-        if (!body || !activeUserId) return;
+        if ((!body && !pendingFile) || !activeUserId) return;
+
+        const form = new FormData();
+        if (body) form.append('body', body);
+        if (pendingFile) form.append('file', pendingFile, pendingFile.name || 'pasted-image.png');
+
         $('#msgInput').val('');
-        $.post('/chat/with/' + activeUserId, { body }).done(function (r) {
+        const sending = pendingFile;
+        clearStagedFile();
+        $('#msgSend').prop('disabled', true);
+
+        $.ajax({
+            url: '/chat/with/' + activeUserId,
+            type: 'POST',
+            data: form,
+            processData: false,
+            contentType: false,
+        }).done(function (r) {
             appendMessage(r.message);
             loadConversations();
-        }).fail(function (x) { Swal.fire('Error', x.responseJSON?.message || 'Message failed', 'error'); });
+        }).fail(function (x) {
+            // Put the file back so an upload failure doesn't lose it.
+            if (sending) stageFile(sending);
+            if (body) $('#msgInput').val(body);
+            Swal.fire('Error', x.responseJSON?.message || 'Message failed', 'error');
+        }).always(function () {
+            $('#msgSend').prop('disabled', false);
+        });
     }
     $('#msgSend').on('click', send);
     $('#msgInput').on('keydown', function (e) {

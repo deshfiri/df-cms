@@ -6,17 +6,25 @@ use App\Events\MessageSent;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class ChatService
 {
-    public function sendMessage(Conversation $conversation, User $sender, string $body): Message
+    /**
+     * @param  UploadedFile|null  $file  Optional attachment; an image may be
+     *                                   sent with no accompanying text.
+     */
+    public function sendMessage(Conversation $conversation, User $sender, ?string $body, ?UploadedFile $file = null): Message
     {
-        $message = DB::transaction(function () use ($conversation, $sender, $body) {
+        $attachment = $file ? $this->storeAttachment($conversation, $file) : [];
+
+        $message = DB::transaction(function () use ($conversation, $sender, $body, $attachment) {
             $message = $conversation->messages()->create([
                 'sender_id' => $sender->id,
-                'body'      => $body,
-            ]);
+                'body'      => $body !== null && $body !== '' ? $body : null,
+            ] + $attachment);
 
             $conversation->forceFill(['last_message_at' => $message->created_at])->save();
 
@@ -34,6 +42,27 @@ class ChatService
         }
 
         return $message;
+    }
+
+    /**
+     * Store on the private disk, under the conversation, with a generated name.
+     *
+     * The original filename is kept only as a label — it never touches the
+     * filesystem, so a crafted name cannot traverse directories or collide with
+     * another upload.
+     *
+     * @return array<string,mixed>
+     */
+    private function storeAttachment(Conversation $conversation, UploadedFile $file): array
+    {
+        $stored = Str::uuid() . '.' . strtolower($file->getClientOriginalExtension() ?: 'bin');
+
+        return [
+            'attachment_path' => $file->storeAs('chat/' . $conversation->id, $stored, 'local'),
+            'attachment_name' => $file->getClientOriginalName(),
+            'attachment_mime' => $file->getMimeType() ?: 'application/octet-stream',
+            'attachment_size' => $file->getSize(),
+        ];
     }
 
     /** Mark the other participant's messages in a conversation as read for $user. */

@@ -46,6 +46,14 @@ class MessageSent implements ShouldBroadcastNow
             'sender_name'     => $this->message->sender->name,
             'body'            => $this->message->body,
             'created_at'      => $this->message->created_at->toIso8601String(),
+            // Carried on the event so an attachment renders the moment it
+            // arrives, rather than only after the thread is reloaded.
+            'attachment'      => $this->message->hasAttachment() ? [
+                'name'     => $this->message->attachment_name,
+                'size'     => $this->message->attachmentSizeForHumans(),
+                'is_image' => $this->message->attachmentIsImage(),
+                'url'      => route('chat.attachment', $this->message),
+            ] : null,
         ];
     }
 }

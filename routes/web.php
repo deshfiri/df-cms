@@ -277,6 +277,9 @@ Route::middleware(['auth'])->group(function () {
         Route::get('monitor/conversations', [ChatController::class, 'monitorConversations'])->name('monitor.conversations');
         Route::get('monitor/{conversation}', [ChatController::class, 'monitorShow'])->name('monitor.show');
 
+        // Literal segment, so it must precede the with/{user} wildcard.
+        Route::get('attachments/{message}', [ChatController::class, 'attachment'])->name('attachment');
+
         Route::get('with/{user}', [ChatController::class, 'open'])->name('open');
         Route::post('with/{user}', [ChatController::class, 'send'])->name('send');
         Route::post('{conversation}/read', [ChatController::class, 'read'])->name('read');

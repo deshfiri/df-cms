@@ -9,6 +9,7 @@ use App\Services\ChatService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 
 class ChatController extends Controller
 {
@@ -46,11 +47,18 @@ class ChatController extends Controller
             $other = $c->user_one_id === $otherId ? $c->userOne : $c->userTwo;
             $last = $c->messages->first();
 
+            // An attachment-only message has no body, so show what was sent
+            // rather than a blank row in the conversation list.
+            $preview = $last?->body;
+            if ($last && !$preview && $last->hasAttachment()) {
+                $preview = $last->attachmentIsImage() ? '📷 Photo' : '📎 ' . $last->attachment_name;
+            }
+
             return [
                 'conversation_id' => $c->id,
                 'user_id' => $otherId,
                 'name' => $other->name ?? '—',
-                'last_body' => $last?->body,
+                'last_body' => $preview,
                 'last_from_me' => $last && $last->sender_id === $me,
                 'last_at' => $c->last_message_at?->diffForHumans(),
                 'unread' => (int) ($unread[$c->id] ?? 0),
@@ -114,10 +122,15 @@ class ChatController extends Controller
         $me = Auth::user();
         abort_if($user->id === $me->id, 422, "You can't chat with yourself.");
 
-        $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
+        // Either half may be omitted, but not both — an empty message is not a
+        // message. 20 MB matches the document limit used elsewhere.
+        $data = $request->validate([
+            'body' => ['nullable', 'string', 'max:5000', 'required_without:file'],
+            'file' => ['nullable', 'file', 'max:20480', 'required_without:body'],
+        ]);
 
         $conversation = Conversation::between($me->id, $user->id);
-        $message = $this->chat->sendMessage($conversation, $me, $data['body']);
+        $message = $this->chat->sendMessage($conversation, $me, $data['body'] ?? null, $request->file('file'));
 
         return response()->json([
             'success' => true,
@@ -175,6 +188,31 @@ class ChatController extends Controller
         ]);
     }
 
+    /**
+     * Stream a message attachment to a participant.
+     *
+     * Images are shown inline so a thumbnail can render; everything else is
+     * forced as a download, so an uploaded .html or .svg can never execute in
+     * the app's own origin.
+     */
+    public function attachment(Message $message)
+    {
+        $conversation = $message->conversation;
+
+        abort_unless($conversation && $conversation->hasParticipant(Auth::id()), 403);
+        abort_unless($message->hasAttachment(), 404);
+        abort_unless(Storage::disk('local')->exists($message->attachment_path), 404);
+
+        if ($message->attachmentIsImage()) {
+            return Storage::disk('local')->response($message->attachment_path, $message->attachment_name, [
+                'Content-Type'            => $message->attachment_mime,
+                'Content-Security-Policy' => "default-src 'none'; img-src 'self'",
+            ]);
+        }
+
+        return Storage::disk('local')->download($message->attachment_path, $message->attachment_name);
+    }
+
     private function messageResource(Message $m): array
     {
         return [
@@ -183,6 +221,12 @@ class ChatController extends Controller
             'sender_name' => $m->sender->name ?? '—',
             'body' => $m->body,
             'created_at' => $m->created_at->toIso8601String(),
+            'attachment' => $m->hasAttachment() ? [
+                'name'     => $m->attachment_name,
+                'size'     => $m->attachmentSizeForHumans(),
+                'is_image' => $m->attachmentIsImage(),
+                'url'      => route('chat.attachment', $m),
+            ] : null,
         ];
     }
 }

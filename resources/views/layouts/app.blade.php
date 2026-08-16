@@ -2618,9 +2618,14 @@
 
             /** Chat message shape, kept for the existing caller. */
             function show(e) {
+                var preview = e.body || '';
+                if (!preview && e.attachment) {
+                    preview = e.attachment.is_image ? '📷 Photo' : '📎 ' + e.attachment.name;
+                }
+
                 return notify({
                     title: (e.sender_name || 'Someone') + ' sent you a message',
-                    body: e.body || '',
+                    body: preview,
                     tag: 'chat-' + e.conversation_id,
                     onClick: function () {
                         if (window.ChatOpenThread) { window.ChatOpenThread(e.sender_id, e.sender_name); }
@@ -2709,6 +2714,10 @@
             if (!window.Swal || !e) return;
 
             var body = (e.body || '').trim();
+            // An attachment can arrive with no caption at all.
+            if (!body && e.attachment) {
+                body = e.attachment.is_image ? '📷 Photo' : '📎 ' + e.attachment.name;
+            }
             if (body.length > 70) body = body.slice(0, 70) + '…';
 
             Swal.fire({
