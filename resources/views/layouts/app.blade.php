@@ -2245,7 +2245,10 @@
                     </li>
                     <li>
                         <label class="dropdown-item d-flex align-items-center justify-content-between mb-0" style="cursor:pointer" onclick="event.stopPropagation()">
-                            <span><i class="bi bi-bell me-2"></i>Desktop notifications</span>
+                            <span>
+                                <i class="bi bi-bell me-2"></i>Desktop notifications
+                                <span id="desktopNotifyHint" class="d-block" style="font-size:.62rem;color:var(--text3);margin-left:1.55rem"></span>
+                            </span>
                             <div class="form-check form-switch m-0 ms-3">
                                 <input class="form-check-input" type="checkbox" role="switch" id="chatDesktopToggle" style="cursor:pointer">
                             </div>
@@ -2531,31 +2534,123 @@
             play: window.AppSound.message,
         };
 
-        window.ChatNotify = (function () {
-            var KEY = 'dfcp_chat_desktop', supported = ('Notification' in window);
+        /**
+         * OS-level notifications — the popup you get when the browser is
+         * minimised or behind another window. The in-page toast cannot reach
+         * you there; only the Notifications API can.
+         *
+         * Note the hard limit: this needs the tab to still be open. If the
+         * browser is fully closed, nothing arrives without a service worker and
+         * Web Push, which would need its own infrastructure.
+         */
+        window.AppNotify = (function () {
+            var KEY = 'dfcp_chat_desktop';
+            var supported = ('Notification' in window);
+            var live = [];   // keep refs so sticky notifications can be closed
+
+            function permission() { return supported ? Notification.permission : 'unsupported'; }
             function enabledPref() { return localStorage.getItem(KEY) !== 'off'; }
+
+            function request() {
+                if (!supported || Notification.permission !== 'default') {
+                    return Promise.resolve(permission());
+                }
+
+                return Notification.requestPermission();
+            }
+
             function setEnabled(on) {
                 localStorage.setItem(KEY, on ? 'on' : 'off');
-                if (on && supported && Notification.permission === 'default') { Notification.requestPermission(); }
+                if (on) request();
             }
-            function show(e) {
-                if (!supported || !enabledPref() || Notification.permission !== 'granted') return;
-                if (!document.hidden && document.hasFocus()) return; // only when the app isn't in front
+
+            /** True when the app is not the window the user is looking at. */
+            function appIsHidden() {
+                return document.hidden || !document.hasFocus();
+            }
+
+            /**
+             * opts: title (required), body, tag, url, onClick,
+             *       sticky  - stays until dismissed instead of auto-closing,
+             *       force   - show even when the app is on screen.
+             *
+             * Deliberately not written as a JSDoc object type: a doubled brace
+             * is Blade echo syntax and compiles this file into invalid PHP.
+             */
+            function notify(opts) {
+                if (!supported || !enabledPref() || Notification.permission !== 'granted') return null;
+                // Don't duplicate what the user can already see on screen,
+                // unless the caller insists (an incoming call, say).
+                if (!opts.force && !appIsHidden()) return null;
+
                 try {
-                    var n = new Notification(e.sender_name || 'New message', { body: e.body || '', tag: 'chat-' + e.conversation_id, renotify: true });
-                    n.onclick = function () { window.focus(); try { n.close(); } catch (x) {} if (location.pathname.indexOf('/chat') !== 0) location.href = '{{ route('chat.index') }}'; };
-                    setTimeout(function () { try { n.close(); } catch (x) {} }, 6000);
-                } catch (x) {}
+                    var n = new Notification(opts.title, {
+                        body: opts.body || '',
+                        tag: opts.tag || 'dfcp',
+                        renotify: true,
+                        requireInteraction: !!opts.sticky,   // stays until dismissed
+                    });
+
+                    n.onclick = function () {
+                        window.focus();
+                        try { n.close(); } catch (e) {}
+
+                        if (opts.onClick) { opts.onClick(); return; }
+                        if (opts.url) { window.location.href = opts.url; }
+                    };
+
+                    live.push(n);
+                    if (!opts.sticky) {
+                        setTimeout(function () { try { n.close(); } catch (e) {} }, 7000);
+                    }
+
+                    return n;
+                } catch (e) {
+                    return null;
+                }
             }
-            // Ask once, on first interaction, unless the user opted out.
+
+            /** Close anything still on screen — e.g. once a call is answered. */
+            function closeAll() {
+                live.forEach(function (n) { try { n.close(); } catch (e) {} });
+                live = [];
+            }
+
+            /** Chat message shape, kept for the existing caller. */
+            function show(e) {
+                return notify({
+                    title: (e.sender_name || 'Someone') + ' sent you a message',
+                    body: e.body || '',
+                    tag: 'chat-' + e.conversation_id,
+                    onClick: function () {
+                        if (window.ChatOpenThread) { window.ChatOpenThread(e.sender_id, e.sender_name); }
+                        else { window.location.href = '/chat?user=' + encodeURIComponent(e.sender_id); }
+                    },
+                });
+            }
+
+            // Ask on the first interaction. Browsers reject a permission prompt
+            // that is not tied to a user gesture, so this cannot run on load.
             if (supported) {
-                document.addEventListener('click', function ask() {
-                    if (enabledPref() && Notification.permission === 'default') { Notification.requestPermission(); }
-                    document.removeEventListener('click', ask);
+                document.addEventListener('click', function () {
+                    if (enabledPref() && Notification.permission === 'default') request();
                 }, { once: true });
             }
-            return { enabledPref: enabledPref, setEnabled: setEnabled, show: show, supported: supported };
+
+            return {
+                supported: supported,
+                permission: permission,
+                request: request,
+                enabledPref: enabledPref,
+                setEnabled: setEnabled,
+                notify: notify,
+                show: show,
+                closeAll: closeAll,
+            };
         })();
+
+        // Existing name kept so nothing that already calls it breaks.
+        window.ChatNotify = window.AppNotify;
 
         document.addEventListener('DOMContentLoaded', function () {
             var s = document.getElementById('soundToggle');
@@ -2567,10 +2662,39 @@
                 });
             }
             var d = document.getElementById('chatDesktopToggle');
+            var hint = document.getElementById('desktopNotifyHint');
+
+            // Popups failing silently is almost always a blocked permission, and
+            // nothing in the UI used to say so. Show the actual state.
+            function paintNotifyState() {
+                if (!d) return;
+                var state = window.AppNotify.permission();
+
+                if (state === 'unsupported') {
+                    d.checked = false; d.disabled = true;
+                    if (hint) hint.textContent = 'Not supported by this browser';
+                } else if (state === 'denied') {
+                    d.checked = false; d.disabled = true;
+                    if (hint) hint.textContent = 'Blocked — allow notifications in your browser’s site settings';
+                } else if (state === 'default') {
+                    d.checked = window.AppNotify.enabledPref();
+                    d.disabled = false;
+                    if (hint) hint.textContent = 'Turn on to allow pop-ups when minimised';
+                } else {
+                    d.checked = window.AppNotify.enabledPref();
+                    d.disabled = false;
+                    if (hint) hint.textContent = d.checked ? 'Pop-ups appear when the window is minimised' : '';
+                }
+            }
+
             if (d) {
-                if (!window.ChatNotify.supported || (('Notification' in window) && Notification.permission === 'denied')) { d.checked = false; d.disabled = true; }
-                else { d.checked = window.ChatNotify.enabledPref(); }
-                d.addEventListener('change', function () { window.ChatNotify.setEnabled(d.checked); });
+                paintNotifyState();
+                d.addEventListener('change', function () {
+                    window.AppNotify.setEnabled(d.checked);
+                    // requestPermission resolves after the browser prompt, so
+                    // repaint once the answer is known.
+                    window.AppNotify.request().then(paintNotifyState).catch(paintNotifyState);
+                });
             }
         });
     </script>
@@ -2722,8 +2846,20 @@
 
         function loadNotifications() {
             $.get('{{ route("notifications.index") }}').done(function (r) {
-                if (lastUnread !== null && r.unread_count > lastUnread && window.AppSound) {
-                    window.AppSound.notification();
+                if (lastUnread !== null && r.unread_count > lastUnread) {
+                    if (window.AppSound) window.AppSound.notification();
+
+                    // Also surface it at OS level, so it reaches the user with
+                    // the browser minimised.
+                    var newest = (r.notifications || [])[0];
+                    if (newest && window.AppNotify) {
+                        window.AppNotify.notify({
+                            title: newest.title || 'New notification',
+                            body: newest.message || '',
+                            tag: 'notif-' + newest.id,
+                            url: newest.url,
+                        });
+                    }
                 }
                 lastUnread = r.unread_count;
 

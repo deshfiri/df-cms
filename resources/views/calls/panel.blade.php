@@ -419,12 +419,28 @@ window.DfcpCall = (function () {
 
         showIncoming(s.peerName);
         window.AppSound && window.AppSound.startRing();
+
+        // A ringing phone is exactly the case worth interrupting for, so this
+        // is sticky (stays until dismissed) and fires even if the tab is
+        // visible — the user may be on another monitor.
+        if (window.AppNotify) {
+            window.AppNotify.notify({
+                title: 'Incoming call',
+                body: s.peerName + ' is calling you',
+                tag: 'call-' + s.uuid,
+                sticky: true,
+                force: true,
+                onClick: function () { window.focus(); },
+            });
+        }
+
         s.icePromise = loadIce();
     }
 
     function acceptCall() {
         if (!s) return;
         window.AppSound && window.AppSound.stopAllCallTones();
+        if (window.AppNotify) window.AppNotify.closeAll();
         hideIncoming();
         showDock(s.peerName);
         status('Connecting…');
@@ -559,6 +575,9 @@ window.DfcpCall = (function () {
      */
     function cleanup() {
         if (!s) return;
+
+        // A sticky "incoming call" popup must not outlive the call itself.
+        if (window.AppNotify) window.AppNotify.closeAll();
 
         if (s.ringTimer) clearTimeout(s.ringTimer);
         if (s.connectTimer) clearTimeout(s.connectTimer);
