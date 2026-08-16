@@ -6,12 +6,13 @@ use App\Exceptions\ChangeRequiresApprovalException;
 use App\Models\PendingChange;
 use App\Models\User;
 use App\Notifications\ChangeAwaitingApproval;
+use App\Services\Concerns\NotifiesStaff;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Notification;
-use Spatie\Permission\Models\Role;
 
 class ChangeApprovalService
 {
+    use NotifiesStaff;
+
     private const APPROVER_ROLES = ['Super Admin', 'Manager'];
 
     // Deliberately does NOT include 'password': it only ever holds a one-way
@@ -76,20 +77,15 @@ class ChangeApprovalService
 
     private function notifyApprovers(PendingChange $pending): void
     {
-        // User::role() throws if ANY given role name doesn't exist at all
-        // (rather than just finding nobody) — filter to roles that actually
-        // exist first, so a missing role can never blow up this transaction.
-        $existingRoles = Role::whereIn('name', self::APPROVER_ROLES)->pluck('name')->all();
-        if (empty($existingRoles)) {
-            return;
-        }
+        // Approvers minus whoever requested the change — nobody needs a prompt
+        // to approve their own edit.
+        $requester = $pending->requested_by ? User::find($pending->requested_by) : null;
 
-        $approvers = User::role($existingRoles)->where('is_active', true)->get();
-        if ($approvers->isEmpty()) {
-            return;
-        }
-
-        Notification::send($approvers, new ChangeAwaitingApproval($pending));
+        $this->notifyStaff(
+            self::APPROVER_ROLES,
+            new ChangeAwaitingApproval($pending),
+            except: $requester,
+        );
     }
 
     private function redact(array $values): array

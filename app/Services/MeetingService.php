@@ -10,6 +10,7 @@ use App\Notifications\MeetingRescheduled;
 use App\Notifications\MeetingScheduled;
 use App\Services\Contracts\GoogleCalendarServiceInterface;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 
@@ -262,11 +263,20 @@ class MeetingService
 
     private function notifyParticipants(ClientMeeting $meeting, $notification): void
     {
+        // The organiser just performed this action, so don't tell them about it.
+        // Previously createdBy was always notified, meaning whoever scheduled,
+        // rescheduled or cancelled a meeting got a bell item for their own work.
+        $actorId = Auth::id();
+
         $recipients = collect([$meeting->assignedUser, $meeting->createdBy])
             ->filter()
-            ->unique('id');
+            ->unique('id')
+            ->reject(fn ($user) => $actorId !== null && $user->id === $actorId)
+            ->values();
 
-        Notification::send($recipients, $notification);
+        if ($recipients->isNotEmpty()) {
+            Notification::send($recipients, $notification);
+        }
 
         if ($meeting->client?->contact_email) {
             Notification::route('mail', $meeting->client->contact_email)->notify($notification);

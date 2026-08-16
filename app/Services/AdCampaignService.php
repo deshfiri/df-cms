@@ -8,13 +8,15 @@ use App\Models\AdCampaignDailyReport;
 use App\Models\Client;
 use App\Models\User;
 use App\Notifications\AdCampaignAssigned;
+use App\Services\Concerns\NotifiesStaff;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
-use Spatie\Permission\Models\Role;
 
 class AdCampaignService
 {
+    use NotifiesStaff;
+
     private const NOTIFY_ROLES = ['Super Admin'];
 
     public function __construct(
@@ -81,7 +83,7 @@ class AdCampaignService
             );
 
             if ($notify) {
-                $this->notify($assignment, $newAssignee);
+                $this->notify($assignment, $newAssignee, $actor);
             }
 
             return $campaign->fresh();
@@ -116,12 +118,16 @@ class AdCampaignService
         $report->delete();
     }
 
-    private function notify(AdCampaignAssignment $assignment, User $newAssignee): void
+    /**
+     * The new assignee always hears about it. Oversight roles hear about it too,
+     * but only those who can actually manage ads — and never the person who just
+     * made the assignment, who obviously knows.
+     */
+    private function notify(AdCampaignAssignment $assignment, User $newAssignee, User $actor): void
     {
-        $existingRoles = Role::whereIn('name', self::NOTIFY_ROLES)->pluck('name')->all();
-        $recipients = $existingRoles ? User::role($existingRoles)->where('is_active', true)->get() : collect();
+        $recipients = $this->staffRecipients(self::NOTIFY_ROLES, 'manage ads', $actor);
 
-        if (!$recipients->contains('id', $newAssignee->id)) {
+        if ($newAssignee->id !== $actor->id && !$recipients->contains('id', $newAssignee->id)) {
             $recipients->push($newAssignee);
         }
 

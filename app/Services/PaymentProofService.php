@@ -9,17 +9,16 @@ use App\Models\PaymentProofSubmission;
 use App\Models\User;
 use App\Notifications\PaymentProofSubmitted;
 use App\Notifications\Portal\PaymentVerified;
+use App\Services\Concerns\NotifiesStaff;
 use App\Services\Portal\NotifiesPortalUsers;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
-use Spatie\Permission\Models\Role;
 
 class PaymentProofService
 {
-    use NotifiesPortalUsers;
+    use NotifiesPortalUsers, NotifiesStaff;
 
     private const NOTIFY_ROLES = ['Accounts', 'Super Admin'];
 
@@ -64,19 +63,14 @@ class PaymentProofService
         return $proof;
     }
 
+    /** Only people who can actually action a payment need to see this. */
     private function notifyAccounts(PaymentProofSubmission $proof): void
     {
-        $existingRoles = Role::whereIn('name', self::NOTIFY_ROLES)->pluck('name')->all();
-        if (empty($existingRoles)) {
-            return;
-        }
-
-        $recipients = User::role($existingRoles)->where('is_active', true)->get();
-        if ($recipients->isEmpty()) {
-            return;
-        }
-
-        Notification::send($recipients, new PaymentProofSubmitted($proof));
+        $this->notifyStaff(
+            self::NOTIFY_ROLES,
+            new PaymentProofSubmitted($proof),
+            permission: 'manage payments',
+        );
     }
 
     public function verify(PaymentProofSubmission $proof, ?string $note = null): PaymentProofSubmission

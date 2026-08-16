@@ -6,12 +6,13 @@ use App\Models\EmployeeRequest;
 use App\Models\User;
 use App\Notifications\RequestResolved;
 use App\Notifications\RequestSubmitted;
+use App\Services\Concerns\NotifiesStaff;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Notification;
-use Spatie\Permission\Models\Role;
 
 class EmployeeRequestService
 {
+    use NotifiesStaff;
+
     private const APPROVER_ROLES = ['Super Admin', 'Manager'];
 
     public function __construct(
@@ -34,7 +35,7 @@ class EmployeeRequestService
                 ['subject' => $request->subject]
             );
 
-            $this->notifyApprovers($request);
+            $this->notifyApprovers($request, $actor);
 
             return $request->load('requestedBy:id,name', 'client:id,client_name');
         });
@@ -57,7 +58,10 @@ class EmployeeRequestService
             ['subject' => $request->subject]
         );
 
-        $request->requestedBy?->notify(new RequestResolved($request));
+        // An approver resolving their own request already knows the outcome.
+        if ($request->requestedBy && $request->requested_by !== $actor->id) {
+            $request->requestedBy->notify(new RequestResolved($request));
+        }
 
         return $request->fresh();
     }
@@ -68,21 +72,14 @@ class EmployeeRequestService
         $request->delete();
     }
 
-    private function notifyApprovers(EmployeeRequest $request): void
+    /** Approvers who can actually action the request — never the person who filed it. */
+    private function notifyApprovers(EmployeeRequest $request, User $actor): void
     {
-        // User::role() throws if ANY given role name doesn't exist at all
-        // (rather than just finding nobody) — filter to roles that actually
-        // exist first, so a missing role can never blow up this transaction.
-        $existingRoles = Role::whereIn('name', self::APPROVER_ROLES)->pluck('name')->all();
-        if (empty($existingRoles)) {
-            return;
-        }
-
-        $approvers = User::role($existingRoles)->where('is_active', true)->get();
-        if ($approvers->isEmpty()) {
-            return;
-        }
-
-        Notification::send($approvers, new RequestSubmitted($request));
+        $this->notifyStaff(
+            self::APPROVER_ROLES,
+            new RequestSubmitted($request),
+            permission: 'manage requests',
+            except: $actor,
+        );
     }
 }

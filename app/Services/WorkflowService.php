@@ -13,15 +13,14 @@ use App\Notifications\Portal\ServiceCompleted;
 use App\Notifications\StageAwaitingApproval;
 use App\Notifications\StageReadyForDepartment;
 use App\Repositories\Contracts\WorkflowRepositoryInterface;
+use App\Services\Concerns\NotifiesStaff;
 use App\Services\Portal\NotifiesPortalUsers;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Notification;
-use Spatie\Permission\Models\Role;
 
 class WorkflowService
 {
-    use NotifiesPortalUsers;
+    use NotifiesPortalUsers, NotifiesStaff;
 
     public function __construct(
         private readonly WorkflowRepositoryInterface $workflowRepo,
@@ -533,22 +532,19 @@ class WorkflowService
      */
     private function notifyApprovers(Client $client, WorkflowStage $stage, User $actor): void
     {
-        if (!$stage->department || !Role::where('name', $stage->department)->where('guard_name', 'web')->exists()) {
+        if (!$stage->department) {
             return;
         }
 
-        $recipients = User::role($stage->department)
-            ->where('is_active', true)
-            ->where('id', '!=', $actor->id)
-            ->get()
-            ->filter(fn (User $u) => $u->hasPermissionTo('approve-stage'))
-            ->values();
-
-        if ($recipients->isEmpty()) {
-            return;
-        }
-
-        Notification::send($recipients, new StageAwaitingApproval($client, $stage));
+        // Filtered in SQL by the shared rule. This previously loaded every
+        // member of the department and called hasPermissionTo() per user,
+        // lazily pulling that user's roles and permissions one model at a time.
+        $this->notifyStaff(
+            [$stage->department],
+            new StageAwaitingApproval($client, $stage),
+            permission: 'approve-stage',
+            except: $actor,
+        );
     }
 
     /**
@@ -596,22 +592,20 @@ class WorkflowService
         // unknown role name instead of just finding nobody, so check first —
         // a mistyped/placeholder department must never block the stage
         // completion that got us here.
-        if (!Role::where('name', $next->department)->where('guard_name', 'web')->exists()) {
-            return;
-        }
-
         // Several consecutive stages can share the same department (e.g. Sales
         // owns deal_completed, meeting_scheduled, and agreement_signed back to
         // back), so the person who just acted is often also a member of the
         // next stage's department — don't notify them about their own work.
-        $recipients = User::role($next->department)
-            ->where('is_active', true)
-            ->when($actor, fn ($q) => $q->where('id', '!=', $actor->id))
-            ->get();
-        if ($recipients->isEmpty()) {
-            return;
-        }
-
-        Notification::send($recipients, new StageReadyForDepartment($client, $approvedStage, $next));
+        //
+        // Being in the department is also not the same as being able to work
+        // the stage. notifyApprovers() already filtered on 'approve-stage';
+        // this path did not, so anyone holding the role was told about work
+        // they have no permission to pick up.
+        $this->notifyStaff(
+            [$next->department],
+            new StageReadyForDepartment($client, $approvedStage, $next),
+            permission: 'submit-stage',
+            except: $actor,
+        );
     }
 }
