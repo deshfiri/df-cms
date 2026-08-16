@@ -70,6 +70,13 @@
                     <div class="fw-bold" style="font-size:.9rem" id="threadName">—</div>
                     <div style="font-size:.68rem;color:var(--text3)" id="threadStatus">offline</div>
                 </div>
+                {{-- Every conversation here is strictly 1:1 (Conversation::between),
+                     so the call button applies to all of them. Presence is not a
+                     gate: the list can be stale and the backend is the authority. --}}
+                <button class="btn btn-sm ms-auto" id="threadCall" title="Start audio call"
+                    style="width:34px;height:34px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);color:var(--primary);padding:0">
+                    <i class="bi bi-telephone-fill" style="font-size:.85rem"></i>
+                </button>
             </div>
             <div class="chat-msgs" id="msgList"></div>
             <div class="chat-typing" id="typingIndicator"></div>
@@ -229,6 +236,13 @@ $(function () {
             typingTimer = setTimeout(() => $('#typingIndicator').text(''), 1800);
         });
     }
+
+    // ── Audio call ───────────────────────────────────────────────────
+    // The shared module owns all call state; this only supplies who to ring.
+    $('#threadCall').on('click', function () {
+        if (!activeUserId || !window.DfcpCall) return;
+        window.DfcpCall.start(activeUserId, $('#threadName').text());
+    });
 
     // ── Presence (online dots) ───────────────────────────────────────
     function updateThreadPresence() {

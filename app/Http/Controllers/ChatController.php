@@ -14,7 +14,8 @@ class ChatController extends Controller
 {
     public function __construct(
         private readonly ChatService $chat,
-    ) {}
+    ) {
+    }
 
     public function index()
     {
@@ -28,7 +29,7 @@ class ChatController extends Controller
 
         $conversations = Conversation::forUser($me)
             ->whereNotNull('last_message_at')
-            ->with(['userOne:id,name', 'userTwo:id,name', 'messages' => fn ($q) => $q->latest('id')->limit(1)])
+            ->with(['userOne:id,name', 'userTwo:id,name', 'messages' => fn($q) => $q->latest('id')->limit(1)])
             ->orderByDesc('last_message_at')
             ->limit(100)
             ->get();
@@ -42,17 +43,17 @@ class ChatController extends Controller
 
         $data = $conversations->map(function (Conversation $c) use ($me, $unread) {
             $otherId = $c->otherParticipantId($me);
-            $other   = $c->user_one_id === $otherId ? $c->userOne : $c->userTwo;
-            $last    = $c->messages->first();
+            $other = $c->user_one_id === $otherId ? $c->userOne : $c->userTwo;
+            $last = $c->messages->first();
 
             return [
                 'conversation_id' => $c->id,
-                'user_id'         => $otherId,
-                'name'            => $other->name ?? '—',
-                'last_body'       => $last?->body,
-                'last_from_me'    => $last && $last->sender_id === $me,
-                'last_at'         => $c->last_message_at?->diffForHumans(),
-                'unread'          => (int) ($unread[$c->id] ?? 0),
+                'user_id' => $otherId,
+                'name' => $other->name ?? '—',
+                'last_body' => $last?->body,
+                'last_from_me' => $last && $last->sender_id === $me,
+                'last_at' => $c->last_message_at?->diffForHumans(),
+                'unread' => (int) ($unread[$c->id] ?? 0),
             ];
         });
 
@@ -66,7 +67,7 @@ class ChatController extends Controller
 
         $users = User::where('is_active', true)
             ->where('id', '!=', Auth::id())
-            ->when($q, fn ($qq) => $qq->where('name', 'like', "%{$q}%"))
+            ->when($q, fn($qq) => $qq->where('name', 'like', "%{$q}%"))
             ->orderBy('name')
             ->limit(50)
             ->get(['id', 'name']);
@@ -87,13 +88,13 @@ class ChatController extends Controller
             ->with('sender:id,name')
             ->orderByDesc('id')->limit(200)->get()
             ->sortBy('id')->values()
-            ->map(fn (Message $m) => $this->messageResource($m));
+            ->map(fn(Message $m) => $this->messageResource($m));
 
         return response()->json([
             'conversation_id' => $conversation->id,
-            'other'           => ['id' => $user->id, 'name' => $user->name],
-            'messages'        => $messages,
-            'unread_total'    => $this->chat->unreadCountFor($me),
+            'other' => ['id' => $user->id, 'name' => $user->name],
+            'messages' => $messages,
+            'unread_total' => $this->chat->unreadCountFor($me),
         ]);
     }
 
@@ -119,9 +120,9 @@ class ChatController extends Controller
         $message = $this->chat->sendMessage($conversation, $me, $data['body']);
 
         return response()->json([
-            'success'         => true,
+            'success' => true,
             'conversation_id' => $conversation->id,
-            'message'         => $this->messageResource($message),
+            'message' => $this->messageResource($message),
         ]);
     }
 
@@ -144,12 +145,12 @@ class ChatController extends Controller
             ->orderByDesc('last_message_at')
             ->limit(200)
             ->get()
-            ->map(fn (Conversation $c) => [
-                'id'              => $c->id,
-                'user_one'        => $c->userOne->name ?? '—',
-                'user_two'        => $c->userTwo->name ?? '—',
-                'messages_count'  => $c->messages_count,
-                'last_at'         => $c->last_message_at?->diffForHumans(),
+            ->map(fn(Conversation $c) => [
+                'id' => $c->id,
+                'user_one' => $c->userOne->name ?? '—',
+                'user_two' => $c->userTwo->name ?? '—',
+                'messages_count' => $c->messages_count,
+                'last_at' => $c->last_message_at?->diffForHumans(),
             ]);
 
         return response()->json(['conversations' => $conversations]);
@@ -165,23 +166,23 @@ class ChatController extends Controller
             ->with('sender:id,name')
             ->orderByDesc('id')->limit(500)->get()
             ->sortBy('id')->values()
-            ->map(fn (Message $m) => $this->messageResource($m));
+            ->map(fn(Message $m) => $this->messageResource($m));
 
         return response()->json([
             'conversation_id' => $conversation->id,
-            'participants'    => [$conversation->userOne->name ?? '—', $conversation->userTwo->name ?? '—'],
-            'messages'        => $messages,
+            'participants' => [$conversation->userOne->name ?? '—', $conversation->userTwo->name ?? '—'],
+            'messages' => $messages,
         ]);
     }
 
     private function messageResource(Message $m): array
     {
         return [
-            'id'          => $m->id,
-            'sender_id'   => $m->sender_id,
+            'id' => $m->id,
+            'sender_id' => $m->sender_id,
             'sender_name' => $m->sender->name ?? '—',
-            'body'        => $m->body,
-            'created_at'  => $m->created_at->toIso8601String(),
+            'body' => $m->body,
+            'created_at' => $m->created_at->toIso8601String(),
         ];
     }
 }

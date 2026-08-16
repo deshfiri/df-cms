@@ -4,6 +4,7 @@ use App\Http\Controllers\AdCampaignController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\CallController;
 use App\Http\Controllers\FlowController;
 use App\Http\Controllers\FlowItemController;
 use App\Http\Controllers\ClientActionRequestController;
@@ -275,6 +276,27 @@ Route::middleware(['auth'])->group(function () {
         Route::get('with/{user}', [ChatController::class, 'open'])->name('open');
         Route::post('with/{user}', [ChatController::class, 'send'])->name('send');
         Route::post('{conversation}/read', [ChatController::class, 'read'])->name('read');
+    });
+
+    // ── 1:1 audio calls (Reverb signalling + peer-to-peer WebRTC audio) ──
+    // Bound by uuid so a call id is never guessable from a sequential key.
+    Route::prefix('calls')->name('calls.')->group(function () {
+        Route::get('ice', [CallController::class, 'ice'])->name('ice');
+        Route::get('history', [CallController::class, 'history'])->name('history');
+
+        // Call spam is the abuse case worth rate limiting; ringing someone
+        // repeatedly is disruptive in a way that answering is not.
+        Route::post('to/{user}', [CallController::class, 'start'])
+            ->middleware('throttle:15,1')->name('start');
+
+        Route::post('{call:uuid}/accept', [CallController::class, 'accept'])->name('accept');
+        Route::post('{call:uuid}/reject', [CallController::class, 'reject'])->name('reject');
+        Route::post('{call:uuid}/end', [CallController::class, 'end'])->name('end');
+
+        // ICE candidates arrive in bursts of dozens during negotiation, so this
+        // ceiling is high on purpose — it is a runaway guard, not a throttle.
+        Route::post('{call:uuid}/signal', [CallController::class, 'signal'])
+            ->middleware('throttle:300,1')->name('signal');
     });
 
     // ── Generic workflow engine ──────────────────────────────────────────

@@ -2457,12 +2457,69 @@
                 } catch (e) {}
             }
 
+            // ── Call tones ────────────────────────────────────────────────
+            // Kept inside this module rather than as a second audio system, so
+            // the one "Alert sounds" switch governs everything that makes noise.
+            var ringEl = null, ringCtx = null, ringbackTimer = null;
+
+            /** Loop a clip until stopped — the incoming-call ringtone. */
+            function startRing() {
+                stopRing();
+                if (!enabled()) return;
+                try {
+                    var a = new Audio(src.notification);
+                    a.loop = true;
+                    a.volume = 0.55;
+                    ringEl = a;
+                    var p = a.play();
+                    if (p && p.catch) { p.catch(function () {}); }
+                } catch (e) {}
+            }
+            function stopRing() {
+                if (!ringEl) return;
+                try { ringEl.pause(); ringEl.currentTime = 0; } catch (e) {}
+                ringEl = null;
+            }
+
+            /** Outgoing ringback: a synthesised two-tone burst every 3s. */
+            function startRingback() {
+                stopRingback();
+                if (!enabled()) return;
+                var beep = function () {
+                    try {
+                        if (!ringCtx) { ringCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+                        if (ringCtx.state === 'suspended') { ringCtx.resume(); }
+                        var t = ringCtx.currentTime;
+                        [440, 480].forEach(function (freq) {
+                            var o = ringCtx.createOscillator(), g = ringCtx.createGain();
+                            o.type = 'sine';
+                            o.frequency.value = freq;
+                            o.connect(g); g.connect(ringCtx.destination);
+                            g.gain.setValueAtTime(0.0001, t);
+                            g.gain.exponentialRampToValueAtTime(0.05, t + 0.02);
+                            g.gain.exponentialRampToValueAtTime(0.0001, t + 1.0);
+                            o.start(t); o.stop(t + 1.05);
+                        });
+                    } catch (e) {}
+                };
+                beep();
+                ringbackTimer = setInterval(beep, 3000);
+            }
+            function stopRingback() {
+                if (ringbackTimer) { clearInterval(ringbackTimer); ringbackTimer = null; }
+            }
+
             return {
                 enabled: enabled,
                 setEnabled: setEnabled,
                 play: play,
                 message: function () { play('message'); },
                 notification: function () { play('notification'); },
+                startRing: startRing,
+                stopRing: stopRing,
+                startRingback: startRingback,
+                stopRingback: stopRingback,
+                stopAllCallTones: function () { stopRing(); stopRingback(); },
             };
         })();
 
@@ -2925,6 +2982,11 @@
             if (window._charts) window._charts.forEach(function (c) { try { c.update(); } catch (e) { } });
         });
     </script>
+
+    {{-- App-wide audio calling. Included here so an incoming call reaches the
+         user on any page, and before @stack('scripts') so its JS is queued. --}}
+    @include('calls.panel')
+
     @stack('scripts')
 </body>
 

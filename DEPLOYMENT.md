@@ -273,6 +273,198 @@ DNS blocks that, chat breaks with no error in the UI.
 
 ---
 
+## 8b. Audio calls — WebRTC + Coturn
+
+### Architecture
+
+```
+Caller browser ──── signalling (Reverb/WSS) ────► Laravel ──► Reverb ──► Callee browser
+       │                                                                      │
+       └──────────────── audio: WebRTC, peer-to-peer (TURN if NAT) ───────────┘
+```
+
+Reverb carries **only** signalling — ringing, accept/reject/busy, SDP offer and
+answer, ICE candidates, hang-up. Audio never passes through Laravel, Reverb,
+the queue or the database. SDP and ICE blobs are relayed verbatim and never
+stored; only call *metadata* is persisted, in the `calls` table.
+
+Every signalling event is `ShouldBroadcastNow`. A queued broadcast would put
+ICE candidates behind whatever the worker is doing, and candidates that arrive
+after negotiation has moved on are useless. Each event targets exactly one
+private channel, `App.Models.User.{id}`.
+
+### `.env` additions
+
+```env
+# STUN is enough when one side is directly reachable. It is NOT enough in
+# production — symmetric NAT and many mobile carriers require a relay.
+WEBRTC_STUN_URL=stun:stun.l.google.com:19302
+
+WEBRTC_TURN_URLS="turn:turn.dms.deshfiri.com:3478?transport=udp,turn:turn.dms.deshfiri.com:3478?transport=tcp,turns:turn.dms.deshfiri.com:5349?transport=tcp"
+
+# coturn shared-secret mode. The server mints a short-lived credential per
+# call; the browser never receives this value.
+WEBRTC_TURN_SECRET=<long random string, must match turnserver.conf>
+WEBRTC_TURN_TTL=600
+
+WEBRTC_RING_TIMEOUT=30
+WEBRTC_MAX_CALL_SECONDS=14400
+WEBRTC_FORCE_RELAY=false
+```
+
+Generate the secret with `openssl rand -hex 32`. Never commit it.
+
+### Coturn on the VPS
+
+**1. DNS** — an A record for `turn.dms.deshfiri.com` pointing at the same IPv4
+as `dms.deshfiri.com` (add AAAA too if the box has IPv6).
+
+**2. Install**
+
+```bash
+sudo apt update && sudo apt install -y coturn
+sudo sed -i 's/^#TURNSERVER_ENABLED/TURNSERVER_ENABLED/' /etc/default/coturn
+```
+
+**3. `/etc/turnserver.conf`**
+
+```ini
+listening-port=3478
+tls-listening-port=5349
+
+# Both must be set. On a VPS the NIC holds the private address and coturn must
+# advertise the public one, or every relay candidate is unusable.
+listening-ip=0.0.0.0
+external-ip=164.68.123.155
+
+realm=turn.dms.deshfiri.com
+server-name=turn.dms.deshfiri.com
+
+# Time-limited credentials derived from a shared secret. No user database, and
+# nothing reusable ever reaches the browser.
+use-auth-secret
+static-auth-secret=<same value as WEBRTC_TURN_SECRET>
+
+# Keep the relay range tight; every port here must be open in the firewall.
+min-port=49160
+max-port=49200
+
+# TLS for turns:. Reuse the existing Let's Encrypt certificate.
+cert=/etc/letsencrypt/live/dms.deshfiri.com/fullchain.pem
+pkey=/etc/letsencrypt/live/dms.deshfiri.com/privkey.pem
+
+fingerprint
+no-multicast-peers
+no-cli
+no-tlsv1
+no-tlsv1_1
+
+# Do not let the relay be used to reach internal services.
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+
+user-quota=12
+total-quota=1200
+log-file=/var/log/turnserver.log
+```
+
+If certbot renews into a path coturn cannot read, grant the `turnserver` user
+read access to `/etc/letsencrypt/live` and `/archive`, or copy the cert in a
+renewal hook.
+
+**4. Start**
+
+```bash
+sudo systemctl enable coturn
+sudo systemctl restart coturn
+sudo systemctl status coturn --no-pager
+```
+
+**5. Firewall — only what is needed**
+
+| Port | Proto | Why |
+|------|-------|-----|
+| 3478 | UDP | STUN/TURN. The normal path |
+| 3478 | TCP | Fallback where UDP is blocked |
+| 5349 | TCP | TURN over TLS (`turns:`) — gets through firewalls that allow only 443-style TLS |
+| 49160–49200 | UDP | Relay range. Must match `min-port`/`max-port` |
+
+```bash
+sudo ufw allow 3478/udp
+sudo ufw allow 3478/tcp
+sudo ufw allow 5349/tcp
+sudo ufw allow 49160:49200/udp
+```
+
+Do **not** open the relay range on TCP, and do not open 5349/UDP — neither is
+used by this configuration.
+
+**UDP vs TCP:** WebRTC wants UDP; audio tolerates loss far better than the
+head-of-line blocking TCP imposes. TCP and TLS exist only as fallbacks for
+networks that block UDP outright. If calls only work over `turns:`, UDP is
+being filtered somewhere upstream.
+
+**6. Health checks**
+
+```bash
+sudo ss -lunp | grep 3478          # coturn listening on UDP
+sudo tail -f /var/log/turnserver.log
+```
+
+Then use <https://icetest.info> or Trickle ICE, entering
+`turn:turn.dms.deshfiri.com:3478` with a username/credential pair taken from
+`GET /calls/ice` while logged in. A `relay` candidate proves TURN works.
+
+### Credential security
+
+`use-auth-secret` means the app mints `username = <expiry>:<user id>` and
+`credential = base64(HMAC-SHA1(secret, username))`, valid for
+`WEBRTC_TURN_TTL` seconds. A leaked pair expires by itself and the shared
+secret never leaves the server.
+
+The static `WEBRTC_TURN_USERNAME`/`WEBRTC_TURN_CREDENTIAL` fallback exists but
+hands every browser a permanent credential — anyone who opens DevTools can
+reuse your relay indefinitely. Use it only for a short-lived test.
+
+### Verifying a real call
+
+Open `chrome://webrtc-internals` on both sides during a call and check:
+
+- **selected candidate pair** — `host` (same LAN), `srflx` (STUN traversal) or
+  `relay` (TURN)
+- `packetsSent` / `packetsReceived` rising on both sides
+- `connectionState: connected`
+- jitter and packet loss
+
+One-way audio almost always means one side produced no usable candidate.
+
+To prove the relay path specifically, set `WEBRTC_FORCE_RELAY=true`,
+`php artisan config:cache`, and make a call — the pair must be `relay/relay`.
+**Turn it back off afterwards**: it routes all audio through your VPS and adds
+latency.
+
+### Runbook
+
+| Symptom | Likely cause |
+|---|---|
+| Calls not ringing at all | Reverb down, or the callee's tab never subscribed — check `php artisan reverb:verify` and the browser console |
+| WebSocket connected but no call signal | Listener not bound; confirm `window.DfcpCall` exists and the page loaded `calls/panel` |
+| Microphone denied | Browser permission; also requires HTTPS — WebRTC will not grant a mic on plain HTTP |
+| ICE stuck on `checking` | No reachable candidate pair — TURN missing or the relay range is firewalled |
+| TURN authentication failed | `static-auth-secret` and `WEBRTC_TURN_SECRET` differ, or the credential TTL expired before use |
+| Works on Wi-Fi, fails on mobile | Classic symptom of STUN-only. Carrier NAT needs TURN |
+| One-way audio | One side has no usable candidate, or a firewall allows outbound but not inbound UDP |
+| Connects but silence | Check the autoplay unblock prompt, the OS output device, and that the caller is not muted |
+| "User is busy" unexpectedly | A stale `ringing` row — `calls:reconcile` runs every minute and settles these |
+
+`calls:reconcile` must be running (it is registered in `routes/console.php` and
+depends on the scheduler cron in §10). Without it, an abandoned ringing call
+blocks both participants from placing another.
+
+---
+
 ## 9. Queue worker — Supervisor daemon
 
 aaPanel → **Supervisor Manager → Add Daemon**:

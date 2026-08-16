@@ -17,3 +17,7 @@ Schedule::command('performance:snapshot --previous')->monthlyOn(1, '02:00');
 
 // Daily nudge for overdue workflow items.
 Schedule::command('flow:overdue-reminders')->dailyAt('08:00');
+
+// Settle abandoned audio calls. Runs every minute — a "ringing" row that never
+// resolves blocks both participants from placing any further call.
+Schedule::command('calls:reconcile')->everyMinute()->withoutOverlapping();
