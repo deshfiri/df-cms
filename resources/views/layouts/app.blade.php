@@ -2713,7 +2713,7 @@
 
             Swal.fire({
                 toast: true,
-                position: 'top-end',
+                position: 'bottom-end',
                 icon: 'info',
                 title: (e.sender_name || 'Someone') + ' sent you a message',
                 text: body,

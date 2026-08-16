@@ -94,6 +94,13 @@
     .call-dock-btn.is-muted { background: #f59e0b; border-color: #f59e0b; color: #fff; }
     .call-dock-end { background: #dc3545; border-color: #dc3545; color: #fff; }
 
+    /* Toasts also live bottom-right, so lift them clear while the call dock
+       is on screen instead of letting the two overlap. */
+    body.call-active .swal2-container.swal2-bottom-end,
+    body.call-active .swal2-container.swal2-bottom-right {
+        bottom: 84px;
+    }
+
     .call-unblock {
         position: fixed; left: 50%; transform: translateX(-50%); bottom: 76px;
         z-index: 19500; display: none; border: none; cursor: pointer;
@@ -164,10 +171,13 @@ window.DfcpCall = (function () {
         document.getElementById('callActiveAvatar').textContent = initials(name);
         $dock.classList.add('show');
         $dock.setAttribute('aria-hidden', 'false');
+        // Tells the toast styling to move out of the dock's way.
+        document.body.classList.add('call-active');
     }
     function hideDock() {
         $dock.classList.remove('show');
         $dock.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('call-active');
     }
     function status(text) {
         var el = document.getElementById('callActiveStatus');
