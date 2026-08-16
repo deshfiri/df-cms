@@ -2161,14 +2161,17 @@
             <i class="bi bi-list" style="font-size:1.15rem"></i>
         </button>
 
-        <div class="tb-search">
-            <div class="tb-search-box">
-                <i class="bi bi-search"></i>
-                <input type="text" id="globalSearch" placeholder="Search clients, DFID, brand…" autocomplete="off">
-                <span class="tb-kbd d-none d-sm-inline">/</span>
+        {{-- Searches clients, so it follows client visibility like every other client surface. --}}
+        @can('view clients')
+            <div class="tb-search">
+                <div class="tb-search-box">
+                    <i class="bi bi-search"></i>
+                    <input type="text" id="globalSearch" placeholder="Search clients, DFID, brand…" autocomplete="off">
+                    <span class="tb-kbd d-none d-sm-inline">/</span>
+                </div>
+                <div id="searchDropdown"></div>
             </div>
-            <div id="searchDropdown"></div>
-        </div>
+        @endcan
 
         <div class="ms-auto d-flex align-items-center gap-2">
             <button id="darkToggle" class="btn btn-sm d-flex align-items-center justify-content-center"

@@ -16,6 +16,9 @@ class ProductUpdateController extends Controller
 
     public function index(Client $client): JsonResponse
     {
+        // Reading a client's product updates follows client visibility.
+        $this->authorize('view', $client);
+
         $updates = $client->productUpdates()->with('createdBy:id,name')->get();
 
         return response()->json($updates);

@@ -17,6 +17,10 @@ class NoteController extends Controller
 
     public function index(Client $client): JsonResponse
     {
+        // store() and destroy() were gated but reading was not — notes are
+        // client information and follow the same visibility rule.
+        $this->authorize('view', $client);
+
         $notes = $client->notes()->with('user:id,name')->get();
 
         return response()->json($notes);

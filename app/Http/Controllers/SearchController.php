@@ -12,6 +12,11 @@ class SearchController extends Controller
 {
     public function global(Request $request): JsonResponse
     {
+        // The topbar search box is on every page for every signed-in user, and
+        // this returns client names, brands and DFID numbers. Without the gate
+        // it hands client data to roles that hold no client permission at all.
+        $this->authorize('viewAny', Client::class);
+
         $q = trim($request->input('q', ''));
 
         if (strlen($q) < 2) {
