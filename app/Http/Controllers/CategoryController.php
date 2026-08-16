@@ -18,6 +18,9 @@ class CategoryController extends Controller
 
     public function index(Request $request)
     {
+        // Same gap as the user list: the buttons were gated, the data was not.
+        abort_unless($request->user()->can('manage categories'), 403);
+
         if ($request->ajax() && $request->has('draw')) {
             return DataTables::of(Category::withCount('clients'))
                 ->addColumn('status_badge', fn ($c) => $c->status ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-danger">Inactive</span>')

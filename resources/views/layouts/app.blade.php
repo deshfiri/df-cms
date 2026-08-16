@@ -2107,9 +2107,13 @@
             @endcan
             @endunless
 
-            @canany(['manage categories', 'manage users'])
+            {{-- Approving changes is a manager job, not an admin one, so it sits
+                 under Management. Only genuinely Super Admin-only tools carry the
+                 Administration heading below. --}}
+            @php $canApproveChanges = auth()->user()->hasAnyRole(['Super Admin', 'Manager']); @endphp
+            @if($canApproveChanges || auth()->user()->canAny(['manage categories', 'manage users']))
                 <div class="sb-section">Management</div>
-            @endcanany
+            @endif
             @can('manage categories')
                 <a href="{{ route('categories.index') }}"
                     class="sb-link {{ request()->routeIs('categories.*') ? 'active' : '' }}" title="Categories"
@@ -2124,15 +2128,16 @@
                 </a>
             @endcan
 
-            @hasanyrole('Super Admin|Manager')
-            <div class="sb-section">Admin</div>
-            <a href="{{ route('pending-changes.index') }}"
-                class="sb-link {{ request()->routeIs('pending-changes.*') ? 'active' : '' }}" title="Pending Changes"
-                data-bs-toggle="tooltip" data-bs-placement="right">
-                <i class="bi bi-hourglass-split"></i><span class="sb-lbl">Pending Changes</span>
-            </a>
-            @endhasanyrole
+            @if($canApproveChanges)
+                <a href="{{ route('pending-changes.index') }}"
+                    class="sb-link {{ request()->routeIs('pending-changes.*') ? 'active' : '' }}" title="Pending Changes"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-hourglass-split"></i><span class="sb-lbl">Pending Changes</span>
+                </a>
+            @endif
+
             @role('Super Admin')
+            <div class="sb-section">Administration</div>
             <a href="{{ route('roles.index') }}"
                 class="sb-link {{ request()->routeIs('roles.*', 'permissions.*') ? 'active' : '' }}"
                 title="Roles & Permissions" data-bs-toggle="tooltip" data-bs-placement="right">

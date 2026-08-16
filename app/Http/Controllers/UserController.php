@@ -20,6 +20,11 @@ class UserController extends Controller
 
     public function index(Request $request)
     {
+        // The action buttons were permission-checked but the list itself was
+        // not, so any signed-in user could read every colleague's name, email
+        // and roles straight off the DataTables feed.
+        abort_unless($request->user()->can('manage users'), 403);
+
         if ($request->ajax() && $request->has('draw')) {
             return DataTables::of(User::with('roles'))
                 ->addColumn('roles_badges', fn ($u) => $u->roles->map(fn ($r) => '<span class="badge bg-info">' . e($r->name) . '</span>')->implode(' '))
