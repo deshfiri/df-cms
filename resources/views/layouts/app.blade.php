@@ -2224,9 +2224,9 @@
                     </li>
                     <li>
                         <label class="dropdown-item d-flex align-items-center justify-content-between mb-0" style="cursor:pointer" onclick="event.stopPropagation()">
-                            <span><i class="bi bi-volume-up me-2"></i>Message sound</span>
+                            <span><i class="bi bi-volume-up me-2"></i>Alert sounds</span>
                             <div class="form-check form-switch m-0 ms-3">
-                                <input class="form-check-input" type="checkbox" role="switch" id="chatSoundToggle" style="cursor:pointer">
+                                <input class="form-check-input" type="checkbox" role="switch" id="soundToggle" style="cursor:pointer">
                             </div>
                         </label>
                     </li>
@@ -2390,37 +2390,76 @@
     <script src="https://js.pusher.com/8.4.0/pusher.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/laravel-echo@1.16.1/dist/echo.iife.js"></script>
 
-    {{-- Chat notification sound (synthesized — no asset). Per-user, muteable from the profile menu. --}}
+    {{--
+        Alert sounds. Two distinct cues so people can tell them apart without looking:
+        message_alert for chat, notification for everything else (bell items).
+        Per-user on/off, remembered in localStorage, toggled from the profile menu.
+    --}}
     <script>
-        window.ChatSound = (function () {
-            var ctx = null, KEY = 'dfcp_chat_sound';
-            function enabled() { return localStorage.getItem(KEY) !== 'off'; }
-            function ctxObj() {
-                if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } }
-                if (ctx && ctx.state === 'suspended') { ctx.resume(); }
-                return ctx;
+        window.AppSound = (function () {
+            var KEY = 'dfcp_sound', LEGACY_KEY = 'dfcp_chat_sound';
+            var src = {
+                message:      '{{ asset('sounds/message_alert.mp3') }}',
+                notification: '{{ asset('sounds/notification.mp3') }}',
+            };
+            var cache = {};
+
+            function enabled() {
+                var v = localStorage.getItem(KEY);
+                // Carry over the preference from when this was chat-only.
+                if (v === null) { v = localStorage.getItem(LEGACY_KEY); }
+                return v !== 'off';
             }
-            // Browsers need a user gesture before audio can play — unlock on first click.
-            document.addEventListener('click', function unlock() { ctxObj(); document.removeEventListener('click', unlock); }, { once: true });
-            function play() {
-                if (!enabled()) return;
-                var c = ctxObj(); if (!c) return;
+            function setEnabled(on) { localStorage.setItem(KEY, on ? 'on' : 'off'); }
+
+            function audio(kind) {
+                if (!cache[kind]) {
+                    var a = new Audio(src[kind]);
+                    a.preload = 'auto';
+                    a.volume = 0.6;
+                    cache[kind] = a;
+                }
+                return cache[kind];
+            }
+
+            // Browsers refuse audio until the user has interacted with the page, so
+            // prime both clips silently on the first click — after that .play() works.
+            document.addEventListener('click', function () {
+                Object.keys(src).forEach(function (kind) {
+                    var a = audio(kind);
+                    a.muted = true;
+                    var p = a.play();
+                    var reset = function () { try { a.pause(); a.currentTime = 0; } catch (e) {} a.muted = false; };
+                    if (p && p.then) { p.then(reset).catch(reset); } else { reset(); }
+                });
+            }, { once: true });
+
+            function play(kind) {
+                if (!enabled() || !src[kind]) return;
                 try {
-                    var t = c.currentTime;
-                    [880, 1180].forEach(function (freq, i) {
-                        var o = c.createOscillator(), g = c.createGain();
-                        o.type = 'sine'; o.frequency.value = freq;
-                        o.connect(g); g.connect(c.destination);
-                        var s = t + i * 0.12;
-                        g.gain.setValueAtTime(0.0001, s);
-                        g.gain.exponentialRampToValueAtTime(0.16, s + 0.01);
-                        g.gain.exponentialRampToValueAtTime(0.0001, s + 0.14);
-                        o.start(s); o.stop(s + 0.15);
-                    });
+                    var a = audio(kind);
+                    a.currentTime = 0;
+                    var p = a.play();
+                    // Autoplay still blocked (no gesture yet) — stay silent, never throw.
+                    if (p && p.catch) { p.catch(function () {}); }
                 } catch (e) {}
             }
-            return { enabled: enabled, play: play, setEnabled: function (on) { localStorage.setItem(KEY, on ? 'on' : 'off'); } };
+
+            return {
+                enabled: enabled,
+                setEnabled: setEnabled,
+                play: play,
+                message: function () { play('message'); },
+                notification: function () { play('notification'); },
+            };
         })();
+
+        // Back-compat for anything still calling the old chat-only helper.
+        window.ChatSound = {
+            enabled: window.AppSound.enabled,
+            setEnabled: window.AppSound.setEnabled,
+            play: window.AppSound.message,
+        };
 
         window.ChatNotify = (function () {
             var KEY = 'dfcp_chat_desktop', supported = ('Notification' in window);
@@ -2449,10 +2488,13 @@
         })();
 
         document.addEventListener('DOMContentLoaded', function () {
-            var s = document.getElementById('chatSoundToggle');
+            var s = document.getElementById('soundToggle');
             if (s) {
-                s.checked = window.ChatSound.enabled();
-                s.addEventListener('change', function () { window.ChatSound.setEnabled(s.checked); if (s.checked) window.ChatSound.play(); });
+                s.checked = window.AppSound.enabled();
+                s.addEventListener('change', function () {
+                    window.AppSound.setEnabled(s.checked);
+                    if (s.checked) window.AppSound.notification();   // audible confirmation
+                });
             }
             var d = document.getElementById('chatDesktopToggle');
             if (d) {
@@ -2464,18 +2506,36 @@
     </script>
 
     {{-- Realtime (Laravel Reverb) — presence + personal notifications, app-wide --}}
+    @php
+        $reverbKey    = config('broadcasting.connections.reverb.key');
+        $reverbHost   = config('broadcasting.connections.reverb.options.host');
+        $reverbScheme = config('broadcasting.connections.reverb.options.scheme') ?: 'https';
+        $reverbPort   = (int) (config('broadcasting.connections.reverb.options.port') ?: ($reverbScheme === 'https' ? 443 : 80));
+        $reverbReady  = filled($reverbKey) && filled($reverbHost);
+    @endphp
     <script>
         window.CURRENT_USER_ID = {{ auth()->id() }};
         window.OnlineUsers = new Set();
+    @if(! $reverbReady)
+        // Reverb is not configured in this environment. Deliberately skip Echo:
+        // constructing it with a blank host makes pusher-js fall back to its own
+        // cloud default (wss://ws-.pusher.com) and spam failed connections.
+        console.warn(
+            'Realtime disabled — REVERB_APP_KEY and REVERB_HOST are empty. ' +
+            'Set them in .env, then run: php artisan config:cache && php artisan reverb:restart'
+        );
+    @else
         try {
             window.Echo = new Echo({
                 broadcaster: 'reverb',
-                key: '{{ config('broadcasting.connections.reverb.key') }}',
-                wsHost: '{{ config('broadcasting.connections.reverb.options.host') }}',
-                wsPort: {{ (int) (config('broadcasting.connections.reverb.options.port') ?: 80) }},
-                wssPort: {{ (int) (config('broadcasting.connections.reverb.options.port') ?: 443) }},
-                forceTLS: {{ config('broadcasting.connections.reverb.options.scheme') === 'https' ? 'true' : 'false' }},
-                enabledTransports: ['ws', 'wss'],
+                key: @json($reverbKey),
+                wsHost: @json($reverbHost),
+                wsPort: {{ $reverbPort }},
+                wssPort: {{ $reverbPort }},
+                forceTLS: {{ $reverbScheme === 'https' ? 'true' : 'false' }},
+                // One transport only — offering ws:// on an https page just adds a
+                // blocked mixed-content attempt before the wss:// one succeeds.
+                enabledTransports: ['{{ $reverbScheme === 'https' ? 'wss' : 'ws' }}'],
             });
 
             // App-wide presence: who is currently online.
@@ -2488,7 +2548,7 @@
             window.Echo.private('App.Models.User.' + window.CURRENT_USER_ID)
                 .listen('.message.sent', function (e) {
                     document.dispatchEvent(new CustomEvent('chat-message', { detail: e }));
-                    if (window.ChatSound) window.ChatSound.play();
+                    if (window.AppSound) window.AppSound.message();
                     if (window.ChatNotify) window.ChatNotify.show(e);
                     if (window.ActiveConversationId !== e.conversation_id) {
                         var badge = document.getElementById('chatUnreadBadge');
@@ -2507,6 +2567,7 @@
         } catch (err) {
             console.warn('Realtime (Reverb/Echo) unavailable:', err);
         }
+    @endif
     </script>
 
     <script>
@@ -2540,8 +2601,18 @@
         });
 
         // ── Notifications ──────────────────────────────────────────────────
+        // Sound lives here rather than in the broadcast handler so it fires on both
+        // paths — the live Reverb push and the 60s poll — without double-playing,
+        // and so alerts still make a noise when Reverb is unreachable.
+        var lastUnread = null;
+
         function loadNotifications() {
             $.get('{{ route("notifications.index") }}').done(function (r) {
+                if (lastUnread !== null && r.unread_count > lastUnread && window.AppSound) {
+                    window.AppSound.notification();
+                }
+                lastUnread = r.unread_count;
+
                 $('#notifBadge').toggleClass('d-none', r.unread_count === 0).text(r.unread_count);
                 if (!r.notifications.length) {
                     $('#notifList').html('<div class="text-center py-4 text-muted" style="font-size:.78rem">No notifications yet.</div>');

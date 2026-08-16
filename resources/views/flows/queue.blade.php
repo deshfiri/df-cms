@@ -11,6 +11,8 @@
     $overdue  = $items->filter(fn ($i) => $i->isOverdue())->count();
     $dueToday = $items->filter(fn ($i) => $i->due_date && $i->due_date->isToday() && $i->isOpen())->count();
     $queueFlows = $items->map(fn ($i) => ['id' => $i->flow_id, 'name' => $i->flow->name ?? '—'])->unique('id')->values();
+    $mineCount  = $items->where('assigned_to', auth()->id())->count();
+    $freeCount  = $items->whereNull('assigned_to')->count();
 @endphp
 
 @push('styles')
@@ -51,11 +53,20 @@
                 @foreach($queueFlows as $f)<option value="{{ $f['id'] }}">{{ $f['name'] }}</option>@endforeach
             </select>
         @endif
+        @if($items->isNotEmpty())
+            <div class="btn-group btn-group-sm ms-auto" role="group">
+                <button class="btn btn-outline-secondary q-chip active" data-filter="all">All {{ $items->count() }}</button>
+                <button class="btn btn-outline-secondary q-chip" data-filter="mine">Mine {{ $mineCount }}</button>
+                <button class="btn btn-outline-secondary q-chip" data-filter="free">To claim {{ $freeCount }}</button>
+                <button class="btn btn-outline-secondary q-chip" data-filter="overdue">Overdue {{ $overdue }}</button>
+            </div>
+        @endif
     </div>
     <div class="card-body p-0" id="qList">
         @forelse($items as $item)
             <div class="q-row d-flex align-items-center gap-3 p-3" style="border-bottom:1px solid var(--border)"
-                data-title="{{ Str::lower($item->title) }}" data-flow="{{ $item->flow_id }}">
+                data-title="{{ Str::lower($item->title) }}" data-flow="{{ $item->flow_id }}"
+                data-mine="{{ $item->assigned_to === auth()->id() ? 1 : 0 }}" data-overdue="{{ $item->isOverdue() ? 1 : 0 }}">
                 <span class="spill {{ $prioSpill($item->priority) }}" style="font-size:.6rem">{{ $item->priority }}</span>
                 <div class="flex-grow-1 min-w-0">
                     <a href="{{ route('flow-items.show', $item) }}" class="fw-semibold small text-decoration-none" style="color:var(--text)">{{ $item->title }}</a>
@@ -105,6 +116,10 @@
                         </select>
                     </div>
                     <div class="mb-3"><label class="form-label fw-semibold small">Title</label><input type="text" id="niTitle" class="form-control form-control-sm" maxlength="200"></div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">Send to <span class="fw-normal" style="color:var(--text3)" id="niStageName"></span></label>
+                        <select id="niAssign" class="form-select form-select-sm"></select>
+                    </div>
                     <div class="row g-2 mb-3">
                         <div class="col-6">
                             <label class="form-label fw-semibold small">Priority</label>
@@ -130,22 +145,37 @@
 @endsection
 
 @push('scripts')
+@include('flows.handoff')
 <script>
     const fail = r => Swal.fire('Error', r.responseJSON?.message || 'Something went wrong', 'error');
+
+    let qFilter = 'all';
 
     function filterQueue() {
         const q = ($('#qSearch').val() || '').toLowerCase();
         const flow = $('#qFlowFilter').val() || '';
         let shown = 0;
         $('.q-row').each(function () {
-            const ok = $(this).data('title').indexOf(q) !== -1 && (!flow || String($(this).data('flow')) === flow);
-            $(this).toggleClass('hide', !ok);
+            const $r = $(this);
+            const mine = String($r.data('mine')) === '1';
+            const chip = qFilter === 'all'
+                || (qFilter === 'mine' && mine)
+                || (qFilter === 'free' && !mine)
+                || (qFilter === 'overdue' && String($r.data('overdue')) === '1');
+            const ok = chip && $r.data('title').indexOf(q) !== -1 && (!flow || String($r.data('flow')) === flow);
+            $r.toggleClass('hide', !ok);
             if (ok) shown++;
         });
         $('#qNoMatch').toggleClass('d-none', shown !== 0 || $('.q-row').length === 0);
     }
     $('#qSearch').on('input', filterQueue);
     $('#qFlowFilter').on('change', filterQueue);
+    $('.q-chip').on('click', function () {
+        $('.q-chip').removeClass('active');
+        $(this).addClass('active');
+        qFilter = $(this).data('filter');
+        filterQueue();
+    });
 
     $(document).on('click', '.item-claim', function () {
         $.post('/flow-items/' + $(this).data('id') + '/claim')
@@ -154,25 +184,48 @@
     });
 
     $(document).on('click', '.item-advance', function () {
-        const id = $(this).data('id');
-        Swal.fire({ title: 'Send to next stage?', text: $(this).data('title'), input: 'textarea', inputPlaceholder: 'Optional note…', showCancelButton: true, confirmButtonText: 'Send forward' })
-            .then(res => {
-                if (!res.isConfirmed) return;
-                $.post('/flow-items/' + id + '/advance', { note: res.value || '' })
-                    .done(() => { Swal.fire({ icon: 'success', title: 'Sent forward', timer: 1000, showConfirmButton: false }).then(() => location.reload()); })
-                    .fail(fail);
-            });
+        flowHandoff($(this).data('id'), 'advance').then(ok => { if (ok) location.reload(); });
     });
 
     @if($startable->isNotEmpty())
+    const STARTABLE = @json($startable);
+
+    // Repopulate "Send to" with the chosen workflow's first-stage members.
+    function niRefreshAssignees() {
+        const flow = STARTABLE.find(f => String(f.id) === String($('#niFlow').val()));
+        const stage = flow ? flow.first_stage : null;
+        const $sel = $('#niAssign').empty();
+
+        $('#niStageName').text(stage ? '· ' + stage.name : '');
+
+        if (!stage || !stage.users.length) {
+            $sel.append($('<option>', { value: '', text: 'Nobody is assigned to this stage yet' })).prop('disabled', true);
+            return;
+        }
+
+        $sel.prop('disabled', false)
+            .append($('<option>', { value: '', text: 'Anyone on ' + stage.name + ' — first to claim it' }));
+        stage.users.forEach(u => $sel.append($('<option>', { value: u.id, text: u.name })));
+    }
+
+    $('#niFlow').on('change', niRefreshAssignees);
+
     $('#newItemBtn').on('click', function () {
         $('#niTitle').val(''); $('#niDesc').val(''); $('#niPriority').val('Normal'); $('#niDue').val('');
+        niRefreshAssignees();
         new bootstrap.Modal('#newItemModal').show();
     });
     $('#niSave').on('click', function () {
         const title = $.trim($('#niTitle').val());
         if (!title) return;
-        $.post('/flow-items', { flow_id: $('#niFlow').val(), title, priority: $('#niPriority').val(), due_date: $('#niDue').val() || null, description: $('#niDesc').val() })
+        $.post('/flow-items', {
+            flow_id: $('#niFlow').val(),
+            title,
+            priority: $('#niPriority').val(),
+            due_date: $('#niDue').val() || null,
+            description: $('#niDesc').val(),
+            assign_to: $('#niAssign').val() || '',
+        })
             .done(() => { bootstrap.Modal.getInstance('#newItemModal').hide(); Swal.fire({ icon: 'success', title: 'Item created', timer: 1000, showConfirmButton: false }).then(() => location.reload()); })
             .fail(fail);
     });

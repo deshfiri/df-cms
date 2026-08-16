@@ -19,6 +19,10 @@ use Illuminate\Support\Facades\DB;
  * strictly forward one stage at a time — no skipping — and only a user assigned
  * to an item's current stage may forward it. Every move is recorded as a
  * FlowTransition. Reusable across any number of Flows.
+ *
+ * A hand-off may be addressed to one specific person on the destination stage
+ * (pre-claimed for them, only they see it) or left open to the whole stage
+ * (first to claim owns it).
  */
 class FlowService
 {
@@ -33,10 +37,14 @@ class FlowService
             throw new FlowException('This workflow is inactive.');
         }
 
-        $item = DB::transaction(function () use ($flow, $first, $data, $creator) {
+        // Validated before the write so an invalid target never creates an item.
+        $target = $this->resolveTarget($first, $data['assign_to'] ?? null);
+
+        $item = DB::transaction(function () use ($flow, $first, $data, $creator, $target) {
             $item = FlowItem::create([
                 'flow_id'          => $flow->id,
                 'current_stage_id' => $first->id,
+                'assigned_to'      => $target?->id,
                 'title'            => $data['title'],
                 'description'      => $data['description'] ?? null,
                 'priority'         => $data['priority'] ?? 'Normal',
@@ -50,7 +58,11 @@ class FlowService
             return $item;
         });
 
-        $this->notifyStage($item, $first, $creator, 'New item');
+        if ($target) {
+            $this->notifyUser($item, $first, $target, $creator, "Sent to you by {$creator->name}");
+        } else {
+            $this->notifyStage($item, $first, $creator, 'New item');
+        }
 
         return $item;
     }
@@ -58,8 +70,11 @@ class FlowService
     /**
      * Move an item from its current stage to the next one (or complete it if the
      * current stage is the last). Enforces assignment + no-skip.
+     *
+     * $assignTo optionally addresses the hand-off to one person on the next
+     * stage — the item arrives pre-claimed for them instead of open to the team.
      */
-    public function advance(FlowItem $item, User $user, ?string $note = null): FlowItem
+    public function advance(FlowItem $item, User $user, ?string $note = null, mixed $assignTo = null): FlowItem
     {
         if ($item->status !== FlowItem::STATUS_OPEN) {
             throw new FlowException('This item is not open.');
@@ -76,12 +91,14 @@ class FlowService
                 : 'This item is being handled by someone else.');
         }
 
-        $next = DB::transaction(function () use ($item, $current, $user, $note) {
-            $next = $current->nextStage();
+        $next = $current->nextStage();
+        // Resolved before the transaction so a bad target aborts without a write.
+        $target = $this->resolveTarget($next, $assignTo);
 
+        DB::transaction(function () use ($item, $current, $next, $target, $user, $note) {
             if ($next) {
-                // Reset ownership — the next stage's team must claim it.
-                $item->update(['current_stage_id' => $next->id, 'assigned_to' => null]);
+                // Addressed to one person, or reset so the next stage's team can claim it.
+                $item->update(['current_stage_id' => $next->id, 'assigned_to' => $target?->id]);
             } else {
                 $item->update([
                     'current_stage_id' => null,
@@ -92,17 +109,20 @@ class FlowService
             }
 
             $this->logTransition($item, $current, $next, $user, $note);
-
-            return $next;
         });
 
         if ($next) {
-            $this->notifyStage($item->refresh(), $next, $user, 'Moved forward');
+            $item->refresh();
+            if ($target) {
+                $this->notifyUser($item, $next, $target, $user, "Sent to you by {$user->name}");
+            } else {
+                $this->notifyStage($item, $next, $user, 'Moved forward');
+            }
         } else {
             $this->notifyCreatorCompleted($item, $user);
         }
 
-        return $item->fresh(['currentStage']);
+        return $item->fresh(['currentStage', 'assignee']);
     }
 
     /**
@@ -110,7 +130,7 @@ class FlowService
      * current-stage assignee (or an admin) may do it; the previous stage's users
      * are notified they have rework.
      */
-    public function sendBack(FlowItem $item, User $user, string $reason): FlowItem
+    public function sendBack(FlowItem $item, User $user, string $reason, mixed $assignTo = null): FlowItem
     {
         if ($item->status !== FlowItem::STATUS_OPEN) {
             throw new FlowException('This item is not open.');
@@ -132,14 +152,23 @@ class FlowService
             throw new FlowException('This is the first stage — there is nowhere to send it back to.');
         }
 
-        DB::transaction(function () use ($item, $current, $previous, $user, $reason) {
-            $item->update(['current_stage_id' => $previous->id, 'assigned_to' => null]);
+        // Default the rework to whoever last handled that stage, so a correction
+        // goes back to its author rather than the whole team.
+        $target = $this->resolveTarget($previous, $assignTo) ?? $this->lastHandlerOf($item, $previous);
+
+        DB::transaction(function () use ($item, $current, $previous, $target, $user, $reason) {
+            $item->update(['current_stage_id' => $previous->id, 'assigned_to' => $target?->id]);
             $this->logTransition($item, $current, $previous, $user, $reason);
         });
 
-        $this->notifyStage($item->refresh(), $previous, $user, 'Sent back for changes');
+        $item->refresh();
+        if ($target) {
+            $this->notifyUser($item, $previous, $target, $user, "Sent back to you by {$user->name}");
+        } else {
+            $this->notifyStage($item, $previous, $user, 'Sent back for changes');
+        }
 
-        return $item->fresh(['currentStage']);
+        return $item->fresh(['currentStage', 'assignee']);
     }
 
     /** Open items sitting at a stage the user is assigned to — their queue. */
@@ -352,6 +381,94 @@ class FlowService
             ->where('position', '<', $stage->position)
             ->orderByDesc('position')
             ->first();
+    }
+
+    /**
+     * What the hand-off dialog needs: the destination stages either side of the
+     * item's current one, and who can receive it there. Consumed as JSON.
+     */
+    public function handoffOptions(FlowItem $item): array
+    {
+        $current = $item->currentStage;
+
+        return [
+            'is_final' => $current !== null && $current->nextStage() === null,
+            'next'     => $this->stagePayload($current?->nextStage()),
+            'previous' => $current ? $this->stagePayload($this->previousStage($current)) : null,
+        ];
+    }
+
+    /** A stage plus its active members and how much open work each is already holding. */
+    private function stagePayload(?FlowStage $stage): ?array
+    {
+        if (!$stage) {
+            return null;
+        }
+
+        $users = $stage->users()->where('users.is_active', true)->orderBy('users.name')->get(['users.id', 'users.name']);
+
+        $load = FlowItem::where('status', FlowItem::STATUS_OPEN)
+            ->whereIn('assigned_to', $users->pluck('id'))
+            ->selectRaw('assigned_to, count(*) as total')
+            ->groupBy('assigned_to')
+            ->pluck('total', 'assigned_to');
+
+        return [
+            'id'    => $stage->id,
+            'name'  => $stage->name,
+            'users' => $users->map(fn (User $u) => [
+                'id'   => $u->id,
+                'name' => $u->name,
+                'load' => (int) ($load[$u->id] ?? 0),
+            ])->values()->all(),
+        ];
+    }
+
+    /**
+     * Validate an optional hand-off target: the person must be an active member
+     * of the destination stage. Null/empty means "leave it open to the stage".
+     */
+    private function resolveTarget(?FlowStage $stage, mixed $userId): ?User
+    {
+        if ($stage === null || $userId === null || $userId === '') {
+            return null;
+        }
+
+        $user = $stage->users()->where('users.is_active', true)->whereKey((int) $userId)->first();
+        if (!$user) {
+            throw new FlowException("That person is not an active member of {$stage->name}.");
+        }
+
+        return $user;
+    }
+
+    /** Who last moved this item out of the given stage, if they still work it. */
+    private function lastHandlerOf(FlowItem $item, FlowStage $stage): ?User
+    {
+        $lastMoverId = FlowTransition::where('flow_item_id', $item->id)
+            ->where('from_stage_id', $stage->id)
+            ->orderByDesc('id')
+            ->value('moved_by');
+
+        if (!$lastMoverId) {
+            return null;
+        }
+
+        return $stage->users()->where('users.is_active', true)->whereKey($lastMoverId)->first();
+    }
+
+    /** Tell one specific person an item is now theirs (skipped if they did it themselves). */
+    private function notifyUser(FlowItem $item, FlowStage $stage, User $recipient, ?User $except, string $reason): void
+    {
+        if (!$recipient->is_active || ($except && $recipient->id === $except->id)) {
+            return;
+        }
+
+        try {
+            $recipient->notify(new FlowItemAwaitingYou($item, $stage, $reason));
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /** Tell the creator their item finished — unless they completed it themselves. */

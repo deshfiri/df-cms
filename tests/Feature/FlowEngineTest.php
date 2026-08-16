@@ -245,4 +245,137 @@ class FlowEngineTest extends TestCase
         $this->assertNull($item->fresh()->assigned_to);
         $this->assertCount(1, $this->flow->myQueue($b));
     }
+
+    public function test_a_hand_off_can_be_addressed_to_one_person_on_the_next_stage(): void
+    {
+        Notification::fake();
+        $a = $this->user();
+        $b = $this->user();
+        $c = $this->user();
+        [$flow, [, $s2]] = $this->buildFlow($this->admin(), [['Draft', [$a]], ['Review', [$b, $c]]]);
+        $item = $this->flow->createItem($flow, ['title' => 'x'], $this->admin());
+
+        $this->flow->claim($item->fresh(), $a);
+        $this->flow->advance($item->fresh(), $a, null, $c->id);
+
+        $item->refresh();
+        $this->assertSame($s2->id, $item->current_stage_id);
+        $this->assertSame($c->id, $item->assigned_to);   // arrives pre-claimed for c
+
+        // Only c has it; b never sees it despite sharing the stage.
+        $this->assertCount(1, $this->flow->myQueue($c));
+        $this->assertCount(0, $this->flow->myQueue($b));
+        Notification::assertSentTo($c, FlowItemAwaitingYou::class);
+        Notification::assertNotSentTo($b, FlowItemAwaitingYou::class);
+    }
+
+    public function test_a_hand_off_cannot_be_addressed_to_someone_off_the_stage(): void
+    {
+        $a = $this->user();
+        $outsider = $this->user();
+        [$flow, [$s1]] = $this->buildFlow($this->admin(), [['Draft', [$a]], ['Review', [$this->user()]]]);
+        $item = $this->flow->createItem($flow, ['title' => 'x'], $this->admin());
+        $this->flow->claim($item->fresh(), $a);
+
+        try {
+            $this->flow->advance($item->fresh(), $a, null, $outsider->id);
+            $this->fail('Expected FlowException (target not on the stage)');
+        } catch (FlowException $e) {
+            $this->assertStringContainsString('not an active member', $e->getMessage());
+        }
+
+        // Rejected before any write — the item never left its stage.
+        $this->assertSame($s1->id, $item->fresh()->current_stage_id);
+    }
+
+    public function test_an_inactive_person_cannot_be_addressed(): void
+    {
+        $a = $this->user();
+        $gone = $this->user();
+        $gone->update(['is_active' => false]);
+        [$flow] = $this->buildFlow($this->admin(), [['Draft', [$a]], ['Review', [$gone]]]);
+        $item = $this->flow->createItem($flow, ['title' => 'x'], $this->admin());
+        $this->flow->claim($item->fresh(), $a);
+
+        $this->expectException(FlowException::class);
+        $this->flow->advance($item->fresh(), $a, null, $gone->id);
+    }
+
+    public function test_send_back_returns_to_whoever_last_handled_that_stage(): void
+    {
+        $a = $this->user();
+        $b = $this->user();   // shares Draft with a but never touched this item
+        $c = $this->user();
+        [$flow, [$s1]] = $this->buildFlow($this->admin(), [['Draft', [$a, $b]], ['Review', [$c]]]);
+        $item = $this->flow->createItem($flow, ['title' => 'x'], $this->admin());
+
+        $this->flow->claim($item->fresh(), $a);
+        $this->flow->advance($item->fresh(), $a);      // a did the Draft work
+        $this->flow->claim($item->fresh(), $c);
+        $this->flow->sendBack($item->fresh(), $c, 'Wrong colours');
+
+        $item->refresh();
+        $this->assertSame($s1->id, $item->current_stage_id);
+        $this->assertSame($a->id, $item->assigned_to);  // back to its author, not the pool
+        $this->assertCount(0, $this->flow->myQueue($b));
+    }
+
+    public function test_send_back_can_be_addressed_to_a_different_person(): void
+    {
+        $a = $this->user();
+        $b = $this->user();
+        $c = $this->user();
+        [$flow] = $this->buildFlow($this->admin(), [['Draft', [$a, $b]], ['Review', [$c]]]);
+        $item = $this->flow->createItem($flow, ['title' => 'x'], $this->admin());
+
+        $this->flow->claim($item->fresh(), $a);
+        $this->flow->advance($item->fresh(), $a);
+        $this->flow->claim($item->fresh(), $c);
+        $this->flow->sendBack($item->fresh(), $c, 'b should redo this', $b->id);
+
+        $this->assertSame($b->id, $item->fresh()->assigned_to);   // overrides the last handler
+    }
+
+    public function test_a_new_item_can_be_addressed_to_a_specific_person(): void
+    {
+        Notification::fake();
+        $a = $this->user();
+        $b = $this->user();
+        $creator = $this->admin();
+        [$flow] = $this->buildFlow($creator, [['Draft', [$a, $b]]]);
+
+        $item = $this->flow->createItem($flow, ['title' => 'x', 'assign_to' => $b->id], $creator);
+
+        $this->assertSame($b->id, $item->assigned_to);
+        $this->assertCount(1, $this->flow->myQueue($b));
+        $this->assertCount(0, $this->flow->myQueue($a));
+        Notification::assertSentTo($b, FlowItemAwaitingYou::class);
+        Notification::assertNotSentTo($a, FlowItemAwaitingYou::class);
+    }
+
+    public function test_handoff_options_list_the_next_stage_members_with_their_load(): void
+    {
+        $a = $this->user();
+        $b = $this->user();
+        $c = $this->user();
+        [$flow] = $this->buildFlow($this->admin(), [['Draft', [$a]], ['Review', [$b, $c]]]);
+
+        // Give b something else to hold so the load figure is non-zero.
+        $other = $this->flow->createItem($flow, ['title' => 'other'], $this->admin());
+        $this->flow->claim($other->fresh(), $a);
+        $this->flow->advance($other->fresh(), $a, null, $b->id);
+
+        $item = $this->flow->createItem($flow, ['title' => 'x'], $this->admin());
+        $this->flow->claim($item->fresh(), $a);
+
+        $options = $this->flow->handoffOptions($item->fresh());
+
+        $this->assertFalse($options['is_final']);
+        $this->assertSame('Review', $options['next']['name']);
+        $this->assertEqualsCanonicalizing([$b->id, $c->id], array_column($options['next']['users'], 'id'));
+
+        $loads = array_column($options['next']['users'], 'load', 'id');
+        $this->assertSame(1, $loads[$b->id]);
+        $this->assertSame(0, $loads[$c->id]);
+    }
 }

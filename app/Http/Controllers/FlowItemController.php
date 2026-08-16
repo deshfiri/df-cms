@@ -65,6 +65,7 @@ class FlowItemController extends Controller
             'priority'    => ['nullable', Rule::in(FlowItem::$priorities)],
             'due_date'    => ['nullable', 'date'],
             'note'        => ['nullable', 'string', 'max:2000'],
+            'assign_to'   => ['nullable', 'integer', 'exists:users,id'],
         ]);
 
         $flow = Flow::findOrFail($data['flow_id']);
@@ -85,6 +86,8 @@ class FlowItemController extends Controller
 
         $item->load([
             'flow:id,name',
+            'flow.stages:id,flow_id,name,position',
+            'flow.stages.users:id,name',
             'currentStage:id,name,position',
             'creator:id,name',
             'transitions.fromStage:id,name,position',
@@ -103,6 +106,7 @@ class FlowItemController extends Controller
             'canClaim'    => $this->flow->canClaim($request->user(), $item),
             'canAttach'   => $this->flow->canAttach($request->user(), $item),
             'canManage'   => $this->flow->canManageItem($request->user(), $item),
+            'stages'      => $item->flow?->stages->sortBy('position')->values() ?? collect(),
             'canSendBack' => $canAct && $item->currentStage
                 && \App\Models\FlowStage::where('flow_id', $item->flow_id)
                     ->where('position', '<', $item->currentStage->position)->exists(),
@@ -255,12 +259,23 @@ class FlowItemController extends Controller
         return response()->json(['success' => true]);
     }
 
+    /** Who the item can be handed to next (or back to) — drives the hand-off dialog. */
+    public function handoff(Request $request, FlowItem $item): JsonResponse
+    {
+        abort_unless($this->flow->canView($request->user(), $item), 403);
+
+        return response()->json($this->flow->handoffOptions($item));
+    }
+
     public function advance(Request $request, FlowItem $item): JsonResponse
     {
-        $data = $request->validate(['note' => ['nullable', 'string', 'max:2000']]);
+        $data = $request->validate([
+            'note'      => ['nullable', 'string', 'max:2000'],
+            'assign_to' => ['nullable', 'integer', 'exists:users,id'],
+        ]);
 
         try {
-            $this->flow->advance($item, $request->user(), $data['note'] ?? null);
+            $this->flow->advance($item, $request->user(), $data['note'] ?? null, $data['assign_to'] ?? null);
         } catch (FlowException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         }
@@ -270,10 +285,13 @@ class FlowItemController extends Controller
 
     public function sendBack(Request $request, FlowItem $item): JsonResponse
     {
-        $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
+        $data = $request->validate([
+            'reason'    => ['required', 'string', 'max:2000'],
+            'assign_to' => ['nullable', 'integer', 'exists:users,id'],
+        ]);
 
         try {
-            $this->flow->sendBack($item, $request->user(), $data['reason']);
+            $this->flow->sendBack($item, $request->user(), $data['reason'], $data['assign_to'] ?? null);
         } catch (FlowException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         }
@@ -294,13 +312,18 @@ class FlowItemController extends Controller
         return $first !== null && $first->hasUser($user->id);
     }
 
-    /** Active flows this user may start an item into (admin, or assigned to the first stage). */
+    /**
+     * Active flows this user may start an item into (admin, or assigned to the
+     * first stage), each carrying that first stage's members so the creator can
+     * address the new item to one of them.
+     */
     private function startableFlows(User $user): Collection
     {
         $isAdmin = $user->can('manage workflows');
 
         return Flow::where('is_active', true)
-            ->with(['stages' => fn ($q) => $q->orderBy('position')->with('users:id')])
+            ->with(['stages' => fn ($q) => $q->orderBy('position')
+                ->with(['users' => fn ($u) => $u->where('users.is_active', true)->select('users.id', 'users.name')])])
             ->get()
             ->filter(function (Flow $f) use ($user, $isAdmin) {
                 if ($isAdmin) {
@@ -310,7 +333,16 @@ class FlowItemController extends Controller
 
                 return $first && $first->users->contains('id', $user->id);
             })
-            ->map(fn (Flow $f) => ['id' => $f->id, 'name' => $f->name])
+            ->map(fn (Flow $f) => [
+                'id'          => $f->id,
+                'name'        => $f->name,
+                'first_stage' => [
+                    'name'  => $f->stages->first()->name,
+                    'users' => $f->stages->first()->users
+                        ->map(fn (User $u) => ['id' => $u->id, 'name' => $u->name])
+                        ->sortBy('name')->values()->all(),
+                ],
+            ])
             ->values();
     }
 }

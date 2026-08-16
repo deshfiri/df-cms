@@ -299,6 +299,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('my-queue/history', [FlowItemController::class, 'history'])->name('flow.history');
     Route::post('flow-items', [FlowItemController::class, 'store'])->name('flow-items.store');
     Route::get('flow-items/{item}', [FlowItemController::class, 'show'])->name('flow-items.show');
+    Route::get('flow-items/{item}/handoff', [FlowItemController::class, 'handoff'])->name('flow-items.handoff');
     Route::put('flow-items/{item}', [FlowItemController::class, 'updateItem'])->name('flow-items.update');
     Route::post('flow-items/{item}/claim', [FlowItemController::class, 'claim'])->name('flow-items.claim');
     Route::post('flow-items/{item}/release', [FlowItemController::class, 'release'])->name('flow-items.release');

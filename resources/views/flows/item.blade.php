@@ -14,6 +14,14 @@
         'Normal' => 'spill-running',
         default  => 'spill-hold',
     };
+
+    // Someone else addressed this item to its current owner (rather than them
+    // claiming it off the shared pile) — worth wording differently.
+    $lastMove  = $item->transitions->last();
+    $addressed = $item->assigned_to !== null && $lastMove
+        && $lastMove->to_stage_id === $item->current_stage_id
+        && $lastMove->moved_by !== $item->assigned_to;
+    $ownerVerb = $addressed ? 'Assigned to' : 'Claimed by';
 @endphp
 
 @push('styles')
@@ -23,6 +31,18 @@
     .tl-item { position: relative; padding-bottom: 1rem; }
     .tl-dot { position: absolute; left: -26px; top: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--surface); border: 2px solid var(--primary); display: grid; place-items: center; }
     .tl-dot i { font-size: .6rem; color: var(--primary); }
+
+    /* Stage strip — where the item is, where it goes next, and who works each stage. */
+    .stage-strip { display: flex; gap: .4rem; overflow-x: auto; padding: .1rem .1rem .3rem; }
+    .ss { flex: 0 0 auto; min-width: 132px; max-width: 200px; border: 1px solid var(--border); border-radius: var(--radius); padding: .45rem .6rem; background: var(--surface2); }
+    .ss-h { display: flex; align-items: center; gap: .35rem; font-size: .74rem; font-weight: 600; color: var(--text2); }
+    .ss-h i { font-size: .7rem; color: var(--text3); flex-shrink: 0; }
+    .ss-h span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ss-u { font-size: .64rem; color: var(--text3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ss-done { opacity: .6; }
+    .ss-done .ss-h i { color: var(--primary); }
+    .ss-now { border-color: var(--primary); background: var(--surface); box-shadow: var(--shadow-sm); }
+    .ss-now .ss-h, .ss-now .ss-h i { color: var(--primary); }
 </style>
 @endpush
 
@@ -56,7 +76,7 @@
                     @endif
                     @if($item->isOpen())
                         @if($item->assignee)
-                            <span style="font-size:.68rem;color:var(--text2)"><i class="bi bi-person-check me-1"></i>Claimed by {{ $item->assigned_to === auth()->id() ? 'you' : $item->assignee->name }}</span>
+                            <span style="font-size:.68rem;color:{{ $addressed ? 'var(--primary)' : 'var(--text2)' }}"><i class="bi {{ $addressed ? 'bi-person-fill-check' : 'bi-person-check' }} me-1"></i>{{ $ownerVerb }} {{ $item->assigned_to === auth()->id() ? 'you' : $item->assignee->name }}</span>
                         @else
                             <span style="font-size:.68rem;color:var(--text3)"><i class="bi bi-hand-index-thumb me-1"></i>Unclaimed</span>
                         @endif
@@ -76,6 +96,27 @@
             <p class="mt-3 mb-0 small" style="color:var(--text2);white-space:pre-wrap">{{ $item->description }}</p>
         @endif
 
+        @if($stages->count() > 1)
+            <div class="stage-strip mt-3">
+                @foreach($stages as $s)
+                    @php
+                        $isNow  = $item->current_stage_id === $s->id;
+                        $isDone = $item->currentStage ? $s->position < $item->currentStage->position : $item->status === 'Completed';
+                        $names  = $s->users->pluck('name');
+                    @endphp
+                    <div class="ss {{ $isNow ? 'ss-now' : ($isDone ? 'ss-done' : '') }}">
+                        <div class="ss-h">
+                            <i class="bi {{ $isDone ? 'bi-check-circle-fill' : ($isNow ? 'bi-record-circle' : 'bi-circle') }}"></i>
+                            <span>{{ $s->name }}</span>
+                        </div>
+                        <div class="ss-u" title="{{ $names->join(', ') }}">
+                            {{ $names->isEmpty() ? 'nobody assigned' : $names->join(', ') }}
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        @endif
+
         @if($item->isOpen())
             <div class="mt-3 pt-3" style="border-top:1px solid var(--border)">
                 @if($canAct)
@@ -91,7 +132,7 @@
                     <button class="btn btn-sm btn-primary" id="claimBtn"><i class="bi bi-hand-index-thumb me-1"></i>Claim this item</button>
                     <div style="font-size:.68rem;color:var(--text3);margin-top:4px">Claim it to take ownership — then you can add work and send it forward.</div>
                 @elseif($item->assignee)
-                    <div style="font-size:.72rem;color:var(--text3)"><i class="bi bi-lock me-1"></i>Claimed by <strong>{{ $item->assignee->name }}</strong> — read-only until they release it.</div>
+                    <div style="font-size:.72rem;color:var(--text3)"><i class="bi bi-lock me-1"></i>{{ $ownerVerb }} <strong>{{ $item->assignee->name }}</strong> — read-only until they release it.</div>
                 @endif
             </div>
         @endif
@@ -234,38 +275,15 @@
 @endsection
 
 @push('scripts')
+@include('flows.handoff')
 @if($canAct)
 <script>
     $('#advanceBtn').on('click', function () {
-        Swal.fire({
-            title: 'Send to next stage?',
-            input: 'textarea',
-            inputPlaceholder: 'Optional note for the next stage…',
-            showCancelButton: true,
-            confirmButtonText: 'Send forward',
-        }).then(res => {
-            if (!res.isConfirmed) return;
-            $.post('/flow-items/{{ $item->id }}/advance', { note: res.value || '' })
-                .done(() => location.reload())
-                .fail(r => Swal.fire('Error', r.responseJSON?.message || 'Could not move the item.', 'error'));
-        });
+        flowHandoff({{ $item->id }}, 'advance').then(ok => { if (ok) location.reload(); });
     });
     @if($canSendBack)
     $('#sendBackBtn').on('click', function () {
-        Swal.fire({
-            title: 'Send back a stage?',
-            input: 'textarea',
-            inputPlaceholder: 'Reason for sending it back (required)…',
-            inputValidator: v => (!v ? 'A reason is required.' : undefined),
-            showCancelButton: true,
-            confirmButtonText: 'Send back',
-            confirmButtonColor: '#dc3545',
-        }).then(res => {
-            if (!res.isConfirmed) return;
-            $.post('/flow-items/{{ $item->id }}/send-back', { reason: res.value })
-                .done(() => location.reload())
-                .fail(r => Swal.fire('Error', r.responseJSON?.message || 'Could not send it back.', 'error'));
-        });
+        flowHandoff({{ $item->id }}, 'back').then(ok => { if (ok) location.reload(); });
     });
     @endif
 </script>

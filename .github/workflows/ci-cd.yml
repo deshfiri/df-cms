@@ -95,6 +95,7 @@ jobs:
             --exclude='tests' \
             --exclude='.env' \
             --exclude='storage' \
+            --exclude='public/uploads' \
             -e "ssh -p ${{ secrets.DEPLOY_PORT || 22 }}" \
             ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}"
 
@@ -113,4 +114,5 @@ jobs:
             php artisan view:cache
             php artisan event:cache
             php artisan queue:restart
+            php artisan reverb:restart
             php artisan storage:link || true
