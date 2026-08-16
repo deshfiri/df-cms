@@ -41,9 +41,21 @@ class MessageUpdated implements ShouldBroadcastNow
     public function broadcastWith(): array
     {
         return [
-            'id'         => $this->message->id,
-            'deleted'    => $this->message->isDeleted(),
-            'reactions'  => $this->message->reactionSummary(),
+            'id'      => $this->message->id,
+            'deleted' => $this->message->isDeleted(),
+            // Who reacted, not whether "you" did: one payload goes to both
+            // participants, so "mine" cannot be resolved server-side. Sending
+            // it would blank out the reactor's own highlight the moment their
+            // change echoed back to them.
+            'reactions' => $this->message->reactions
+                ->groupBy('emoji')
+                ->map(fn ($group, $emoji) => [
+                    'emoji' => $emoji,
+                    'count' => $group->count(),
+                    'users' => $group->pluck('user_id')->values()->all(),
+                ])
+                ->values()
+                ->all(),
         ];
     }
 }

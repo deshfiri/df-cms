@@ -120,6 +120,10 @@ class ChatService
     /** Best-effort realtime push; the change is already persisted either way. */
     private function broadcastUpdate(Message $message): void
     {
+        // The payload enumerates reactors, so the relation must be present —
+        // deleteMessage() has no reason to have loaded it.
+        $message->loadMissing('reactions');
+
         try {
             broadcast(new MessageUpdated($message));
         } catch (\Throwable $e) {

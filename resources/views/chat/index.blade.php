@@ -92,27 +92,31 @@
     }
     .msg-tool:hover { color: var(--primary); background: var(--surface2); }
 
-    .msg-reacts { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+    .msg-reacts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
     .react-chip {
+        display: inline-flex; align-items: center; gap: 4px;
         border: 1px solid var(--border); background: var(--surface);
         color: var(--text2); border-radius: 999px; cursor: pointer;
-        font-size: .68rem; padding: 1px 6px; line-height: 1.4;
+        font-size: .92rem; line-height: 1; padding: 3px 9px;
+        transition: transform .1s ease;
     }
-    .react-chip.mine { border-color: var(--primary); color: var(--primary); background: rgba(var(--primary-rgb), .1); }
+    .react-chip span { font-size: .7rem; font-weight: 700; }
+    .react-chip:hover { transform: scale(1.08); }
+    .react-chip.mine { border-color: var(--primary); color: var(--primary); background: rgba(var(--primary-rgb), .12); }
 
+    /* Fixed, and a child of <body>, so the scrolling message list cannot clip it. */
     .react-picker {
-        position: absolute; bottom: 100%; margin-bottom: 4px; z-index: 6;
-        display: flex; gap: 2px; padding: 3px;
+        position: fixed; z-index: 21000;
+        display: flex; gap: 3px; padding: 6px 8px;
         background: var(--surface); border: 1px solid var(--border);
-        border-radius: 999px; box-shadow: var(--shadow-md);
+        border-radius: 999px; box-shadow: var(--shadow-lg);
     }
-    .msg.me .react-picker { right: 0; }
-    .msg.them .react-picker { left: 0; }
     .react-picker button {
         border: none; background: none; cursor: pointer;
-        font-size: .95rem; line-height: 1; padding: 3px 4px; border-radius: 50%;
+        font-size: 1.5rem; line-height: 1; padding: 4px 6px; border-radius: 50%;
+        transition: transform .12s ease;
     }
-    .react-picker button:hover { background: var(--surface2); transform: scale(1.15); }
+    .react-picker button:hover { background: var(--surface2); transform: scale(1.3); }
 </style>
 @endpush
 
@@ -328,9 +332,13 @@ $(function () {
 
     function reactionsHtml(list) {
         if (!list || !list.length) return '';
-        return '<div class="msg-reacts">' + list.map(r =>
-            `<button class="react-chip ${r.mine ? 'mine' : ''}" data-emoji="${esc(r.emoji)}">${esc(r.emoji)} ${r.count}</button>`
-        ).join('') + '</div>';
+        return '<div class="msg-reacts">' + list.map(r => {
+            // The broadcast payload cannot know who "you" are — one event goes
+            // to both participants — so it sends the reactor ids and we resolve
+            // ownership here. The REST response already includes `mine`.
+            const mine = (typeof r.mine === 'boolean') ? r.mine : (r.users || []).indexOf(ME) !== -1;
+            return `<button class="react-chip ${mine ? 'mine' : ''}" data-emoji="${esc(r.emoji)}">${esc(r.emoji)}<span>${r.count}</span></button>`;
+        }).join('') + '</div>';
     }
 
     function messageHtml(m) {
@@ -391,6 +399,11 @@ $(function () {
     }
 
     // ── Reactions ────────────────────────────────────────────────────
+    // The picker is appended to <body> with fixed positioning rather than
+    // inside the bubble. The message list is an overflow:auto scroll container,
+    // which clips any absolutely positioned child that extends past its edge —
+    // so a picker anchored inside the bubble was cut off on the topmost message
+    // and half-hidden everywhere else.
     $(document).on('click', '.react-open', function (e) {
         e.stopPropagation();
         const $msg = $(this).closest('.msg');
@@ -406,7 +419,19 @@ $(function () {
                 })
                 .appendTo(picker);
         });
-        $msg.append(picker);
+
+        $('body').append(picker);
+
+        // Sit above the bubble, nudged inside the viewport if it would overhang.
+        const box = $msg[0].getBoundingClientRect();
+        const width = picker.outerWidth();
+        let left = $msg.hasClass('me') ? box.right - width : box.left;
+        left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+
+        let top = box.top - picker.outerHeight() - 8;
+        if (top < 8) top = box.bottom + 8;      // no room above: flip below
+
+        picker.css({ left: left + 'px', top: top + 'px' });
     });
 
     // Clicking an existing chip toggles your own reaction off or on.
@@ -415,6 +440,9 @@ $(function () {
     });
 
     $(document).on('click', () => $('.react-picker').remove());
+    // Fixed positioning does not follow the list, so close rather than drift.
+    $('#msgList').on('scroll', () => $('.react-picker').remove());
+    $(window).on('resize', () => $('.react-picker').remove());
 
     function sendReaction(id, emoji) {
         $.post('/chat/messages/' + id + '/react', { emoji })
