@@ -418,7 +418,14 @@ curl -I https://dms.deshfiri.com          # 200
 php artisan about                         # env, drivers, cached config
 php artisan schedule:list                 # 5 commands, sane next-run times
 supervisorctl status                      # dfcp-queue + dfcp-reverb RUNNING
+php artisan reverb:verify                 # realtime, layer by layer
 ```
+
+`reverb:verify` checks the whole realtime chain and names the layer that broke:
+config agreement → daemon listening → direct WebSocket handshake → the same
+handshake through nginx/TLS → the server-side `/apps` push leg. It expects
+`101 Switching Protocols` on both handshakes and exits non-zero on failure, so
+CI gates on it after every deploy. Add `--skip-public` to test only the daemon.
 
 Then, in the browser:
 

@@ -116,3 +116,17 @@ jobs:
             php artisan queue:restart
             php artisan reverb:restart
             php artisan storage:link || true
+
+      - name: Verify realtime stack
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script: |
+            cd "${{ secrets.DEPLOY_PATH }}"
+            # reverb:restart only signals the daemon to exit; Supervisor needs a
+            # moment to bring it back up before the handshake can succeed.
+            sleep 12
+            php artisan reverb:verify

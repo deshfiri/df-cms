@@ -2533,9 +2533,13 @@
                 wsPort: {{ $reverbPort }},
                 wssPort: {{ $reverbPort }},
                 forceTLS: {{ $reverbScheme === 'https' ? 'true' : 'false' }},
-                // One transport only — offering ws:// on an https page just adds a
-                // blocked mixed-content attempt before the wss:// one succeeds.
-                enabledTransports: ['{{ $reverbScheme === 'https' ? 'wss' : 'ws' }}'],
+                // Both names are required. In pusher-js these are transport
+                // IMPLEMENTATION names, not URL schemes: with forceTLS the strategy
+                // uses the transport named 'ws' and gives it a wss:// URL. Listing
+                // only 'wss' leaves the TLS path with no usable transport, so
+                // isSupported() fails and the connection state goes straight to
+                // "failed" without a single network request.
+                enabledTransports: ['ws', 'wss'],
             });
 
             // App-wide presence: who is currently online.
