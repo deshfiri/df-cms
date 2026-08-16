@@ -39,6 +39,58 @@ class FlowItemController extends Controller
         ]);
     }
 
+    /**
+     * A client's pipeline: the workflows running for them, where each one has
+     * reached, and who is holding it. This is what replaces the old fixed
+     * departmental timeline — the sequence is whatever an admin built under
+     * Workflows, so it stays in step with how the team actually works.
+     */
+    public function clientWorkflow(Request $request, \App\Models\Client $client): JsonResponse
+    {
+        $this->authorize('view', $client);
+
+        $items = FlowItem::where('client_id', $client->id)
+            ->with([
+                'flow:id,name',
+                'flow.stages:id,flow_id,name,position',
+                'currentStage:id,name,position',
+                'assignee:id,name',
+            ])
+            ->latest('id')
+            ->get()
+            ->map(function (FlowItem $item) {
+                $stages = $item->flow?->stages->sortBy('position')->values() ?? collect();
+                $currentPosition = $item->currentStage->position ?? null;
+
+                return [
+                    'id'         => $item->id,
+                    'title'      => $item->title,
+                    'flow'       => $item->flow->name ?? '—',
+                    'status'     => $item->status,
+                    'priority'   => $item->priority,
+                    'due_date'   => $item->due_date?->format('d M Y'),
+                    'overdue'    => $item->isOverdue(),
+                    'stage'      => $item->currentStage->name ?? null,
+                    'assignee'   => $item->assignee->name ?? null,
+                    'url'        => route('flow-items.show', $item),
+                    // The whole sequence, so the client page shows the journey
+                    // rather than only the step it happens to be on.
+                    'stages'     => $stages->map(fn ($s) => [
+                        'name' => $s->name,
+                        'done' => $currentPosition !== null
+                            ? $s->position < $currentPosition
+                            : $item->status === 'Completed',
+                        'current' => $item->current_stage_id === $s->id,
+                    ])->all(),
+                ];
+            });
+
+        return response()->json([
+            'items'     => $items,
+            'startable' => $this->startableFlows($request->user()),
+        ]);
+    }
+
     /** Everything the user has touched — items they created or moved — any status. */
     public function history(Request $request)
     {
@@ -66,10 +118,17 @@ class FlowItemController extends Controller
             'due_date'    => ['nullable', 'date'],
             'note'        => ['nullable', 'string', 'max:2000'],
             'assign_to'   => ['nullable', 'integer', 'exists:users,id'],
+            'client_id'   => ['nullable', 'integer', 'exists:clients,id'],
         ]);
 
         $flow = Flow::findOrFail($data['flow_id']);
         abort_unless($this->canStart($request->user(), $flow), 403, 'You cannot start items into this workflow.');
+
+        // Running a workflow against a client exposes that client, so it needs
+        // client visibility on top of permission to start the flow.
+        if (!empty($data['client_id'])) {
+            $this->authorize('view', \App\Models\Client::findOrFail($data['client_id']));
+        }
 
         try {
             $this->flow->createItem($flow, $data, $request->user());

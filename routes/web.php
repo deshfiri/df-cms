@@ -59,7 +59,11 @@ Route::middleware(['auth'])->group(function () {
     // Nested sub-resources under client
     Route::prefix('clients/{client}')->name('clients.')->group(function () {
 
-        // Workflow
+        // Workflow — the client's pipeline, driven by the flow engine.
+        Route::get('workflow', [FlowItemController::class, 'clientWorkflow'])->name('workflow');
+
+        // Legacy departmental pipeline. Still read by the client portal journey
+        // and the dashboard; being retired in favour of the route above.
         Route::get('timeline', [WorkflowController::class, 'timeline'])->name('timeline');
         Route::post('stages/toggle', [WorkflowController::class, 'toggleStage'])->name('stages.toggle');
         Route::post('stages/submit', [WorkflowController::class, 'submitStage'])->name('stages.submit');

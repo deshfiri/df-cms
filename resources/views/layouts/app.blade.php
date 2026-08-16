@@ -2094,15 +2094,10 @@
                     <i class="bi bi-download"></i><span class="sb-lbl">Export Data</span>
                 </a>
             @endcan
-            {{-- The per-client delivery pipeline (departmental stages on each client).
-                 Distinct from "Workflows" above, which is the standalone flow engine. --}}
-            @can('manage-workflow')
-                <a href="{{ route('workflow.index') }}"
-                    class="sb-link {{ request()->routeIs('workflow.*') ? 'active' : '' }}" title="Client Pipeline"
-                    data-bs-toggle="tooltip" data-bs-placement="right">
-                    <i class="bi bi-signpost-split"></i><span class="sb-lbl">Client Pipeline</span>
-                </a>
-            @endcan
+            {{-- The legacy departmental pipeline is retired from the menu: the flow
+                 engine under "Workflows" is now the client pipeline. Its routes stay
+                 registered because the client portal journey still renders from it —
+                 see DEPLOYMENT.md for the remaining migration steps. --}}
             @can('view file-manager')
                 <a href="{{ route('file-manager.index') }}"
                     class="sb-link {{ request()->routeIs('file-manager.*') ? 'active' : '' }}" title="File Manager"

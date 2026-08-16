@@ -15,7 +15,7 @@ class FlowItem extends Model
     public static array $priorities = ['Low', 'Normal', 'High', 'Urgent'];
 
     protected $fillable = [
-        'flow_id', 'current_stage_id', 'assigned_to', 'title', 'description', 'priority', 'due_date', 'status', 'created_by', 'completed_at',
+        'flow_id', 'client_id', 'current_stage_id', 'assigned_to', 'title', 'description', 'priority', 'due_date', 'status', 'created_by', 'completed_at',
     ];
 
     protected function casts(): array
@@ -26,6 +26,12 @@ class FlowItem extends Model
     public function flow(): BelongsTo
     {
         return $this->belongsTo(Flow::class);
+    }
+
+    /** The client this workflow is running for, if any. */
+    public function client(): BelongsTo
+    {
+        return $this->belongsTo(Client::class);
     }
 
     public function currentStage(): BelongsTo

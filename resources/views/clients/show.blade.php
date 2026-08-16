@@ -121,8 +121,8 @@
         <div class="tab-pane fade show active" id="tab-workflow">
             <div class="card section-card">
                 <div class="card-header py-3 d-flex align-items-center justify-content-between">
-                    <h6 class="fw-bold mb-0">Client Timeline</h6>
-                    <small class="text-muted">A step unlocks only after the previous step is approved</small>
+                    <h6 class="fw-bold mb-0">Workflow</h6>
+                    <small class="text-muted">Runs the stage sequence you built under Workflows</small>
                 </div>
                 <div class="card-body" id="workflowList">
                     <div class="text-center py-5">
@@ -779,6 +779,29 @@
 
 @push('styles')
     <style>
+        /* Client pipeline — one card per workflow running for this client. */
+        .cwf-card {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--surface);
+            padding: .8rem .9rem;
+            margin-bottom: .7rem;
+        }
+        .cwf-strip { display: flex; gap: .35rem; overflow-x: auto; padding-bottom: .2rem; }
+        .cwf-stage {
+            flex: 0 0 auto; display: flex; align-items: center; gap: .3rem;
+            border: 1px solid var(--border); border-radius: var(--radius);
+            background: var(--surface2); padding: .3rem .55rem;
+            font-size: .7rem; color: var(--text3); white-space: nowrap;
+        }
+        .cwf-stage i { font-size: .65rem; }
+        .cwf-stage.ss-done { opacity: .6; }
+        .cwf-stage.ss-done i { color: var(--primary); }
+        .cwf-stage.ss-now {
+            border-color: var(--primary); background: var(--surface);
+            color: var(--primary); font-weight: 600;
+        }
+
         .wf-timeline {
             position: relative;
             padding-left: 6px;
@@ -959,20 +982,104 @@
                 + '</div>';
         }
 
+        // The client's pipeline is now whatever workflow an admin built under
+        // Workflows, running for this client — not a fixed departmental list.
+        var startableFlows = [];
+
         function loadWorkflow() {
             $('#workflowList').html('<div class="text-center py-5"><div class="spinner-border spinner-border-sm" style="color:var(--primary)"></div></div>');
-            $.get(baseUrl + '/timeline')
+            $.get(baseUrl + '/workflow')
                 .done(function (res) {
-                    var items = res.stages || [];
-                    var html = '<div class="wf-timeline">';
-                    items.forEach(function (row) { html += wfStep(row); });
-                    html += '</div>';
-                    $('#workflowList').html(html);
+                    startableFlows = res.startable || [];
+                    renderClientWorkflow(res.items || []);
                 })
                 .fail(function () {
-                    $('#workflowList').html('<div class="text-center py-4 small c-red"><i class="bi bi-exclamation-circle me-1"></i>Failed to load workflow timeline.</div>');
+                    $('#workflowList').html('<div class="text-center py-4 small c-red"><i class="bi bi-exclamation-circle me-1"></i>Failed to load the workflow.</div>');
                 });
         }
+
+        function renderClientWorkflow(items) {
+            var html = '';
+
+            if (!items.length) {
+                html += '<div class="text-center py-4" style="color:var(--text3)">'
+                     +  '<i class="bi bi-diagram-2" style="font-size:2rem"></i>'
+                     +  '<div class="mt-2" style="font-size:.85rem">No workflow running for this client yet.</div>'
+                     +  '</div>';
+            }
+
+            items.forEach(function (item) {
+                var strip = '';
+                item.stages.forEach(function (s) {
+                    var cls = s.current ? 'ss-now' : (s.done ? 'ss-done' : '');
+                    var icon = s.done ? 'bi-check-circle-fill' : (s.current ? 'bi-record-circle' : 'bi-circle');
+                    strip += '<div class="cwf-stage ' + cls + '"><i class="bi ' + icon + '"></i>'
+                          +  '<span>' + esc(s.name) + '</span></div>';
+                });
+
+                var meta = [];
+                if (item.stage) meta.push('At <strong>' + esc(item.stage) + '</strong>');
+                meta.push(item.assignee ? 'with ' + esc(item.assignee) : 'unclaimed');
+                if (item.due_date) {
+                    meta.push(item.overdue
+                        ? '<span style="color:#dc3545;font-weight:600">Overdue ' + esc(item.due_date) + '</span>'
+                        : 'Due ' + esc(item.due_date));
+                }
+
+                html += '<div class="cwf-card">'
+                     +    '<div class="d-flex justify-content-between align-items-start gap-2 mb-2">'
+                     +      '<div class="min-w-0">'
+                     +        '<a href="' + item.url + '" class="fw-semibold text-decoration-none" style="color:var(--text);font-size:.88rem">' + esc(item.title) + '</a>'
+                     +        '<div style="font-size:.7rem;color:var(--text3)">' + esc(item.flow) + ' · ' + meta.join(' · ') + '</div>'
+                     +      '</div>'
+                     +      '<span class="spill ' + (item.status === 'Completed' ? 'spill-completed' : (item.status === 'Cancelled' ? 'spill-cancelled' : 'spill-running')) + '">' + esc(item.status) + '</span>'
+                     +    '</div>'
+                     +    '<div class="cwf-strip">' + strip + '</div>'
+                     +  '</div>';
+            });
+
+            if (startableFlows.length) {
+                html += '<div class="text-end mt-3">'
+                     +  '<button class="btn btn-sm btn-primary" id="startClientFlow"><i class="bi bi-plus-lg me-1"></i>Start a workflow</button>'
+                     +  '</div>';
+            }
+
+            $('#workflowList').html(html);
+        }
+
+        // Start one of the admin-built workflows for this client.
+        $(document).on('click', '#startClientFlow', function () {
+            var options = {};
+            startableFlows.forEach(function (f) { options[f.id] = f.name; });
+
+            Swal.fire({
+                title: 'Start a workflow',
+                input: 'select',
+                inputOptions: options,
+                inputPlaceholder: 'Choose a workflow',
+                html: '<input id="cwfTitle" class="form-control form-control-sm mt-2" placeholder="What is this for?" maxlength="200">',
+                showCancelButton: true,
+                confirmButtonText: 'Start',
+                preConfirm: function (flowId) {
+                    var title = ($('#cwfTitle').val() || '').trim();
+                    if (!flowId) { Swal.showValidationMessage('Pick a workflow.'); return false; }
+                    if (!title) { Swal.showValidationMessage('Give it a title.'); return false; }
+                    return { flow_id: flowId, title: title };
+                }
+            }).then(function (res) {
+                if (!res.isConfirmed) return;
+                $.post('/flow-items', {
+                    flow_id: res.value.flow_id,
+                    title: res.value.title,
+                    client_id: clientId
+                }).done(function () {
+                    Swal.fire({ icon: 'success', title: 'Workflow started', timer: 1200, showConfirmButton: false });
+                    loadWorkflow();
+                }).fail(function (x) {
+                    Swal.fire('Error', x.responseJSON?.message || 'Could not start the workflow.', 'error');
+                });
+            });
+        });
 
         // ── Activity ────────────────────────────────────────────────────────────────
         function loadActivity() {

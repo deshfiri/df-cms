@@ -43,6 +43,9 @@ class FlowService
         $item = DB::transaction(function () use ($flow, $first, $data, $creator, $target) {
             $item = FlowItem::create([
                 'flow_id'          => $flow->id,
+                // Attaching a client is what makes this workflow that client's
+                // pipeline rather than a standalone piece of internal work.
+                'client_id'        => $data['client_id'] ?? null,
                 'current_stage_id' => $first->id,
                 'assigned_to'      => $target?->id,
                 'title'            => $data['title'],
