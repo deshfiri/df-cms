@@ -195,6 +195,10 @@ class MeetingController extends Controller
 
     public function allMeetings(Request $request)
     {
+        // This list exposes client names across the whole org, so it follows
+        // client visibility rather than being open to any authenticated user.
+        abort_unless($request->user()->canAny(['view clients', 'manage clients']), 403);
+
         if ($request->ajax()) {
             $query = ClientMeeting::with(['client:id,client_name,dfid_number', 'createdBy:id,name', 'assignedUser:id,name'])
                 ->orderBy('scheduled_at', 'desc');

@@ -1983,10 +1983,12 @@
                 <i class="bi {{ $isStageUser ? 'bi-clipboard-check' : 'bi-speedometer2' }}"></i><span class="sb-lbl">{{ $isStageUser ? 'My Work' : 'Dashboard' }}</span>
             </a>
             @unless($isStageUser)
-            <a href="{{ route('clients.index') }}" class="sb-link {{ request()->routeIs('clients.*') ? 'active' : '' }}"
-                title="Clients" data-bs-toggle="tooltip" data-bs-placement="right">
-                <i class="bi bi-people"></i><span class="sb-lbl">Clients</span>
-            </a>
+            @can('view clients')
+                <a href="{{ route('clients.index') }}" class="sb-link {{ request()->routeIs('clients.*') ? 'active' : '' }}"
+                    title="Clients" data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-people"></i><span class="sb-lbl">Clients</span>
+                </a>
+            @endcan
             @endunless
             @can('view payments')
                 <a href="{{ route('payments.index') }}"
@@ -2005,11 +2007,14 @@
             @endcan
             @endunless
 
-            <a href="{{ route('meetings.all') }}"
-                class="sb-link {{ request()->routeIs('meetings.all') ? 'active' : '' }}" title="All Meetings"
-                data-bs-toggle="tooltip" data-bs-placement="right">
-                <i class="bi bi-calendar-event"></i><span class="sb-lbl">Meetings</span>
-            </a>
+            {{-- The all-meetings list exposes client names, so it follows client visibility. --}}
+            @can('view clients')
+                <a href="{{ route('meetings.all') }}"
+                    class="sb-link {{ request()->routeIs('meetings.all') ? 'active' : '' }}" title="All Meetings"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-calendar-event"></i><span class="sb-lbl">Meetings</span>
+                </a>
+            @endcan
             @can('manage-meetings')
                 <a href="{{ route('meetings.book') }}"
                     class="sb-link {{ request()->routeIs('meetings.book') ? 'active' : '' }}" title="Book a Meeting"
@@ -2044,10 +2049,12 @@
                 data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-inbox"></i><span class="sb-lbl">Requests</span>
             </a>
-            <a href="{{ route('reviews.index') }}" class="sb-link {{ request()->routeIs('reviews.*') ? 'active' : '' }}"
-                title="Reviews & Reports" data-bs-toggle="tooltip" data-bs-placement="right">
-                <i class="bi bi-chat-square-text"></i><span class="sb-lbl">Reviews & Reports</span>
-            </a>
+            @can('view reviews')
+                <a href="{{ route('reviews.index') }}" class="sb-link {{ request()->routeIs('reviews.*') ? 'active' : '' }}"
+                    title="Reviews & Reports" data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-chat-square-text"></i><span class="sb-lbl">Reviews & Reports</span>
+                </a>
+            @endcan
             @endunless
             @can('view performance')
                 <a href="{{ route('performance.index') }}"
@@ -2087,11 +2094,13 @@
                     <i class="bi bi-download"></i><span class="sb-lbl">Export Data</span>
                 </a>
             @endcan
+            {{-- The per-client delivery pipeline (departmental stages on each client).
+                 Distinct from "Workflows" above, which is the standalone flow engine. --}}
             @can('manage-workflow')
                 <a href="{{ route('workflow.index') }}"
-                    class="sb-link {{ request()->routeIs('workflow.*') ? 'active' : '' }}" title="Workflow Stages"
+                    class="sb-link {{ request()->routeIs('workflow.*') ? 'active' : '' }}" title="Client Pipeline"
                     data-bs-toggle="tooltip" data-bs-placement="right">
-                    <i class="bi bi-diagram-3"></i><span class="sb-lbl">Workflow Stages</span>
+                    <i class="bi bi-signpost-split"></i><span class="sb-lbl">Client Pipeline</span>
                 </a>
             @endcan
             @can('view file-manager')

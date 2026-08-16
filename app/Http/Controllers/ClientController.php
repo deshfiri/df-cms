@@ -26,6 +26,11 @@ class ClientController extends Controller
 
     public function index(Request $request)
     {
+        // The list itself needs client visibility. Without this the page and its
+        // DataTables ajax were reachable by any authenticated user, even roles
+        // holding no client permission at all.
+        $this->authorize('viewAny', Client::class);
+
         // Stage/department workers have no full client list — they work only from
         // their My Work queue and open clients from there. Block the list (page
         // and its DataTables ajax) even by direct URL.

@@ -1,5 +1,5 @@
 @extends('layouts.app')
-@section('title', 'Workflow Stages')
+@section('title', 'Client Pipeline')
 
 @php
     $departments = ['Sales', 'Document', 'Design', 'Website', 'Product', 'Marketing', 'Support', 'Admin'];
@@ -7,7 +7,10 @@
 
 @section('content')
 <div class="d-flex align-items-center justify-content-between mb-4">
-    <h4 class="page-title mb-0"><i class="bi bi-diagram-3 me-2"></i>Workflow Stages</h4>
+    <div>
+        <h4 class="page-title mb-0"><i class="bi bi-signpost-split me-2"></i>Client Pipeline</h4>
+        <div style="font-size:.7rem;color:var(--text3);margin-top:2px">Departmental stages every client moves through. For standalone task workflows, see Workflows.</div>
+    </div>
     @can('manage-workflow')
     <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addStageModal">
         <i class="bi bi-plus-lg me-1"></i>Add Stage
