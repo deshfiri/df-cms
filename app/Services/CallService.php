@@ -225,6 +225,10 @@ class CallService
             'iceServers'         => $servers,
             'iceTransportPolicy' => config('webrtc.force_relay') ? 'relay' : 'all',
             'ringTimeout'        => (int) config('webrtc.ring_timeout'),
+            // Without a relay, calls only work when the two peers can reach each
+            // other directly. The client uses this to explain a failure instead
+            // of just saying "call failed".
+            'hasTurn'            => (bool) $turnUrls,
         ];
     }
 

@@ -135,7 +135,8 @@ window.DfcpCall = (function () {
             pendingIce: [],        // candidates that arrived before the remote description
             remoteReady: false,    // setRemoteDescription() has resolved
             muted: false,
-            answeredAt: null, tick: null, ringTimer: null,
+            answeredAt: null, tick: null, ringTimer: null, connectTimer: null,
+            icePromise: null,      // resolves with the ICE config for THIS call
             ending: false,
         };
     }
@@ -189,6 +190,23 @@ window.DfcpCall = (function () {
         if (s && s.tick) { clearInterval(s.tick); s.tick = null; }
     }
 
+    /**
+     * Negotiation can stall without ever reaching 'failed' — a lost answer, a
+     * backgrounded tab that never sent its offer. Without this the UI sits on
+     * "Connecting…" forever and the call row stays open, marking both users
+     * busy long after they gave up.
+     */
+    function armConnectWatchdog() {
+        if (!s) return;
+        if (s.connectTimer) clearTimeout(s.connectTimer);
+
+        s.connectTimer = setTimeout(function () {
+            if (s && (!s.pc || s.pc.connectionState !== 'connected')) {
+                hangup('connect_timeout', iceFailureMessage());
+            }
+        }, 30000);
+    }
+
     // ── Transport ─────────────────────────────────────────────────────────
     function post(url, body) {
         return fetch(url, {
@@ -212,6 +230,10 @@ window.DfcpCall = (function () {
      * ICE servers are fetched per call, not cached for the session: TURN
      * credentials are short-lived by design, and a stale one fails exactly
      * when the network is hard enough to need a relay.
+     *
+     * Callers must await this before building a peer connection. Creating one
+     * while the fetch is still in flight yields a connection with no ICE
+     * servers at all — not even STUN — which then fails on anything but a LAN.
      */
     function loadIce() {
         return fetch('/calls/ice', { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
@@ -219,8 +241,23 @@ window.DfcpCall = (function () {
             .then(function (cfg) { iceConfig = cfg; return cfg; })
             .catch(function () {
                 // Never block a call on this; host candidates still work on a LAN.
-                return { iceServers: [], iceTransportPolicy: 'all' };
+                iceConfig = { iceServers: [], iceTransportPolicy: 'all', hasTurn: false };
+                return iceConfig;
             });
+    }
+
+    /** Explain an ICE failure instead of leaving the user with "Call failed". */
+    function iceFailureMessage() {
+        return (iceConfig && iceConfig.hasTurn)
+            ? 'Call failed'
+            : 'Call failed — no relay';
+    }
+
+    /** Peer connections are only ever built once the ICE config has arrived. */
+    function withIce(fn) {
+        var wait = (s && s.icePromise) ? s.icePromise : loadIce();
+
+        return wait.then(fn);
     }
 
     // ── Microphone ────────────────────────────────────────────────────────
@@ -278,13 +315,16 @@ window.DfcpCall = (function () {
             if (!s) return;
             if (pc.connectionState === 'connected') {
                 window.AppSound && window.AppSound.stopAllCallTones();
+                if (s.connectTimer) { clearTimeout(s.connectTimer); s.connectTimer = null; }
                 if (!s.answeredAt) startTimer();
             } else if (pc.connectionState === 'disconnected') {
                 status('Reconnecting…');
             } else if (pc.connectionState === 'failed') {
                 // ICE exhausted every candidate pair — almost always a NAT that
-                // needs TURN.
-                finish('Call failed', 'ice_failed');
+                // needs a relay. hangup(), not finish(): the server must record
+                // the outcome and release both users, otherwise the row stays
+                // "accepted" and they are both reported busy for hours.
+                hangup('ice_failed', iceFailureMessage());
             }
         };
 
@@ -361,7 +401,9 @@ window.DfcpCall = (function () {
             }, (timeout + 5) * 1000);
         });
 
-        loadIce();
+        // Kicked off immediately so the config is ready by the time the callee
+        // answers and negotiation starts.
+        s.icePromise = loadIce();
     }
 
     function onIncoming(e) {
@@ -377,7 +419,7 @@ window.DfcpCall = (function () {
 
         showIncoming(s.peerName);
         window.AppSound && window.AppSound.startRing();
-        loadIce();
+        s.icePromise = loadIce();
     }
 
     function acceptCall() {
@@ -386,6 +428,7 @@ window.DfcpCall = (function () {
         hideIncoming();
         showDock(s.peerName);
         status('Connecting…');
+        armConnectWatchdog();
 
         // Prompt for the mic inside the click, so the permission dialog is
         // attached to a user gesture.
@@ -427,11 +470,15 @@ window.DfcpCall = (function () {
         window.AppSound && window.AppSound.stopAllCallTones();
         status('Connecting…');
 
+        armConnectWatchdog();
+
         getMic().then(function (stream) {
             s.localStream = stream;
-            s.pc = createPeer();
-            attachMic(s.pc, stream);
-            return s.pc.createOffer();
+            return withIce(function () {
+                s.pc = createPeer();
+                attachMic(s.pc, stream);
+                return s.pc.createOffer();
+            });
         }).then(function (offer) {
             return s.pc.setLocalDescription(offer).then(function () {
                 return sendSignal('offer', { type: offer.type, sdp: offer.sdp });
@@ -448,12 +495,15 @@ window.DfcpCall = (function () {
         if (!s || e.call_uuid !== s.uuid) return;
 
         if (e.type === 'offer') {
-            // Callee side: build the peer only now, with the mic already granted.
-            if (!s.pc) {
-                s.pc = createPeer();
-                if (s.localStream) attachMic(s.pc, s.localStream);
-            }
-            applyRemote(e.payload)
+            // Callee side: build the peer only now, with the mic already granted
+            // and the ICE config guaranteed to have arrived.
+            withIce(function () {
+                if (!s.pc) {
+                    s.pc = createPeer();
+                    if (s.localStream) attachMic(s.pc, s.localStream);
+                }
+                return applyRemote(e.payload);
+            })
                 .then(function () { return s.pc.createAnswer(); })
                 .then(function (answer) {
                     return s.pc.setLocalDescription(answer).then(function () {
@@ -511,6 +561,7 @@ window.DfcpCall = (function () {
         if (!s) return;
 
         if (s.ringTimer) clearTimeout(s.ringTimer);
+        if (s.connectTimer) clearTimeout(s.connectTimer);
         stopTimer();
 
         if (s.localStream) {
