@@ -1949,6 +1949,32 @@
             }
         }
     </style>
+    {{-- ── Responsive safety net ──────────────────────────────────────
+         Most list pages render wide tables. Left alone these force the whole
+         page wider than the viewport on a phone, which breaks the layout
+         rather than just the table. These rules keep overflow inside the
+         element that caused it. --}}
+    <style>
+        /* DataTables builds its own wrapper, so scroll that. */
+        .dataTables_wrapper { overflow-x: auto; }
+        .table-responsive { -webkit-overflow-scrolling: touch; }
+
+        /* Long unbroken strings (URLs, tokens, filenames) are the other common
+           cause of a page that scrolls sideways. */
+        .card-body, .msg, .mmsg { overflow-wrap: anywhere; }
+
+        @media (max-width: 576px) {
+            .page-title { font-size: 1.05rem; }
+            /* Toolbars above tables are usually a flex row of buttons and
+               filters; let them wrap instead of overflowing. */
+            .card-header { flex-wrap: wrap; row-gap: .4rem; }
+            /* Modals get edge-to-edge instead of a cramped centred box. */
+            .modal-dialog { margin: .5rem; }
+            /* Stat tiles two-up rather than four-across-and-squashed. */
+            .q-tile .v { font-size: 1.25rem; }
+        }
+    </style>
+
     @stack('styles')
 </head>
 
@@ -3166,6 +3192,25 @@
         // Re-render charts when theme toggles
         document.getElementById('darkToggle').addEventListener('click', function () {
             if (window._charts) window._charts.forEach(function (c) { try { c.update(); } catch (e) { } });
+        });
+    </script>
+
+    <script>
+        // CSS cannot wrap an element, and 11 list pages render a bare <table>
+        // with nothing around it to scroll. Wrapping them here fixes every such
+        // page at once, including any added later.
+        //
+        // Runs on 'load' rather than DOMContentLoaded so DataTables has already
+        // built its own wrapper — those are skipped and handled by CSS instead.
+        window.addEventListener('load', function () {
+            document.querySelectorAll('table').forEach(function (table) {
+                if (table.closest('.table-responsive') || table.closest('.dataTables_wrapper')) return;
+
+                var wrap = document.createElement('div');
+                wrap.className = 'table-responsive';
+                table.parentNode.insertBefore(wrap, table);
+                wrap.appendChild(table);
+            });
         });
     </script>
 

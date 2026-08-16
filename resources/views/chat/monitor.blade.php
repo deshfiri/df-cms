@@ -18,6 +18,30 @@
     .mmsg.a { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text); }
     .mmsg.b { align-self: flex-end; background: rgba(var(--primary-rgb), .12); color: var(--text); }
     .mmsg-who { font-size: .64rem; font-weight: 700; opacity: .75; margin-bottom: 1px; }
+
+    /* Retracted: still readable here, but unmistakably marked. */
+    .mmsg.is-deleted { border: 1px dashed #dc3545; background: rgba(220, 53, 69, .07); }
+    .mmsg-deleted-tag {
+        display: inline-flex; align-items: center; gap: 3px; margin-left: .4rem;
+        background: #dc3545; color: #fff; border-radius: 999px;
+        font-size: .56rem; font-weight: 700; padding: 1px 6px; text-transform: uppercase;
+    }
+    .mmsg-img { display: block; max-width: 200px; max-height: 200px; border-radius: 8px; margin-top: .2rem; }
+    .mmsg-file {
+        display: inline-flex; align-items: center; gap: .35rem; margin-top: .2rem;
+        font-size: .75rem; text-decoration: none; color: var(--primary);
+    }
+    .mmsg-reacts { display: flex; gap: 4px; margin-top: 3px; font-size: .66rem; color: var(--text3); }
+
+    /* A fixed 340px sidebar beside a thread leaves nothing usable on a phone,
+       so stack them and let the list take a capped share of the height. */
+    @media (max-width: 768px) {
+        .mon-wrap { flex-direction: column; height: auto; min-height: 0; }
+        .mon-side { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
+        .mon-list { max-height: 32vh; }
+        .mon-msgs { min-height: 50vh; }
+        .mmsg { max-width: 92%; }
+    }
     .mmsg-meta { font-size: .62rem; opacity: .6; margin-top: 2px; text-align: right; }
     .mon-empty { flex: 1; display: grid; place-items: center; color: var(--text3); text-align: center; }
 </style>
@@ -89,7 +113,33 @@ $(function () {
     function appendMsg(m) {
         if (sideA === null) sideA = m.sender_id;
         const side = m.sender_id === sideA ? 'a' : 'b';
-        $('#monMsgs').append(`<div class="mmsg ${side}"><div class="mmsg-who">${esc(m.sender_name)}</div>${esc(m.body)}<div class="mmsg-meta">${timeOf(m.created_at)}</div></div>`);
+
+        // Retracted messages still show what was said — flagged, not hidden.
+        // Participants see only "this message was deleted"; monitoring exists
+        // precisely to see past that.
+        const deletedTag = m.deleted
+            ? '<span class="mmsg-deleted-tag" title="Deleted by the sender — visible to monitors only"><i class="bi bi-trash"></i> deleted</span>'
+            : '';
+
+        let attachment = '';
+        if (m.attachment) {
+            attachment = m.attachment.is_image
+                ? `<a href="${esc(m.attachment.url)}" target="_blank" rel="noopener"><img src="${esc(m.attachment.url)}" alt="" class="mmsg-img"></a>`
+                : `<a href="${esc(m.attachment.url)}" class="mmsg-file"><i class="bi bi-paperclip"></i> ${esc(m.attachment.name)} <span style="opacity:.7">${esc(m.attachment.size)}</span></a>`;
+        }
+
+        const reacts = (m.reactions || []).length
+            ? '<div class="mmsg-reacts">' + m.reactions.map(r => `<span>${esc(r.emoji)} ${r.count}</span>`).join('') + '</div>'
+            : '';
+
+        $('#monMsgs').append(
+            `<div class="mmsg ${side} ${m.deleted ? 'is-deleted' : ''}">
+                <div class="mmsg-who">${esc(m.sender_name)}${deletedTag}</div>
+                ${m.body ? esc(m.body) : ''}${attachment}
+                <div class="mmsg-meta">${timeOf(m.created_at)}</div>
+                ${reacts}
+            </div>`
+        );
     }
     function scrollBottom() { const el = document.getElementById('monMsgs'); el.scrollTop = el.scrollHeight; }
 

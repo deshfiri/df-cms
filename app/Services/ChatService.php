@@ -3,8 +3,10 @@
 namespace App\Services;
 
 use App\Events\MessageSent;
+use App\Events\MessageUpdated;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\MessageReaction;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -63,6 +65,66 @@ class ChatService
             'attachment_mime' => $file->getMimeType() ?: 'application/octet-stream',
             'attachment_size' => $file->getSize(),
         ];
+    }
+
+    /**
+     * Retract a message.
+     *
+     * The row and its content are kept — only the presentation changes for
+     * participants. Chat monitors are expected to see what was actually said,
+     * which is the whole reason this is a flag rather than a delete.
+     */
+    public function deleteMessage(Message $message, User $actor): Message
+    {
+        if ($message->isDeleted()) {
+            return $message;
+        }
+
+        $message->forceFill([
+            'deleted_at' => now(),
+            'deleted_by' => $actor->id,
+        ])->save();
+
+        $this->broadcastUpdate($message);
+
+        return $message;
+    }
+
+    /**
+     * Toggle one emoji from one person. Reacting with the same emoji twice
+     * removes it, which is what every chat client trains people to expect.
+     */
+    public function toggleReaction(Message $message, User $user, string $emoji): Message
+    {
+        $existing = MessageReaction::where('message_id', $message->id)
+            ->where('user_id', $user->id)
+            ->where('emoji', $emoji)
+            ->first();
+
+        if ($existing) {
+            $existing->delete();
+        } else {
+            MessageReaction::create([
+                'message_id' => $message->id,
+                'user_id'    => $user->id,
+                'emoji'      => $emoji,
+            ]);
+        }
+
+        $message->load('reactions');
+        $this->broadcastUpdate($message);
+
+        return $message;
+    }
+
+    /** Best-effort realtime push; the change is already persisted either way. */
+    private function broadcastUpdate(Message $message): void
+    {
+        try {
+            broadcast(new MessageUpdated($message));
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /** Mark the other participant's messages in a conversation as read for $user. */

@@ -69,6 +69,50 @@
     #chatDropZone.show { display: grid; }
     #chatDropZone i { font-size: 2rem; display: block; }
     #chatThread { position: relative; }
+
+    /* ── Message actions, reactions, deleted state ───────────────── */
+    .msg { position: relative; }
+    .msg-deleted { font-style: italic; opacity: .7; }
+    .msg-deleted.me, .msg-deleted.them { background: var(--surface2); color: var(--text3); border: 1px dashed var(--border); }
+
+    .msg-tools {
+        position: absolute; top: -10px; display: none; gap: 2px;
+        background: var(--surface); border: 1px solid var(--border);
+        border-radius: 999px; padding: 2px; box-shadow: var(--shadow-sm); z-index: 2;
+    }
+    .msg.them .msg-tools { right: -6px; }
+    .msg.me .msg-tools { left: -6px; }
+    /* Touch devices have no hover, so the tools stay visible there. */
+    @media (hover: hover) { .msg:hover .msg-tools { display: flex; } }
+    @media (hover: none) { .msg-tools { display: flex; } }
+
+    .msg-tool {
+        border: none; background: none; cursor: pointer; line-height: 1;
+        color: var(--text3); font-size: .72rem; padding: 3px 5px; border-radius: 50%;
+    }
+    .msg-tool:hover { color: var(--primary); background: var(--surface2); }
+
+    .msg-reacts { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+    .react-chip {
+        border: 1px solid var(--border); background: var(--surface);
+        color: var(--text2); border-radius: 999px; cursor: pointer;
+        font-size: .68rem; padding: 1px 6px; line-height: 1.4;
+    }
+    .react-chip.mine { border-color: var(--primary); color: var(--primary); background: rgba(var(--primary-rgb), .1); }
+
+    .react-picker {
+        position: absolute; bottom: 100%; margin-bottom: 4px; z-index: 6;
+        display: flex; gap: 2px; padding: 3px;
+        background: var(--surface); border: 1px solid var(--border);
+        border-radius: 999px; box-shadow: var(--shadow-md);
+    }
+    .msg.me .react-picker { right: 0; }
+    .msg.them .react-picker { left: 0; }
+    .react-picker button {
+        border: none; background: none; cursor: pointer;
+        font-size: .95rem; line-height: 1; padding: 3px 4px; border-radius: 50%;
+    }
+    .react-picker button:hover { background: var(--surface2); transform: scale(1.15); }
 </style>
 @endpush
 
@@ -280,14 +324,109 @@ $(function () {
                 </a>`;
     }
 
-    function appendMessage(m) {
+    const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+    function reactionsHtml(list) {
+        if (!list || !list.length) return '';
+        return '<div class="msg-reacts">' + list.map(r =>
+            `<button class="react-chip ${r.mine ? 'mine' : ''}" data-emoji="${esc(r.emoji)}">${esc(r.emoji)} ${r.count}</button>`
+        ).join('') + '</div>';
+    }
+
+    function messageHtml(m) {
         const mine = m.sender_id === ME;
-        const $empty = $('#msgList').find('.chat-empty');
-        if ($empty.length) $('#msgList').html('');
+
+        if (m.deleted) {
+            return `<div class="msg ${mine ? 'me' : 'them'} msg-deleted" data-id="${m.id}">
+                        <i class="bi bi-slash-circle me-1"></i>This message was deleted
+                        <div class="msg-meta">${timeOf(m.created_at)}</div>
+                    </div>`;
+        }
+
         // An image may be sent with no caption, so the body can be empty.
         const text = m.body ? esc(m.body) : '';
-        $('#msgList').append(`<div class="msg ${mine ? 'me' : 'them'}">${text}${attachmentHtml(m.attachment)}<div class="msg-meta">${timeOf(m.created_at)}</div></div>`);
+
+        return `<div class="msg ${mine ? 'me' : 'them'}" data-id="${m.id}">
+                    <div class="msg-tools">
+                        <button class="msg-tool react-open" title="React"><i class="bi bi-emoji-smile"></i></button>
+                        ${m.can_delete ? '<button class="msg-tool msg-del" title="Delete"><i class="bi bi-trash"></i></button>' : ''}
+                    </div>
+                    ${text}${attachmentHtml(m.attachment)}
+                    <div class="msg-meta">${timeOf(m.created_at)}</div>
+                    ${reactionsHtml(m.reactions)}
+                </div>`;
+    }
+
+    function appendMessage(m) {
+        const $empty = $('#msgList').find('.chat-empty');
+        if ($empty.length) $('#msgList').html('');
+        $('#msgList').append(messageHtml(m));
         scrollBottom();
+    }
+
+    // ── Delete ───────────────────────────────────────────────────────
+    $(document).on('click', '.msg-del', function () {
+        const $msg = $(this).closest('.msg');
+        Swal.fire({
+            title: 'Delete this message?',
+            text: 'The other person will see that a message was deleted.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Delete',
+            confirmButtonColor: '#dc3545',
+        }).then(res => {
+            if (!res.isConfirmed) return;
+            $.ajax({ url: '/chat/messages/' + $msg.data('id'), type: 'DELETE' })
+                .done(() => markDeleted($msg.data('id')))
+                .fail(x => Swal.fire('Error', x.responseJSON?.message || 'Could not delete it.', 'error'));
+        });
+    });
+
+    function markDeleted(id) {
+        $(`.msg[data-id="${id}"]`).each(function () {
+            const time = $(this).find('.msg-meta').text();
+            $(this).addClass('msg-deleted')
+                .html(`<i class="bi bi-slash-circle me-1"></i>This message was deleted<div class="msg-meta">${esc(time)}</div>`);
+        });
+    }
+
+    // ── Reactions ────────────────────────────────────────────────────
+    $(document).on('click', '.react-open', function (e) {
+        e.stopPropagation();
+        const $msg = $(this).closest('.msg');
+        $('.react-picker').remove();
+
+        const picker = $('<div class="react-picker"></div>');
+        REACTIONS.forEach(emoji => {
+            $('<button type="button"></button>').text(emoji)
+                .on('click', function (ev) {
+                    ev.stopPropagation();
+                    sendReaction($msg.data('id'), emoji);
+                    picker.remove();
+                })
+                .appendTo(picker);
+        });
+        $msg.append(picker);
+    });
+
+    // Clicking an existing chip toggles your own reaction off or on.
+    $(document).on('click', '.react-chip', function () {
+        sendReaction($(this).closest('.msg').data('id'), $(this).data('emoji'));
+    });
+
+    $(document).on('click', () => $('.react-picker').remove());
+
+    function sendReaction(id, emoji) {
+        $.post('/chat/messages/' + id + '/react', { emoji })
+            .done(r => paintReactions(id, r.reactions))
+            .fail(x => Swal.fire('Error', x.responseJSON?.message || 'Could not react.', 'error'));
+    }
+
+    function paintReactions(id, list) {
+        const $msg = $(`.msg[data-id="${id}"]`);
+        if (!$msg.length) return;
+        $msg.find('.msg-reacts').remove();
+        if (list && list.length) $msg.append(reactionsHtml(list));
     }
 
     // Open an image full size.
@@ -434,6 +573,12 @@ $(function () {
             appendMessage(e);
             // We're viewing this thread → mark read immediately and sync the badge.
             $.post('/chat/' + activeConvId + '/read').done(function (r) { updateNavBadge(r.unread_total); });
+        });
+        // A delete or reaction after the fact.
+        activeChannel.listen('.message.updated', function (e) {
+            if (!e) return;
+            if (e.deleted) { markDeleted(e.id); return; }
+            paintReactions(e.id, e.reactions);
         });
         activeChannel.listenForWhisper('typing', function (e) {
             if (!e || e.id === ME) return;

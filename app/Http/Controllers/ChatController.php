@@ -8,8 +8,10 @@ use App\Models\User;
 use App\Services\ChatService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Models\MessageReaction;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class ChatController extends Controller
 {
@@ -93,7 +95,7 @@ class ChatController extends Controller
         $this->chat->markRead($conversation, $me);
 
         $messages = $conversation->messages()
-            ->with('sender:id,name')
+            ->with(['sender:id,name', 'reactions'])
             ->orderByDesc('id')->limit(200)->get()
             ->sortBy('id')->values()
             ->map(fn(Message $m) => $this->messageResource($m));
@@ -175,16 +177,47 @@ class ChatController extends Controller
 
         $conversation->load(['userOne:id,name', 'userTwo:id,name']);
 
+        // asMonitor: a retracted message still shows what was actually said,
+        // flagged rather than hidden. That is the entire point of monitoring.
         $messages = $conversation->messages()
-            ->with('sender:id,name')
+            ->with(['sender:id,name', 'reactions'])
             ->orderByDesc('id')->limit(500)->get()
             ->sortBy('id')->values()
-            ->map(fn(Message $m) => $this->messageResource($m));
+            ->map(fn(Message $m) => $this->messageResource($m, asMonitor: true));
 
         return response()->json([
             'conversation_id' => $conversation->id,
             'participants' => [$conversation->userOne->name ?? '—', $conversation->userTwo->name ?? '—'],
             'messages' => $messages,
+        ]);
+    }
+
+    /** Retract one of your own messages. */
+    public function destroyMessage(Message $message): JsonResponse
+    {
+        abort_unless($message->sender_id === Auth::id(), 403, 'You can only delete your own messages.');
+
+        $this->chat->deleteMessage($message, Auth::user());
+
+        return response()->json(['success' => true]);
+    }
+
+    /** Toggle one emoji reaction on a message. */
+    public function react(Message $message, Request $request): JsonResponse
+    {
+        $conversation = $message->conversation;
+        abort_unless($conversation && $conversation->hasParticipant(Auth::id()), 403);
+        abort_if($message->isDeleted(), 422, 'You cannot react to a deleted message.');
+
+        $data = $request->validate([
+            'emoji' => ['required', 'string', Rule::in(MessageReaction::ALLOWED)],
+        ]);
+
+        $message = $this->chat->toggleReaction($message, Auth::user(), $data['emoji']);
+
+        return response()->json([
+            'success'   => true,
+            'reactions' => $message->reactionSummary(Auth::id()),
         ]);
     }
 
@@ -199,8 +232,12 @@ class ChatController extends Controller
     {
         $conversation = $message->conversation;
 
-        abort_unless($conversation && $conversation->hasParticipant(Auth::id()), 403);
+        $isMonitor = Auth::user()->can('monitor chats');
+
+        abort_unless($isMonitor || ($conversation && $conversation->hasParticipant(Auth::id())), 403);
         abort_unless($message->hasAttachment(), 404);
+        // A retracted attachment stays reachable to monitors and nobody else.
+        abort_if($message->isDeleted() && !$isMonitor, 404);
         abort_unless(Storage::disk('local')->exists($message->attachment_path), 404);
 
         if ($message->attachmentIsImage()) {
@@ -213,15 +250,25 @@ class ChatController extends Controller
         return Storage::disk('local')->download($message->attachment_path, $message->attachment_name);
     }
 
-    private function messageResource(Message $m): array
+    /**
+     * @param  bool  $asMonitor  Monitors see what was actually said, including
+     *                           the content of retracted messages. Participants
+     *                           get the redacted view.
+     */
+    private function messageResource(Message $m, bool $asMonitor = false): array
     {
+        $redact = $m->isDeleted() && !$asMonitor;
+
         return [
             'id' => $m->id,
             'sender_id' => $m->sender_id,
             'sender_name' => $m->sender->name ?? '—',
-            'body' => $m->body,
+            'body' => $redact ? null : $m->body,
             'created_at' => $m->created_at->toIso8601String(),
-            'attachment' => $m->hasAttachment() ? [
+            'deleted' => $m->isDeleted(),
+            'can_delete' => !$m->isDeleted() && $m->sender_id === Auth::id(),
+            'reactions' => $m->relationLoaded('reactions') ? $m->reactionSummary(Auth::id()) : [],
+            'attachment' => (!$redact && $m->hasAttachment()) ? [
                 'name'     => $m->attachment_name,
                 'size'     => $m->attachmentSizeForHumans(),
                 'is_image' => $m->attachmentIsImage(),

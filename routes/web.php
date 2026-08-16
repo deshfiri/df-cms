@@ -283,6 +283,9 @@ Route::middleware(['auth'])->group(function () {
         Route::get('with/{user}', [ChatController::class, 'open'])->name('open');
         Route::post('with/{user}', [ChatController::class, 'send'])->name('send');
         Route::post('{conversation}/read', [ChatController::class, 'read'])->name('read');
+
+        Route::delete('messages/{message}', [ChatController::class, 'destroyMessage'])->name('messages.destroy');
+        Route::post('messages/{message}/react', [ChatController::class, 'react'])->name('messages.react');
     });
 
     // ── 1:1 audio calls (Reverb signalling + peer-to-peer WebRTC audio) ──
