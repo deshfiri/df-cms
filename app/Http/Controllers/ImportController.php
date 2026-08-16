@@ -13,7 +13,17 @@ class ImportController extends Controller
 {
     public function __construct(
         private readonly ImportService $importService,
-    ) {}
+    ) {
+        // Nothing in this controller was gated — not the page, not preview,
+        // and not store()/rollback(), which write and revert client records in
+        // bulk. Guarding the whole controller rather than method-by-method so a
+        // new action cannot be added and quietly left open.
+        $this->middleware(function ($request, $next) {
+            abort_unless($request->user()->can('import clients'), 403);
+
+            return $next($request);
+        });
+    }
 
     public function index()
     {
