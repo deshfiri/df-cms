@@ -15,12 +15,35 @@ use Illuminate\Support\Str;
 class ChatService
 {
     /**
+     * Container formats MediaRecorder actually produces. WebM and Ogg are the
+     * ambiguous ones — an audio-only WebM is routinely sniffed as video/webm,
+     * so the guessed mime alone cannot say "this is a voice note".
+     */
+    private const VOICE_MIMES = [
+        'audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/aac',
+        'audio/wav', 'audio/x-wav', 'video/webm', 'video/ogg', 'application/ogg',
+    ];
+
+    /**
      * @param  UploadedFile|null  $file  Optional attachment; an image may be
      *                                   sent with no accompanying text.
+     * @param  int|null  $voiceDuration  Seconds, for a recorded voice note. Only
+     *                                   honoured when the upload really is audio,
+     *                                   so a mislabelled file just renders as a
+     *                                   normal file chip instead of a dead player.
      */
-    public function sendMessage(Conversation $conversation, User $sender, ?string $body, ?UploadedFile $file = null): Message
-    {
+    public function sendMessage(
+        Conversation $conversation,
+        User $sender,
+        ?string $body,
+        ?UploadedFile $file = null,
+        ?int $voiceDuration = null,
+    ): Message {
         $attachment = $file ? $this->storeAttachment($conversation, $file) : [];
+
+        if ($attachment && $voiceDuration && in_array($attachment['attachment_mime'], self::VOICE_MIMES, true)) {
+            $attachment['attachment_duration'] = $voiceDuration;
+        }
 
         $message = DB::transaction(function () use ($conversation, $sender, $body, $attachment) {
             $message = $conversation->messages()->create([

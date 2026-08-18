@@ -53,7 +53,11 @@ class ChatController extends Controller
             // rather than a blank row in the conversation list.
             $preview = $last?->body;
             if ($last && !$preview && $last->hasAttachment()) {
-                $preview = $last->attachmentIsImage() ? '📷 Photo' : '📎 ' . $last->attachment_name;
+                $preview = match (true) {
+                    $last->attachmentIsImage() => '📷 Photo',
+                    $last->attachmentIsVoice() => '🎤 Voice message (' . $last->formattedAttachmentDuration() . ')',
+                    default                    => '📎 ' . $last->attachment_name,
+                };
             }
 
             return [
@@ -129,10 +133,19 @@ class ChatController extends Controller
         $data = $request->validate([
             'body' => ['nullable', 'string', 'max:5000', 'required_without:file'],
             'file' => ['nullable', 'file', 'max:20480', 'required_without:body'],
+            // Sent only by the recorder. Capped at 10 minutes: a voice note is a
+            // message, and anything longer belongs in a call.
+            'duration' => ['nullable', 'integer', 'min:1', 'max:600'],
         ]);
 
         $conversation = Conversation::between($me->id, $user->id);
-        $message = $this->chat->sendMessage($conversation, $me, $data['body'] ?? null, $request->file('file'));
+        $message = $this->chat->sendMessage(
+            $conversation,
+            $me,
+            $data['body'] ?? null,
+            $request->file('file'),
+            isset($data['duration']) ? (int) $data['duration'] : null,
+        );
 
         return response()->json([
             'success' => true,
@@ -247,6 +260,16 @@ class ChatController extends Controller
             ]);
         }
 
+        // A voice note has to be inline for <audio> to play it. Safe for the
+        // same reason an image is: the mime was confirmed as audio before the
+        // message was ever marked as a recording.
+        if ($message->attachmentIsVoice()) {
+            return Storage::disk('local')->response($message->attachment_path, $message->attachment_name, [
+                'Content-Type'            => $message->attachment_mime,
+                'Content-Security-Policy' => "default-src 'none'; media-src 'self'",
+            ]);
+        }
+
         return Storage::disk('local')->download($message->attachment_path, $message->attachment_name);
     }
 
@@ -272,6 +295,8 @@ class ChatController extends Controller
                 'name'     => $m->attachment_name,
                 'size'     => $m->attachmentSizeForHumans(),
                 'is_image' => $m->attachmentIsImage(),
+                'is_voice' => $m->attachmentIsVoice(),
+                'duration' => $m->attachmentIsVoice() ? $m->formattedAttachmentDuration() : null,
                 'url'      => route('chat.attachment', $m),
             ] : null,
         ];

@@ -155,6 +155,105 @@ class ChatAttachmentTest extends TestCase
         $this->assertSame('📷 Photo', $preview);
     }
 
+    // ── Voice messages ───────────────────────────────────────────────────
+
+    public function test_a_recorded_voice_message_keeps_its_duration(): void
+    {
+        $me    = $this->user();
+        $other = $this->user();
+
+        $response = $this->actingAs($me)
+            ->post(route('chat.send', $other), [
+                'file'     => UploadedFile::fake()->create('voice-message-1.webm', 40, 'audio/webm'),
+                'duration' => 7,
+            ])
+            ->assertOk();
+
+        $this->assertTrue($response->json('message.attachment.is_voice'));
+        $this->assertFalse($response->json('message.attachment.is_image'));
+        $this->assertSame('0:07', $response->json('message.attachment.duration'));
+        $this->assertSame(7, Message::firstOrFail()->attachment_duration);
+    }
+
+    public function test_an_audio_only_webm_sniffed_as_video_is_still_a_voice_message(): void
+    {
+        // Chrome's MediaRecorder output is routinely detected as video/webm even
+        // with no video track, so this must not fall through to a file chip.
+        $response = $this->actingAs($this->user())
+            ->post(route('chat.send', $this->user()), [
+                'file'     => UploadedFile::fake()->create('voice-message-2.webm', 30, 'video/webm'),
+                'duration' => 12,
+            ])
+            ->assertOk();
+
+        $this->assertTrue($response->json('message.attachment.is_voice'));
+        $this->assertSame('0:12', $response->json('message.attachment.duration'));
+    }
+
+    public function test_a_duration_claimed_for_a_non_audio_upload_is_ignored(): void
+    {
+        $response = $this->actingAs($this->user())
+            ->post(route('chat.send', $this->user()), [
+                'file'     => UploadedFile::fake()->create('not-really.pdf', 10, 'application/pdf'),
+                'duration' => 30,
+            ])
+            ->assertOk();
+
+        // Rendering as a dead audio player would be worse than a file chip.
+        $this->assertFalse($response->json('message.attachment.is_voice'));
+        $this->assertNull($response->json('message.attachment.duration'));
+        $this->assertNull(Message::firstOrFail()->attachment_duration);
+    }
+
+    public function test_an_implausible_duration_is_rejected(): void
+    {
+        foreach ([0, 601] as $seconds) {
+            $this->actingAs($this->user())
+                ->postJson(route('chat.send', $this->user()), [
+                    'file'     => UploadedFile::fake()->create('voice.webm', 10, 'audio/webm'),
+                    'duration' => $seconds,
+                ])
+                ->assertStatus(422);
+        }
+
+        $this->assertDatabaseCount('messages', 0);
+    }
+
+    public function test_a_voice_message_is_served_inline_so_it_can_be_played(): void
+    {
+        $me    = $this->user();
+        $other = $this->user();
+
+        $this->actingAs($me)->post(route('chat.send', $other), [
+            'file'     => UploadedFile::fake()->create('voice.webm', 20, 'audio/webm'),
+            'duration' => 4,
+        ])->assertOk();
+
+        $response = $this->actingAs($other)
+            ->get(route('chat.attachment', Message::firstOrFail()))
+            ->assertOk();
+
+        $this->assertSame('audio/webm', $response->headers->get('Content-Type'));
+        $this->assertStringStartsWith('inline', (string) $response->headers->get('Content-Disposition'));
+    }
+
+    public function test_the_conversation_list_describes_a_voice_message(): void
+    {
+        $me    = $this->user();
+        $other = $this->user();
+
+        $this->actingAs($other)->post(route('chat.send', $me), [
+            'file'     => UploadedFile::fake()->create('voice.webm', 15, 'audio/webm'),
+            'duration' => 65,
+        ])->assertOk();
+
+        $preview = $this->actingAs($me)
+            ->getJson(route('chat.conversations'))
+            ->json('conversations.0.last_body');
+
+        $this->assertSame('🎤 Voice message (1:05)', $preview);
+    }
+
     public function test_attachments_are_stored_under_their_conversation(): void
     {
         $me    = $this->user();

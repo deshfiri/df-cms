@@ -85,7 +85,7 @@ class CallController extends Controller
         return response()->json(['success' => true]);
     }
 
-    /** Recent calls for the signed-in user. */
+    /** Recent calls for the signed-in user, in both directions. */
     public function history(Request $request): JsonResponse
     {
         $me = $request->user()->id;
@@ -96,16 +96,41 @@ class CallController extends Controller
             ->latest('started_at')
             ->limit(50)
             ->get()
-            ->map(fn (Call $call) => $this->resource($call) + [
-                'direction'  => $call->caller_id === $me ? 'outgoing' : 'incoming',
-                'other_name' => $call->caller_id === $me
-                    ? ($call->callee->name ?? '—')
-                    : ($call->caller->name ?? '—'),
-                'duration'   => $call->formattedDuration(),
-                'started_at' => $call->started_at?->diffForHumans(),
-            ]);
+            ->map(function (Call $call) use ($me) {
+                $outgoing = $call->caller_id === $me;
 
-        return response()->json(['calls' => $calls]);
+                return $this->resource($call) + [
+                    'direction'      => $outgoing ? 'outgoing' : 'incoming',
+                    'other_user_id'  => $call->otherParticipantId($me),
+                    'other_name'     => $outgoing
+                        ? ($call->callee->name ?? '—')
+                        : ($call->caller->name ?? '—'),
+                    'outcome'        => $call->outcomeFor($me),
+                    'missed'         => $call->wasMissedBy($me),
+                    // Answered calls are the only ones a duration means anything for.
+                    'duration'       => $call->answered_at ? $call->formattedDuration() : null,
+                    'started_at'     => $call->started_at?->diffForHumans(),
+                    'started_exact'  => $call->started_at?->format('d M Y, h:i A'),
+                ];
+            });
+
+        return response()->json([
+            'calls'         => $calls,
+            'missed_unseen' => Call::query()->missedUnseenFor($me)->count(),
+        ]);
+    }
+
+    /**
+     * Acknowledge missed calls — called when the user opens their call log.
+     * Only ever stamps rows where this user was the one who was rung.
+     */
+    public function markHistorySeen(Request $request): JsonResponse
+    {
+        Call::query()
+            ->missedUnseenFor($request->user()->id)
+            ->update(['callee_seen_at' => now()]);
+
+        return response()->json(['success' => true, 'missed_unseen' => 0]);
     }
 
     private function run(callable $action): JsonResponse

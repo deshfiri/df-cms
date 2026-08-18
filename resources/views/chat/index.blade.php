@@ -117,6 +117,52 @@
         transition: transform .12s ease;
     }
     .react-picker button:hover { background: var(--surface2); transform: scale(1.3); }
+
+    /* ── Sidebar tabs: conversations vs. call log ─────────────────── */
+    .chat-tabs { display: flex; gap: .3rem; margin-bottom: .55rem; }
+    .chat-tab {
+        flex: 1; cursor: pointer; border: 1px solid var(--border);
+        background: var(--surface); color: var(--text2);
+        font-size: .76rem; font-weight: 600; padding: .3rem .5rem;
+        border-radius: var(--radius);
+        display: inline-flex; align-items: center; justify-content: center; gap: .35rem;
+    }
+    .chat-tab.active { background: rgba(var(--primary-rgb), .12); border-color: var(--primary); color: var(--primary); }
+    .chat-tab .chat-unread { background: #dc3545; }
+
+    /* ── Call log ─────────────────────────────────────────────────── */
+    .call-item { display: flex; align-items: center; gap: .6rem; padding: .6rem .9rem; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .call-item:hover { background: var(--surface2); }
+    .call-icon {
+        width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+        display: grid; place-items: center; font-size: .78rem;
+        background: var(--surface2); color: var(--text2);
+    }
+    .call-icon.missed { background: rgba(220, 53, 69, .12); color: #dc3545; }
+    .call-body { flex: 1; min-width: 0; }
+    .call-name { font-size: .84rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .call-name.missed { color: #dc3545; }
+    .call-meta { font-size: .72rem; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .call-time { font-size: .66rem; color: var(--text3); flex-shrink: 0; align-self: flex-start; padding-top: 2px; }
+
+    /* ── Voice messages ───────────────────────────────────────────── */
+    .msg-voice { display: flex; align-items: center; gap: .45rem; margin-top: .2rem; }
+    .msg-voice audio { height: 34px; width: 210px; max-width: 100%; }
+    .msg-voice-len { font-size: .64rem; opacity: .75; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+    /* The dark control strip Chrome paints is unreadable on the sent bubble. */
+    .msg.me .msg-voice audio { filter: invert(1) hue-rotate(180deg); }
+
+    /* Recording bar, shown in place of the input row while the mic is live */
+    .chat-record-row {
+        padding: .6rem .8rem; border-top: 1px solid var(--border);
+        display: flex; align-items: center; gap: .6rem; background: var(--surface);
+    }
+    .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #dc3545; flex-shrink: 0; animation: recPulse 1.1s ease-in-out infinite; }
+    @keyframes recPulse { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+    @media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
+    #recTime { font-size: .84rem; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+    .rec-hint { flex: 1; font-size: .74rem; color: var(--text3); }
+    #msgMic.is-recording { background: #dc3545 !important; border-color: #dc3545 !important; color: #fff !important; }
 </style>
 @endpush
 
@@ -131,11 +177,21 @@
 <div class="chat-wrap" id="chatWrap">
     <div class="chat-sidebar">
         <div class="chat-side-head">
+            <div class="chat-tabs">
+                <button type="button" class="chat-tab active" data-tab="chats"><i class="bi bi-chat-dots"></i>Chats</button>
+                <button type="button" class="chat-tab" data-tab="calls">
+                    <i class="bi bi-telephone"></i>Calls
+                    <span class="chat-unread d-none" id="missedBadge"></span>
+                </button>
+            </div>
             <input type="text" id="chatSearch" class="form-control form-control-sm chat-search" placeholder="Search people to chat…" autocomplete="off">
         </div>
         <div class="chat-list" id="chatList">
             <div class="text-center py-4 small" style="color:var(--text3)">Loading…</div>
         </div>
+        {{-- Call log: every call in either direction, including the ones nobody
+             answered. Hidden until the Calls tab is picked. --}}
+        <div class="chat-list d-none" id="callList"></div>
     </div>
 
     <div class="chat-main">
@@ -184,7 +240,24 @@
                     <i class="bi bi-paperclip"></i>
                 </button>
                 <input type="text" id="msgInput" class="form-control form-control-sm" placeholder="Type a message…" autocomplete="off" maxlength="5000">
+                <button class="btn btn-sm" id="msgMic" title="Record a voice message"
+                    style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">
+                    <i class="bi bi-mic-fill"></i>
+                </button>
                 <button class="btn btn-sm btn-primary" id="msgSend"><i class="bi bi-send"></i></button>
+            </div>
+
+            {{-- Replaces the input row while recording, so there is no way to
+                 half-send a message with a live mic still running. --}}
+            <div class="chat-record-row d-none" id="recordRow">
+                <span class="rec-dot"></span>
+                <span id="recTime">0:00</span>
+                <span class="rec-hint">Recording — tap send when you're done.</span>
+                <button class="btn btn-sm" id="recCancel" title="Discard recording"
+                    style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">
+                    <i class="bi bi-trash"></i>
+                </button>
+                <button class="btn btn-sm btn-primary" id="recSend" title="Send voice message"><i class="bi bi-send"></i></button>
             </div>
 
             {{-- Drop target overlay, shown only while dragging a file over the thread --}}
@@ -237,6 +310,85 @@ $(function () {
         });
         $('#chatList').html(html);
     }
+
+    // ── Call log ─────────────────────────────────────────────────────
+    // A missed call used to leave no trace anywhere in the UI: it was recorded
+    // in `calls` and never shown. This is the view of that table.
+    const CALL_HISTORY_URL = '{{ route('calls.history') }}';
+    const CALL_SEEN_URL    = '{{ route('calls.history.seen') }}';
+
+    function setMissedBadge(n) {
+        const badge = $('#missedBadge');
+        if (n > 0) { badge.text(n).removeClass('d-none'); }
+        else { badge.text('').addClass('d-none'); }
+    }
+
+    function loadCalls(render) {
+        return $.get(CALL_HISTORY_URL).done(function (r) {
+            setMissedBadge(r.missed_unseen);
+            if (render !== false) renderCalls(r.calls);
+        });
+    }
+
+    function renderCalls(list) {
+        if (!list || !list.length) {
+            $('#callList').html('<div class="text-center py-4 small" style="color:var(--text3)">No calls yet.</div>');
+            return;
+        }
+
+        let html = '';
+        list.forEach(c => {
+            // A missed call is worth spotting at a glance; everything else is
+            // just a log line.
+            const icon = c.missed
+                ? 'bi-telephone-x'
+                : (c.direction === 'incoming' ? 'bi-telephone-inbound' : 'bi-telephone-outbound');
+            const meta = c.duration ? `${esc(c.outcome)} · ${esc(c.duration)}` : esc(c.outcome);
+
+            html += `<div class="call-item" data-user="${c.other_user_id}" data-name="${esc(c.other_name)}" title="${esc(c.started_exact || '')}">
+                <div class="call-icon ${c.missed ? 'missed' : ''}"><i class="bi ${icon}"></i></div>
+                <div class="call-body">
+                    <div class="call-name ${c.missed ? 'missed' : ''}">${esc(c.other_name)}</div>
+                    <div class="call-meta">${meta}</div>
+                </div>
+                <div class="call-time">${esc(c.started_at || '')}</div>
+            </div>`;
+        });
+        $('#callList').html(html);
+    }
+
+    $(document).on('click', '.chat-tab', function () {
+        const tab = $(this).data('tab');
+        $('.chat-tab').removeClass('active');
+        $(this).addClass('active');
+
+        const onCalls = tab === 'calls';
+        $('#chatList').toggleClass('d-none', onCalls);
+        $('#callList').toggleClass('d-none', !onCalls);
+        // The search box starts conversations; it has nothing to do with the log.
+        $('#chatSearch').toggleClass('d-none', onCalls);
+
+        if (!onCalls) { loadConversations(); return; }
+
+        $('#callList').html('<div class="text-center py-4 small" style="color:var(--text3)">Loading…</div>');
+        loadCalls().done(function () {
+            // Opening the log is the acknowledgement — clear the badge, but leave
+            // the rows styled as missed so the history still reads correctly.
+            $.post(CALL_SEEN_URL).done(() => setMissedBadge(0));
+        });
+    });
+
+    // Open the conversation with whoever the call was with.
+    $(document).on('click', '.call-item', function () {
+        openChat($(this).data('user'), $(this).data('name'));
+    });
+
+    // The call panel lives in the layout and owns the call lifecycle; it tells
+    // us when a call settles so the log does not go stale behind the user.
+    window.addEventListener('dfcp:call-finished', function () {
+        const onCalls = $('.chat-tab[data-tab="calls"]').hasClass('active');
+        loadCalls(onCalls);
+    });
 
     // ── People search (start new chat) ───────────────────────────────
     $('#chatSearch').on('input', function () {
@@ -317,6 +469,15 @@ $(function () {
 
         if (a.is_image) {
             return `<img src="${esc(a.url)}" alt="${esc(a.name)}" class="msg-img" data-full="${esc(a.url)}">`;
+        }
+
+        // The length comes from the server: a MediaRecorder clip carries no
+        // duration in its header, so the player would otherwise show "Infinity".
+        if (a.is_voice) {
+            return `<div class="msg-voice">
+                        <audio controls preload="none" src="${esc(a.url)}"></audio>
+                        <span class="msg-voice-len">${esc(a.duration || '')}</span>
+                    </div>`;
         }
 
         return `<a href="${esc(a.url)}" class="msg-file">
@@ -583,6 +744,155 @@ $(function () {
         });
     }
     $('#msgSend').on('click', send);
+
+    // ── Voice messages ───────────────────────────────────────────────
+    // Recorded with MediaRecorder and sent through the same attachment
+    // endpoint as any other file; the duration rides alongside it.
+    let recorder = null, recChunks = [], recStartedAt = 0, recTicker = null, recStream = null, recDiscard = false;
+    // Whoever was on screen when recording began. Switching threads mid-clip
+    // must not redirect the recording to a different person.
+    let recTarget = null;
+    const REC_MAX_SECONDS = 600;   // server rejects anything longer
+
+    function recSeconds() {
+        return Math.round((Date.now() - recStartedAt) / 1000);
+    }
+
+    function recClock(s) {
+        return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }
+
+    /** Pick a container this browser can actually produce. */
+    function recMime() {
+        const options = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+        for (const m of options) {
+            if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+        }
+        return '';   // let the browser choose
+    }
+
+    function recExtension(mime) {
+        if (mime.indexOf('mp4') !== -1) return 'm4a';
+        if (mime.indexOf('ogg') !== -1) return 'ogg';
+        return 'webm';
+    }
+
+    function micProblem(err) {
+        const name = (err && err.name) || '';
+        if (name === 'NotAllowedError' || name === 'SecurityError') return 'Your browser blocked microphone access. Allow the microphone for this site, then try again.';
+        if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No microphone was detected on this device.';
+        if (name === 'NotReadableError') return 'Your microphone is already in use by another application.';
+        // getUserMedia is unavailable on a plain http:// origin other than
+        // localhost — worth saying outright rather than "recording failed".
+        if (name === 'Unsupported') return 'Recording needs a secure connection. Open the app over https, or on localhost.';
+        return 'Microphone permission is required to record a voice message.';
+    }
+
+    function showRecordUI(on) {
+        $('#recordRow').toggleClass('d-none', !on);
+        $('.chat-input-row').toggleClass('d-none', on);
+        $('#msgMic').toggleClass('is-recording', on);
+    }
+
+    function startRecording() {
+        if (!activeUserId || recorder) return;
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+            Swal.fire('Microphone', micProblem({ name: 'Unsupported' }), 'warning');
+            return;
+        }
+
+        // A live call already owns the microphone; grabbing it here would cut
+        // the call's audio on some platforms.
+        if (window.DfcpCall && window.DfcpCall.isActive()) {
+            Swal.fire('Microphone', 'You are on a call — the microphone is already in use.', 'warning');
+            return;
+        }
+
+        navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then(function (stream) {
+            const mime = recMime();
+            recStream = stream;
+            recChunks = [];
+            recDiscard = false;
+            recTarget = activeUserId;
+            recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+
+            recorder.ondataavailable = e => { if (e.data && e.data.size) recChunks.push(e.data); };
+            recorder.onstop = finishRecording;
+            recorder.start();
+
+            recStartedAt = Date.now();
+            $('#recTime').text('0:00');
+            showRecordUI(true);
+
+            recTicker = setInterval(function () {
+                const s = recSeconds();
+                $('#recTime').text(recClock(s));
+                if (s >= REC_MAX_SECONDS) stopRecording(false);   // cap, then send
+            }, 250);
+        }).catch(function (err) {
+            Swal.fire('Microphone', micProblem(err), 'error');
+        });
+    }
+
+    function stopRecording(discard) {
+        if (!recorder) return;
+        recDiscard = !!discard;
+        clearInterval(recTicker);
+        recTicker = null;
+        try { recorder.stop(); } catch (e) { releaseMic(); }
+        showRecordUI(false);
+    }
+
+    function releaseMic() {
+        if (recStream) recStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
+        recStream = null;
+        recorder = null;
+        recChunks = [];
+    }
+
+    function finishRecording() {
+        const seconds = Math.min(REC_MAX_SECONDS, recSeconds());
+        const type = (recorder && recorder.mimeType) || 'audio/webm';
+        const blob = recChunks.length ? new Blob(recChunks, { type }) : null;
+        const discard = recDiscard;
+
+        releaseMic();
+
+        if (discard || !blob || !blob.size) return;
+        if (seconds < 1) {
+            Swal.fire({ toast: true, position: 'bottom-end', icon: 'info', title: 'Too short to send', showConfirmButton: false, timer: 1800 });
+            return;
+        }
+
+        sendVoice(blob, seconds, type);
+    }
+
+    function sendVoice(blob, seconds, type) {
+        const form = new FormData();
+        form.append('file', blob, 'voice-message-' + Date.now() + '.' + recExtension(type));
+        form.append('duration', seconds);
+
+        const target = recTarget || activeUserId;
+
+        $.ajax({
+            url: '/chat/with/' + target,
+            type: 'POST',
+            data: form,
+            processData: false,
+            contentType: false,
+        }).done(function (r) {
+            // The thread may have been switched while the upload was in flight.
+            if (target === activeUserId) appendMessage(r.message);
+            loadConversations();
+        }).fail(function (x) {
+            Swal.fire('Error', x.responseJSON?.message || 'Voice message failed to send', 'error');
+        });
+    }
+
+    $('#msgMic').on('click', startRecording);
+    $('#recSend').on('click', function () { stopRecording(false); });
+    $('#recCancel').on('click', function () { stopRecording(true); });
     $('#msgInput').on('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); send(); return; }
         if (activeChannel) { activeChannel.whisper('typing', { id: ME }); }
@@ -640,6 +950,8 @@ $(function () {
     document.addEventListener('chat-message', function () { loadConversations(); });
 
     loadConversations();
+    // Badge only — the log itself is rendered when the tab is opened.
+    loadCalls(false);
 });
 </script>
 @endpush

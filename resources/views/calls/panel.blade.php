@@ -576,6 +576,15 @@ window.DfcpCall = (function () {
         stopTimer();
         hideIncoming();
         status(label);
+
+        // The call log (chat page) refreshes off this rather than polling. The
+        // row is already settled server-side by the time a status arrives here.
+        try {
+            window.dispatchEvent(new CustomEvent('dfcp:call-finished', {
+                detail: { uuid: s && s.uuid, label: label, reason: reason || null },
+            }));
+        } catch (e) {}
+
         setTimeout(function () { hideDock(); cleanup(); }, 1400);
     }
 

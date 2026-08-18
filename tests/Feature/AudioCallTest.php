@@ -423,4 +423,90 @@ class AudioCallTest extends TestCase
         $this->assertTrue($uuids->contains($mine->uuid));
         $this->assertFalse($uuids->contains($theirs->uuid));
     }
+
+    public function test_an_unanswered_call_is_counted_as_missed_for_the_person_who_was_rung(): void
+    {
+        $caller = $this->user();
+        $callee = $this->user();
+
+        // The caller gives up mid-ring: recorded as "cancelled", but from the
+        // callee's side this is exactly what a missed call is.
+        $call = $this->ringing($caller, $callee);
+        app(CallService::class)->end($call, $caller);
+
+        $this->actingAs($callee)
+            ->getJson(route('calls.history'))
+            ->assertOk()
+            ->assertJsonPath('missed_unseen', 1)
+            ->assertJsonPath('calls.0.missed', true)
+            ->assertJsonPath('calls.0.direction', 'incoming')
+            ->assertJsonPath('calls.0.outcome', 'Missed');
+
+        // The same row reads differently from the other end, and never counts
+        // as missed for the person who placed it.
+        $this->actingAs($caller)
+            ->getJson(route('calls.history'))
+            ->assertOk()
+            ->assertJsonPath('missed_unseen', 0)
+            ->assertJsonPath('calls.0.missed', false)
+            ->assertJsonPath('calls.0.outcome', 'Cancelled');
+    }
+
+    public function test_an_answered_call_is_never_missed_and_carries_its_duration(): void
+    {
+        $caller = $this->user();
+        $callee = $this->user();
+
+        $call = $this->ringing($caller, $callee);
+        app(CallService::class)->accept($call, $callee);
+        app(CallService::class)->end($call->fresh(), $callee);
+
+        $this->actingAs($callee)
+            ->getJson(route('calls.history'))
+            ->assertOk()
+            ->assertJsonPath('missed_unseen', 0)
+            ->assertJsonPath('calls.0.missed', false)
+            ->assertJsonPath('calls.0.outcome', 'Answered')
+            ->assertJsonPath('calls.0.duration', '00:00');
+    }
+
+    public function test_opening_the_call_log_clears_the_missed_badge_for_that_user_only(): void
+    {
+        $caller = $this->user();
+        $callee = $this->user();
+
+        $call = $this->ringing($caller, $callee);
+        app(CallService::class)->end($call, $caller);
+
+        $this->actingAs($callee)
+            ->postJson(route('calls.history.seen'))
+            ->assertOk()
+            ->assertJsonPath('missed_unseen', 0);
+
+        $this->assertNotNull($call->fresh()->callee_seen_at);
+
+        // Still in the log, still shown as missed — acknowledged, not erased.
+        $this->actingAs($callee)
+            ->getJson(route('calls.history'))
+            ->assertJsonPath('missed_unseen', 0)
+            ->assertJsonPath('calls.0.missed', true);
+    }
+
+    public function test_a_caller_cannot_acknowledge_calls_they_placed(): void
+    {
+        $caller = $this->user();
+        $callee = $this->user();
+
+        $call = $this->ringing($caller, $callee);
+        app(CallService::class)->end($call, $caller);
+
+        // The caller acknowledging their own outgoing call must not silence the
+        // callee's badge.
+        $this->actingAs($caller)->postJson(route('calls.history.seen'))->assertOk();
+
+        $this->assertNull($call->fresh()->callee_seen_at);
+        $this->actingAs($callee)
+            ->getJson(route('calls.history'))
+            ->assertJsonPath('missed_unseen', 1);
+    }
 }

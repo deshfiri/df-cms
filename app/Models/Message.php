@@ -11,7 +11,7 @@ class Message extends Model
     protected $fillable = [
         'conversation_id', 'sender_id', 'body', 'read_at',
         'attachment_path', 'attachment_name', 'attachment_mime', 'attachment_size',
-        'deleted_at', 'deleted_by',
+        'attachment_duration', 'deleted_at', 'deleted_by',
     ];
 
     protected function casts(): array
@@ -61,6 +61,24 @@ class Message extends Model
     public function attachmentIsImage(): bool
     {
         return $this->hasAttachment() && str_starts_with((string) $this->attachment_mime, 'image/');
+    }
+
+    /**
+     * A recorded voice note rather than an uploaded file. The duration is only
+     * ever set once the service has confirmed the upload really is audio, so
+     * this can be trusted for rendering.
+     */
+    public function attachmentIsVoice(): bool
+    {
+        return $this->hasAttachment() && $this->attachment_duration !== null;
+    }
+
+    /** m:ss — what the player shows instead of the browser's "Infinity". */
+    public function formattedAttachmentDuration(): string
+    {
+        $seconds = (int) $this->attachment_duration;
+
+        return sprintf('%d:%02d', intdiv($seconds, 60), $seconds % 60);
     }
 
     public function attachmentSizeForHumans(): string

@@ -32,6 +32,13 @@ class Call extends Model
     /** A call in one of these states occupies both participants. */
     public const ACTIVE_STATUSES = [self::STATUS_RINGING, self::STATUS_ACCEPTED];
 
+    /**
+     * Outcomes where the callee never took the call. A caller who gives up mid-ring
+     * lands on "cancelled", which is still a missed call from the other side — so
+     * counting only STATUS_MISSED would hide most of them.
+     */
+    public const UNANSWERED_STATUSES = [self::STATUS_MISSED, self::STATUS_CANCELLED, self::STATUS_BUSY];
+
     public static array $statuses = [
         self::STATUS_RINGING,
         self::STATUS_ACCEPTED,
@@ -46,15 +53,16 @@ class Call extends Model
     protected $fillable = [
         'uuid', 'conversation_id', 'caller_id', 'callee_id', 'status',
         'started_at', 'answered_at', 'ended_at', 'duration_seconds',
-        'ended_by', 'failure_reason',
+        'ended_by', 'failure_reason', 'callee_seen_at',
     ];
 
     protected function casts(): array
     {
         return [
-            'started_at'  => 'datetime',
-            'answered_at' => 'datetime',
-            'ended_at'    => 'datetime',
+            'started_at'     => 'datetime',
+            'answered_at'    => 'datetime',
+            'ended_at'       => 'datetime',
+            'callee_seen_at' => 'datetime',
         ];
     }
 
@@ -104,6 +112,48 @@ class Call extends Model
     {
         return $query->whereIn('status', self::ACTIVE_STATUSES)
             ->where(fn ($q) => $q->where('caller_id', $userId)->orWhere('callee_id', $userId));
+    }
+
+    /** Did $userId get called and never take it? */
+    public function wasMissedBy(int $userId): bool
+    {
+        return $this->callee_id === $userId
+            && $this->answered_at === null
+            && in_array($this->status, self::UNANSWERED_STATUSES, true);
+    }
+
+    /**
+     * Missed calls the callee has not opened their call log since. This is what
+     * the badge counts — a missed call nobody is told about is not "tracked".
+     */
+    public function scopeMissedUnseenFor(Builder $query, int $userId): Builder
+    {
+        return $query->where('callee_id', $userId)
+            ->whereNull('answered_at')
+            ->whereNull('callee_seen_at')
+            ->whereIn('status', self::UNANSWERED_STATUSES);
+    }
+
+    /**
+     * What this call means to one participant. The same row reads differently
+     * from each end: the caller who gave up sees "No answer", the person who
+     * was rung sees "Missed".
+     */
+    public function outcomeFor(int $userId): string
+    {
+        $incoming = $this->callee_id === $userId;
+
+        return match ($this->status) {
+            self::STATUS_RINGING   => 'Ringing…',
+            self::STATUS_ACCEPTED  => 'In progress',
+            self::STATUS_ENDED     => 'Answered',
+            self::STATUS_REJECTED  => $incoming ? 'You declined' : 'Declined',
+            self::STATUS_MISSED    => $incoming ? 'Missed' : 'No answer',
+            self::STATUS_CANCELLED => $incoming ? 'Missed' : 'Cancelled',
+            self::STATUS_BUSY      => $incoming ? 'Missed — you were on another call' : 'Line busy',
+            self::STATUS_FAILED    => 'Failed',
+            default                => ucfirst($this->status),
+        };
     }
 
     /** mm:ss for UI and the chat system message. */

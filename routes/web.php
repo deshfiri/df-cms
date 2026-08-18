@@ -293,6 +293,7 @@ Route::middleware(['auth'])->group(function () {
     Route::prefix('calls')->name('calls.')->group(function () {
         Route::get('ice', [CallController::class, 'ice'])->name('ice');
         Route::get('history', [CallController::class, 'history'])->name('history');
+        Route::post('history/seen', [CallController::class, 'markHistorySeen'])->name('history.seen');
 
         // Call spam is the abuse case worth rate limiting; ringing someone
         // repeatedly is disruptive in a way that answering is not.
