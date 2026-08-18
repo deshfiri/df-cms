@@ -2075,14 +2075,15 @@
                 data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-inbox"></i><span class="sb-lbl">Requests</span>
             </a>
-            {{-- Deliberately open: anyone may post a review or report. Reading
-                 other people's is gated by 'view reviews', both in the controller
-                 and in the page itself. --}}
+            @endunless
+            {{-- Deliberately open — outside the stage-user trim, since department
+                 staff are exactly who this is for: anyone may post a review or
+                 report. Reading other people's is gated by 'view reviews', both
+                 in the controller and in the page itself. --}}
             <a href="{{ route('reviews.index') }}" class="sb-link {{ request()->routeIs('reviews.*') ? 'active' : '' }}"
                 title="Reviews & Reports" data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-chat-square-text"></i><span class="sb-lbl">Reviews & Reports</span>
             </a>
-            @endunless
             @can('view performance')
                 <a href="{{ route('performance.index') }}"
                     class="sb-link {{ request()->routeIs('performance.*') ? 'active' : '' }}" title="Performance"

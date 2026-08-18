@@ -127,7 +127,10 @@
                     @if($item->assigned_to && ($item->assigned_to === auth()->id() || auth()->user()->can('manage workflows')))
                         <button class="btn btn-sm btn-outline-secondary ms-1" id="releaseBtn" title="Return to the team"><i class="bi bi-arrow-counterclockwise me-1"></i>Release</button>
                     @endif
-                    <div style="font-size:.68rem;color:var(--text3);margin-top:4px">Send it forward@if($canSendBack), send it back for changes,@endif or release it back to the team.</div>
+                    {{-- Inline echo, not @if: a directive glued to a word character
+                         ("forward@if") is not compiled by Blade, which would leave a
+                         stray @endif behind and break the whole view. --}}
+                    <div style="font-size:.68rem;color:var(--text3);margin-top:4px">Send it forward{{ $canSendBack ? ', send it back for changes,' : '' }} or release it back to the team.</div>
                 @elseif($canClaim)
                     <button class="btn btn-sm btn-primary" id="claimBtn"><i class="bi bi-hand-index-thumb me-1"></i>Claim this item</button>
                     <div style="font-size:.68rem;color:var(--text3);margin-top:4px">Claim it to take ownership — then you can add work and send it forward.</div>
