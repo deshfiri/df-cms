@@ -59,7 +59,11 @@ class DatabaseSeeder extends Seeder
         // WorkflowService). Super Admin bypasses this via Gate::before.
         $roles = [
             'Super Admin' => $permissions,
-            'Manager' => ['view clients', 'manage clients', 'delete clients', 'manage payments', 'view payments', 'manage products', 'manage documents', 'manage-workflow', 'approve-stage', 'import clients', 'export clients', 'view reports', 'view tasks', 'manage tasks', 'manage-meetings', 'manage requests', 'view ads', 'manage ads', 'view performance', 'manage performance'],
+            // 'view reviews' reads what staff submit about each other. Anyone may
+            // post; only Manager and Super Admin read. Without it here the
+            // permission existed but belonged to nobody, so submitted reviews were
+            // visible only through Super Admin's Gate::before bypass.
+            'Manager' => ['view clients', 'manage clients', 'delete clients', 'manage payments', 'view payments', 'manage products', 'manage documents', 'manage-workflow', 'approve-stage', 'import clients', 'export clients', 'view reports', 'view tasks', 'manage tasks', 'manage-meetings', 'manage requests', 'view ads', 'manage ads', 'view performance', 'manage performance', 'view reviews'],
             'Sales' => ['view clients', 'manage clients', 'submit-stage', 'approve-stage', 'view tasks', 'manage tasks', 'manage-meetings'],
             'Document' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks'],
             'Design' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks'],

@@ -6,6 +6,7 @@ use App\Models\Client;
 use App\Models\User;
 use App\Models\WorkflowStage;
 use App\Repositories\Contracts\ClientRepositoryInterface;
+use App\Services\ClientProgressService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -13,10 +14,14 @@ class ClientRepository implements ClientRepositoryInterface
 {
     public function query(): Builder
     {
-        return Client::with(['category', 'assignedUser', 'stageProgress'])
-            ->withCount([
-                'stageProgress as completed_stages_count' => fn ($q) => $q->where('is_completed', true),
-            ]);
+        // flowItems drives the progress bar; eager-loaded (rather than counted
+        // in SQL) because the percentage is stage-weighted, and the list is
+        // paginated so only the visible page is hydrated.
+        return Client::with([
+            'category',
+            'assignedUser',
+            'flowItems' => fn ($q) => $q->with(ClientProgressService::EAGER_LOAD),
+        ]);
     }
 
     public function findById(int $id): ?Client

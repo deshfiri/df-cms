@@ -63,9 +63,20 @@ class Client extends Model
         return $this->belongsTo(User::class, 'updated_by');
     }
 
+    /**
+     * Legacy pipeline. Retired as the source of client progress when the flow
+     * engine took over — see flowItems() — but still read by the client portal
+     * journey, so the relation stays.
+     */
     public function stageProgress()
     {
         return $this->hasMany(ClientStageProgress::class);
+    }
+
+    /** The work running for this client on the flow engine — the pipeline. */
+    public function flowItems()
+    {
+        return $this->hasMany(FlowItem::class);
     }
 
     public function productUpdates()

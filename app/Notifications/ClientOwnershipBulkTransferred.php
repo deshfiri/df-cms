@@ -3,12 +3,15 @@
 namespace App\Notifications;
 
 use App\Models\User;
-use Illuminate\Notifications\Notification;
+use App\Notifications\Concerns\BroadcastsToDashboard;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Notification;
 use Illuminate\Support\Collection;
 
 class ClientOwnershipBulkTransferred extends Notification
 {
+    use BroadcastsToDashboard;
+
     private const PREVIEW_COUNT = 5;
 
     /**
@@ -22,7 +25,7 @@ class ClientOwnershipBulkTransferred extends Notification
 
     public function via($notifiable): array
     {
-        return ['database'];
+        return ['database', 'broadcast'];
     }
 
     public function toDatabase($notifiable): array

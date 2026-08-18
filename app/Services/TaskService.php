@@ -9,6 +9,7 @@ use App\Models\TaskAttachment;
 use App\Models\TaskComment;
 use App\Models\TaskRevision;
 use App\Models\User;
+use App\Notifications\TaskAssigned;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -25,7 +26,7 @@ class TaskService
 
     public function create(array $data): Task
     {
-        return DB::transaction(function () use ($data) {
+        $task = DB::transaction(function () use ($data) {
             $labelIds = $data['label_ids'] ?? [];
             unset($data['label_ids']);
 
@@ -42,6 +43,12 @@ class TaskService
 
             return $task->load('assignedUser:id,name', 'client:id,client_name', 'labels');
         });
+
+        // After commit: a notification for a task that rolled back would be a lie,
+        // and the broadcast leaves the process immediately.
+        $this->notifyAssignee($task);
+
+        return $task;
     }
 
     public function update(Task $task, array $data): Task
@@ -50,7 +57,9 @@ class TaskService
         // stripped below, so an approved change replays identically later.
         $this->changeApproval->guard(Task::class, $task->id, $task->only(array_keys($data)), $data, Auth::user());
 
-        return DB::transaction(function () use ($task, $data) {
+        $previousAssignee = $task->assigned_to;
+
+        $updated = DB::transaction(function () use ($task, $data) {
             $labelIds = $data['label_ids'] ?? null;
             unset($data['label_ids']);
 
@@ -72,6 +81,31 @@ class TaskService
 
             return $task->fresh(['assignedUser:id,name', 'client:id,client_name', 'labels']);
         });
+
+        // Only a genuine hand-off is worth an alert; saving an unrelated field
+        // on a task someone already owns is not.
+        if ($updated->assigned_to !== $previousAssignee) {
+            $this->notifyAssignee($updated);
+        }
+
+        return $updated;
+    }
+
+    /**
+     * Alert whoever now owns the task. Assigning work to yourself is not news,
+     * which is the same rule the workflow notifications follow.
+     */
+    private function notifyAssignee(Task $task): void
+    {
+        if (!$task->assigned_to || $task->assigned_to === Auth::id()) {
+            return;
+        }
+
+        $assignee = User::find($task->assigned_to);
+
+        if ($assignee) {
+            $assignee->notify(new TaskAssigned($task));
+        }
     }
 
     /**

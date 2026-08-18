@@ -3,17 +3,20 @@
 namespace App\Notifications;
 
 use App\Models\ClientCorrectionRequest;
+use App\Notifications\Concerns\BroadcastsToDashboard;
 use Illuminate\Notifications\Notification;
 
 class CorrectionRequestSubmitted extends Notification
 {
+    use BroadcastsToDashboard;
+
     public function __construct(
         private readonly ClientCorrectionRequest $correctionRequest,
     ) {}
 
     public function via($notifiable): array
     {
-        return ['database'];
+        return ['database', 'broadcast'];
     }
 
     public function toDatabase($notifiable): array

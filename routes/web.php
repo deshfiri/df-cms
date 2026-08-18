@@ -19,6 +19,7 @@ use App\Http\Controllers\PerformanceController;
 use App\Http\Controllers\PerformanceConfigController;
 use App\Http\Controllers\ProjectUpdateController;
 use App\Http\Controllers\SearchController;
+use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DashboardController;
@@ -352,6 +353,15 @@ Route::middleware(['auth'])->group(function () {
     // General settings (Super Admin only)
     Route::get('settings', [SettingController::class, 'index'])->name('settings.index');
     Route::post('settings', [SettingController::class, 'update'])->name('settings.update');
+
+    // Google Calendar / Meet connection (Super Admin only; gated in the controller).
+    Route::get('settings/google', [GoogleIntegrationController::class, 'index'])->name('settings.google');
+    Route::post('settings/google', [GoogleIntegrationController::class, 'update'])->name('settings.google.update');
+    Route::get('settings/google/connect', [GoogleIntegrationController::class, 'connect'])->name('settings.google.connect');
+    // Registered as the redirect URI on the Google Cloud OAuth client.
+    Route::get('settings/google/callback', [GoogleIntegrationController::class, 'callback'])->name('settings.google.callback');
+    Route::post('settings/google/disconnect', [GoogleIntegrationController::class, 'disconnect'])->name('settings.google.disconnect');
+    Route::post('settings/google/test', [GoogleIntegrationController::class, 'test'])->name('settings.google.test');
 
     // Roles & Permissions (Super Admin only)
     Route::resource('roles', RoleController::class)->only(['index', 'store', 'update', 'destroy']);

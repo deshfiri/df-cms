@@ -4,10 +4,13 @@ namespace App\Notifications;
 
 use App\Models\SupportTicket;
 use App\Models\SupportTicketReply;
+use App\Notifications\Concerns\BroadcastsToDashboard;
 use Illuminate\Notifications\Notification;
 
 class SupportTicketReplied extends Notification
 {
+    use BroadcastsToDashboard;
+
     public function __construct(
         private readonly SupportTicket $ticket,
         private readonly SupportTicketReply $reply,
@@ -15,7 +18,7 @@ class SupportTicketReplied extends Notification
 
     public function via($notifiable): array
     {
-        return ['database'];
+        return ['database', 'broadcast'];
     }
 
     public function toDatabase($notifiable): array

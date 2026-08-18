@@ -21,7 +21,12 @@
                     <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
                         <div class="min-w-0">
                             <a href="{{ route('workflows.show', $flow) }}" class="fw-bold text-decoration-none" style="color:var(--text);font-size:.95rem">{{ $flow->name }}</a>
-                            <div style="font-size:.72rem;color:var(--text3)">{{ $flow->stages_count }} stage(s) · {{ $flow->items_count }} item(s)</div>
+                            <div style="font-size:.72rem;color:var(--text3)">
+                                {{ $flow->stages_count }} stage(s) · {{ $flow->items_count }} item(s)
+                                @unless($flow->client_visible)
+                                    · <i class="bi bi-eye-slash" title="Hidden from the client portal"></i> internal
+                                @endunless
+                            </div>
                         </div>
                         <span class="spill {{ $flow->is_active ? 'spill-completed' : 'spill-hold' }} flow-status" data-id="{{ $flow->id }}" style="cursor:pointer" title="Toggle active">{{ $flow->is_active ? 'Active' : 'Inactive' }}</span>
                     </div>
@@ -33,7 +38,7 @@
                     <div class="d-flex gap-2">
                         <a href="{{ route('workflows.show', $flow) }}" class="btn btn-sm btn-primary flex-fill"><i class="bi bi-diagram-3 me-1"></i>Build</a>
                         <a href="{{ route('workflows.items', ['flow' => $flow->id]) }}" class="btn btn-sm btn-outline-secondary" title="Items"><i class="bi bi-list-task"></i></a>
-                        <button class="btn btn-sm btn-outline-secondary flow-edit" data-id="{{ $flow->id }}" data-name="{{ e($flow->name) }}" data-desc="{{ e($flow->description) }}" title="Edit"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-sm btn-outline-secondary flow-edit" data-id="{{ $flow->id }}" data-name="{{ e($flow->name) }}" data-desc="{{ e($flow->description) }}" data-client-visible="{{ $flow->client_visible ? 1 : 0 }}" title="Edit"><i class="bi bi-pencil"></i></button>
                         <button class="btn btn-sm btn-outline-danger flow-delete" data-id="{{ $flow->id }}" title="Delete"><i class="bi bi-trash"></i></button>
                     </div>
                 </div>
@@ -61,9 +66,17 @@
                     <label class="form-label fw-semibold small">Name</label>
                     <input type="text" id="flowName" class="form-control form-control-sm" maxlength="150" placeholder="e.g. Content Approval">
                 </div>
-                <div>
+                <div class="mb-3">
                     <label class="form-label fw-semibold small">Description <span style="color:var(--text3)">(optional)</span></label>
                     <textarea id="flowDesc" class="form-control form-control-sm" rows="2" maxlength="2000"></textarea>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="flowClientVisible" checked>
+                    <label class="form-check-label small fw-semibold" for="flowClientVisible">Show in the client portal</label>
+                    <div style="font-size:.72rem;color:var(--text3)">
+                        Items on this workflow appear in the client's journey and progress.
+                        Turn off for internal-only work.
+                    </div>
                 </div>
             </div>
             <div class="modal-footer py-2 px-3">
@@ -81,6 +94,7 @@
 
     $('#newFlowBtn').on('click', function () {
         $('#flowId').val(''); $('#flowName').val(''); $('#flowDesc').val('');
+        $('#flowClientVisible').prop('checked', true);
         $('#flowModalTitle').text('New Workflow');
         new bootstrap.Modal('#flowModal').show();
     });
@@ -88,12 +102,17 @@
         $('#flowId').val($(this).data('id'));
         $('#flowName').val($(this).data('name'));
         $('#flowDesc').val($(this).data('desc'));
+        $('#flowClientVisible').prop('checked', $(this).data('client-visible') == 1);
         $('#flowModalTitle').text('Edit Workflow');
         new bootstrap.Modal('#flowModal').show();
     });
     $('#flowSave').on('click', function () {
         const id = $('#flowId').val();
-        const payload = { name: $('#flowName').val(), description: $('#flowDesc').val() };
+        const payload = {
+            name: $('#flowName').val(),
+            description: $('#flowDesc').val(),
+            client_visible: $('#flowClientVisible').is(':checked') ? 1 : 0,
+        };
         const req = id ? $.ajax({ url: '/workflows/' + id, type: 'PUT', data: payload }) : $.post('/workflows', payload);
         req.done(function (r) {
             if (!id && r.id) { location.href = '/workflows/' + r.id; return; }

@@ -4,11 +4,14 @@ namespace App\Notifications;
 
 use App\Models\Client;
 use App\Models\WorkflowStage;
-use Illuminate\Notifications\Notification;
+use App\Notifications\Concerns\BroadcastsToDashboard;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Notification;
 
 class StageReadyForDepartment extends Notification
 {
+    use BroadcastsToDashboard;
+
     public function __construct(
         private readonly Client $client,
         private readonly WorkflowStage $previousStage,
@@ -17,7 +20,7 @@ class StageReadyForDepartment extends Notification
 
     public function via($notifiable): array
     {
-        return ['database'];
+        return ['database', 'broadcast'];
     }
 
     public function toDatabase($notifiable): array

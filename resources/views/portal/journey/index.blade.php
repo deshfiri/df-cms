@@ -14,6 +14,11 @@
 <div class="card p-0">
     @forelse($stages as $stage)
         @php
+            // The timeline runs across every piece of work, so each one gets a
+            // heading — otherwise two flows read as one confusing sequence.
+            $newItem = ($stage['item_id'] ?? null) !== ($previousItemId ?? null);
+            $previousItemId = $stage['item_id'] ?? null;
+
             $badgeClass = match($stage['status']) {
                 'Approved' => 'spill-green',
                 'Submitted', 'In Progress' => 'spill-blue',
@@ -22,6 +27,16 @@
                 default => 'spill-gray',
             };
         @endphp
+
+        @if($newItem && ($stage['service'] ?? null))
+            <div class="px-3 pt-3 pb-2 {{ !$loop->first ? 'border-top' : '' }}">
+                <div class="fw-bold" style="font-size:.82rem">{{ $stage['service'] }}</div>
+                @if(($stage['item_title'] ?? null) && $stage['item_title'] !== $stage['service'])
+                    <div style="font-size:.74rem;color:var(--text3)">{{ $stage['item_title'] }}</div>
+                @endif
+            </div>
+        @endif
+
         <div class="p-3 {{ !$loop->last ? 'border-bottom' : '' }}" style="{{ $stage['locked'] ? 'opacity:.55' : '' }}">
             <div class="d-flex justify-content-between align-items-start">
                 <div>

@@ -11,11 +11,11 @@ class Flow extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = ['name', 'description', 'is_active', 'created_by'];
+    protected $fillable = ['name', 'description', 'is_active', 'client_visible', 'created_by'];
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return ['is_active' => 'boolean', 'client_visible' => 'boolean'];
     }
 
     public function stages(): HasMany

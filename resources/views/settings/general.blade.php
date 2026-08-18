@@ -2,8 +2,11 @@
 @section('title', 'General Settings')
 
 @section('content')
-<div class="d-flex align-items-center justify-content-between mb-4">
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
     <h4 class="page-title mb-0"><i class="bi bi-gear me-2"></i>General Settings</h4>
+    <a href="{{ route('settings.google') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-camera-video me-1"></i>Google Meet Integration
+    </a>
 </div>
 
 <form method="POST" action="{{ route('settings.update') }}" enctype="multipart/form-data">

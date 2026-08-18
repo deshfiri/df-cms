@@ -3,6 +3,7 @@
 namespace App\Services\Portal;
 
 use App\Models\Client;
+use App\Models\FlowItem;
 
 class PortalServiceGroupingService
 {
@@ -11,55 +12,46 @@ class PortalServiceGroupingService
     ) {}
 
     /**
-     * Groups the client-visible workflow stages by department, presenting
-     * each department as a "service" card: aggregate progress/status/next
-     * step, derived entirely from ClientStageProgress — no separate catalog.
+     * Presents each piece of client-visible work as a "service" card, with its
+     * own progress, current step and last update.
+     *
+     * Grouped by flow rather than by department: on the retired pipeline every
+     * client ran one shared stage list, so department was the only way to tell
+     * two streams of work apart. A flow already *is* a stream of work, and a
+     * client can be running two of the same kind, so each item gets its card.
      */
     public function groupByDepartment(Client $client): array
     {
-        $stages = $this->journeyPresenter->present($client);
+        return $this->journeyPresenter->items($client)->map(function (FlowItem $item) {
+            $stages = $item->flow?->stages ?? collect();
+            $total  = $stages->count();
 
-        // Departments aren't stored on the client-safe presenter output
-        // (department is internal), so re-fetch stage->department pairing.
-        $stageModels = $client->stageProgress()->with('stage')->get()->keyBy('stage_id');
+            $currentPosition = $item->currentStage->position ?? null;
+            $isCompleted     = $item->status === FlowItem::STATUS_COMPLETED;
 
-        $groups = [];
-        foreach ($stages as $stage) {
-            $stageModel = $stageModels->get($stage['id']);
-            $department = $stageModel?->stage?->department ?? 'General';
+            $done = $isCompleted
+                ? $total
+                : max(0, min($total, ($currentPosition ?? 1) - 1));
 
-            $groups[$department] ??= [
-                'department'   => $department,
-                'stages'       => [],
-                'statuses'     => [],
-            ];
-            $groups[$department]['stages'][] = $stage;
-            $groups[$department]['statuses'][] = $stage['status'];
-        }
-
-        return array_map(function (array $group) {
-            $total = count($group['stages']);
-            $approved = count(array_filter($group['statuses'], fn ($s) => $s === 'Approved'));
-            $progress = $total > 0 ? (int) round(($approved / $total) * 100) : 0;
+            $progress = $total > 0 ? (int) round(($done / $total) * 100) : 0;
 
             $status = match (true) {
-                $progress === 100 => 'Completed',
-                $progress === 0   => 'Not Started',
-                default           => 'Active',
+                $isCompleted || ($total > 0 && $progress === 100) => 'Completed',
+                $progress === 0                                   => 'Not Started',
+                default                                           => 'Active',
             };
 
-            $current = collect($group['stages'])->firstWhere('current', true);
-            $lastCompleted = collect($group['stages'])->filter(fn ($s) => $s['status'] === 'Approved')->last();
-
             return [
-                'department'    => $group['department'],
+                // The flow names the service; the item names this instance of it.
+                'department'    => $item->flow->name ?? 'Work',
+                'title'         => $item->title,
                 'status'        => $status,
                 'progress'      => $progress,
-                'current_stage' => $current['name'] ?? null,
-                'next_step'     => $current['next_step'] ?? null,
-                'last_update'   => $lastCompleted['completed_at'] ?? null,
+                'current_stage' => $isCompleted ? null : ($item->currentStage->name ?? null),
+                'next_step'     => null,
+                'last_update'   => $item->updated_at,
                 'stage_count'   => $total,
             ];
-        }, array_values($groups));
+        })->all();
     }
 }

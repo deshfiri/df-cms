@@ -2,9 +2,11 @@
 
 namespace App\Repositories;
 
+use App\Models\Client;
 use App\Models\ClientStageProgress;
 use App\Models\WorkflowStage;
 use App\Repositories\Contracts\WorkflowRepositoryInterface;
+use App\Services\ClientProgressService;
 use Illuminate\Support\Collection;
 
 class WorkflowRepository implements WorkflowRepositoryInterface
@@ -65,17 +67,16 @@ class WorkflowRepository implements WorkflowRepositoryInterface
         }
     }
 
+    /**
+     * Delegates to the flow engine, which replaced this repository's own
+     * pipeline as the definition of client progress. Kept on the interface so
+     * existing callers keep working; the arithmetic lives in one place now.
+     */
     public function calculateProgress(int $clientId): int
     {
-        $total = WorkflowStage::where('status', true)->count();
-        if ($total === 0) {
-            return 0;
-        }
-        $completed = ClientStageProgress::where('client_id', $clientId)
-            ->where('is_completed', true)
-            ->count();
+        $client = Client::find($clientId);
 
-        return (int) round(($completed / $total) * 100);
+        return $client ? app(ClientProgressService::class)->percentFor($client) : 0;
     }
 
     public function findStage(int $stageId): WorkflowStage

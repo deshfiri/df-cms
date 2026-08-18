@@ -4,18 +4,21 @@ namespace App\Notifications;
 
 use App\Models\ClientMeeting;
 use App\Models\User;
+use App\Notifications\Concerns\BroadcastsToDashboard;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
 class MeetingScheduled extends Notification
 {
+    use BroadcastsToDashboard;
+
     public function __construct(private readonly ClientMeeting $meeting)
     {
     }
 
     public function via(mixed $notifiable): array
     {
-        return $notifiable instanceof User ? ['database'] : ['mail'];
+        return $notifiable instanceof User ? ['database', 'broadcast'] : ['mail'];
     }
 
     public function toDatabase(mixed $notifiable): array

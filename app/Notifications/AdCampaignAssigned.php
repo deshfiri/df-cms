@@ -3,18 +3,21 @@
 namespace App\Notifications;
 
 use App\Models\AdCampaignAssignment;
-use Illuminate\Notifications\Notification;
+use App\Notifications\Concerns\BroadcastsToDashboard;
 use Illuminate\Notifications\Messages\MailMessage;
+use Illuminate\Notifications\Notification;
 
 class AdCampaignAssigned extends Notification
 {
+    use BroadcastsToDashboard;
+
     public function __construct(
         private readonly AdCampaignAssignment $assignment,
     ) {}
 
     public function via($notifiable): array
     {
-        return ['database'];
+        return ['database', 'broadcast'];
     }
 
     public function toDatabase($notifiable): array

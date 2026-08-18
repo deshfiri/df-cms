@@ -32,9 +32,12 @@ class FlowController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name'        => ['required', 'string', 'max:150'],
-            'description' => ['nullable', 'string', 'max:2000'],
+            'name'           => ['required', 'string', 'max:150'],
+            'description'    => ['nullable', 'string', 'max:2000'],
+            // Whether this flow's work appears in the client portal.
+            'client_visible' => ['nullable', 'boolean'],
         ]);
+        $data['client_visible'] = $request->boolean('client_visible', true);
 
         $flow = Flow::create($data + ['created_by' => $request->user()->id]);
 
@@ -52,9 +55,12 @@ class FlowController extends Controller
     public function update(Request $request, Flow $flow): JsonResponse
     {
         $data = $request->validate([
-            'name'        => ['required', 'string', 'max:150'],
-            'description' => ['nullable', 'string', 'max:2000'],
+            'name'           => ['required', 'string', 'max:150'],
+            'description'    => ['nullable', 'string', 'max:2000'],
+            // Whether this flow's work appears in the client portal.
+            'client_visible' => ['nullable', 'boolean'],
         ]);
+        $data['client_visible'] = $request->boolean('client_visible', true);
 
         $flow->update($data);
 

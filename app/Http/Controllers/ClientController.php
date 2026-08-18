@@ -9,6 +9,7 @@ use App\Models\Client;
 use App\Models\User;
 use App\Repositories\Contracts\ClientRepositoryInterface;
 use App\Services\ClientOwnershipService;
+use App\Services\ClientProgressService;
 use App\Services\ClientService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,6 +23,7 @@ class ClientController extends Controller
         private readonly ClientService              $clientService,
         private readonly ClientRepositoryInterface  $clientRepo,
         private readonly ClientOwnershipService     $ownershipService,
+        private readonly ClientProgressService      $progress,
     ) {}
 
     public function index(Request $request)
@@ -69,14 +71,17 @@ class ClientController extends Controller
         $client->load([
             'category:id,name',
             'assignedUser:id,name',
-            'stageProgress',
+            'flowItems' => fn ($q) => $q->with(ClientProgressService::EAGER_LOAD),
             'productUpdates' => fn ($q) => $q->latest()->limit(1),
             'activityLogs'   => fn ($q) => $q->with('user:id,name')->latest()->limit(5),
         ]);
 
-        $totalStages     = \App\Models\WorkflowStage::where('status', true)->count();
-        $completedStages = $client->stageProgress->where('is_completed', true)->count();
-        $progress        = $totalStages > 0 ? (int) round(($completedStages / $totalStages) * 100) : 0;
+        // One definition of progress, shared with the client list — see
+        // ClientProgressService.
+        $breakdown       = $this->progress->breakdownFor($client);
+        $progress        = $breakdown['percent'];
+        $completedStages = $breakdown['done'];
+        $totalStages     = $breakdown['total'];
 
         return response()->json([
             'id'          => $client->id,
@@ -349,10 +354,8 @@ class ClientController extends Controller
 
     private function progressBadge(Client $client): string
     {
-        $total     = \App\Models\WorkflowStage::where('status', true)->count();
-        $completed = $client->completed_stages_count ?? 0;
-        $pct       = $total > 0 ? (int) round(($completed / $total) * 100) : 0;
-        $color     = $pct === 100 ? 'success' : ($pct >= 50 ? 'warning' : 'danger');
+        $pct   = $this->progress->percentFor($client);
+        $color = $pct === 100 ? 'success' : ($pct >= 50 ? 'warning' : 'danger');
 
         return '<div class="d-flex align-items-center gap-1">
             <div class="progress flex-grow-1" style="height:6px">

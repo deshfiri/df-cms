@@ -4,11 +4,14 @@ namespace App\Notifications;
 
 use App\Models\ClientMeeting;
 use App\Models\User;
+use App\Notifications\Concerns\BroadcastsToDashboard;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
 class MeetingReminder extends Notification
 {
+    use BroadcastsToDashboard;
+
     /**
      * @param string $tierLabel Human label for the reminder window, e.g. "24 hours", "1 hour", "15 minutes"
      */
@@ -20,7 +23,7 @@ class MeetingReminder extends Notification
 
     public function via(mixed $notifiable): array
     {
-        return $notifiable instanceof User ? ['database'] : ['mail'];
+        return $notifiable instanceof User ? ['database', 'broadcast'] : ['mail'];
     }
 
     public function toDatabase(mixed $notifiable): array

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\ClientMeeting;
 use App\Services\Contracts\GoogleCalendarServiceInterface;
+use App\Services\Google\GoogleIntegrationSettings;
 use Google\Client as GoogleClient;
 use Google\Service\Calendar as GoogleCalendar;
 use Google\Service\Calendar\ConferenceData;
@@ -20,11 +21,70 @@ class GoogleCalendarService implements GoogleCalendarServiceInterface
 {
     private ?GoogleCalendar $service = null;
 
+    public function __construct(
+        private readonly GoogleIntegrationSettings $settings,
+    ) {}
+
     public function isConfigured(): bool
     {
-        $path = config('services.google_calendar.credentials_path');
+        return $this->settings->isConfigured();
+    }
 
-        return !empty($path) && is_file($path);
+    /**
+     * Reach Google with the stored credentials and report back in plain words.
+     *
+     * Reads the target calendar rather than writing anything: it exercises auth,
+     * the calendar id and the scope in one call, without leaving a stray event
+     * behind on someone's real calendar.
+     *
+     * @return array{ok:bool,message:string}
+     */
+    public function verifyConnection(): array
+    {
+        if (!$this->isConfigured()) {
+            return ['ok' => false, 'message' => 'No Google credentials are configured.'];
+        }
+
+        try {
+            $calendarId = $this->settings->calendarId();
+            $calendar   = $this->client()->calendars->get($calendarId);
+
+            $mode = $this->settings->activeMode() === GoogleIntegrationSettings::MODE_OAUTH
+                ? 'OAuth'
+                : 'service account';
+
+            $warning = $this->meetLinkWarning();
+
+            return [
+                'ok'      => true,
+                'message' => sprintf(
+                    'Connected via %s. Events will be created on "%s".%s',
+                    $mode,
+                    $calendar->getSummary() ?: $calendarId,
+                    $warning ? ' ' . $warning : ''
+                ),
+            ];
+        } catch (Throwable $e) {
+            Log::warning('Google Calendar: connection test failed', ['error' => $e->getMessage()]);
+
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * A service account with nobody to impersonate creates events happily and
+     * then quietly omits the Meet link — the exact symptom that is hardest to
+     * diagnose from the booking screen.
+     */
+    private function meetLinkWarning(): ?string
+    {
+        if ($this->settings->activeMode() !== GoogleIntegrationSettings::MODE_SERVICE_ACCOUNT) {
+            return null;
+        }
+
+        return $this->settings->impersonateEmail()
+            ? null
+            : 'Warning: no impersonation email is set, so Google Meet links will not be generated.';
     }
 
     public function createEvent(ClientMeeting $meeting): ?array
@@ -39,7 +99,7 @@ class GoogleCalendarService implements GoogleCalendarServiceInterface
             $event->setConferenceData($this->conferenceRequest());
 
             $created = $service->events->insert(
-                config('services.google_calendar.calendar_id', 'primary'),
+                $this->settings->calendarId(),
                 $event,
                 ['conferenceDataVersion' => 1, 'sendUpdates' => 'all']
             );
@@ -72,7 +132,7 @@ class GoogleCalendarService implements GoogleCalendarServiceInterface
             $event = $this->buildEvent($meeting);
 
             $service->events->patch(
-                config('services.google_calendar.calendar_id', 'primary'),
+                $this->settings->calendarId(),
                 $meeting->google_event_id,
                 $event,
                 ['sendUpdates' => 'all']
@@ -97,7 +157,7 @@ class GoogleCalendarService implements GoogleCalendarServiceInterface
             $event = new Event(['status' => 'cancelled']);
 
             $service->events->patch(
-                config('services.google_calendar.calendar_id', 'primary'),
+                $this->settings->calendarId(),
                 $meeting->google_event_id,
                 $event,
                 ['sendUpdates' => 'all']
@@ -119,7 +179,7 @@ class GoogleCalendarService implements GoogleCalendarServiceInterface
 
         try {
             $this->client()->events->delete(
-                config('services.google_calendar.calendar_id', 'primary'),
+                $this->settings->calendarId(),
                 $meeting->google_event_id,
                 ['sendUpdates' => 'all']
             );
@@ -132,6 +192,11 @@ class GoogleCalendarService implements GoogleCalendarServiceInterface
         }
     }
 
+    /**
+     * OAuth is preferred: it acts as a real Google account, which is what makes
+     * Meet links appear. The service account is the fallback for a Workspace
+     * setup with domain-wide delegation.
+     */
     private function client(): GoogleCalendar
     {
         if ($this->service) {
@@ -140,11 +205,19 @@ class GoogleCalendarService implements GoogleCalendarServiceInterface
 
         $client = new GoogleClient();
         $client->setApplicationName(config('app.name'));
-        $client->setAuthConfig(config('services.google_calendar.credentials_path'));
         $client->setScopes([GoogleCalendar::CALENDAR_EVENTS]);
 
-        if ($subject = config('services.google_calendar.impersonate_email')) {
-            $client->setSubject($subject);
+        if ($this->settings->activeMode() === GoogleIntegrationSettings::MODE_OAUTH) {
+            $client->setClientId($this->settings->clientId());
+            $client->setClientSecret($this->settings->clientSecret());
+            // Exchanges the stored refresh token for a short-lived access token.
+            $client->fetchAccessTokenWithRefreshToken($this->settings->refreshToken());
+        } else {
+            $client->setAuthConfig($this->settings->serviceAccountPath());
+
+            if ($subject = $this->settings->impersonateEmail()) {
+                $client->setSubject($subject);
+            }
         }
 
         return $this->service = new GoogleCalendar($client);
