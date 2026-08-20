@@ -18,7 +18,7 @@ class UpdateTaskRequest extends FormRequest
         return [
             'title'            => ['required', 'string', 'max:255'],
             'description'      => ['nullable', 'string'],
-            'client_id'        => ['required', 'exists:clients,id'],
+            'client_id'        => ['nullable', 'exists:clients,id'],
             'assigned_to'      => ['nullable', 'exists:users,id'],
             'priority'         => ['required', Rule::in(Task::$priorities)],
             'status'           => ['required', Rule::in(Task::$statuses)],

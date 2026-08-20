@@ -206,6 +206,9 @@ Route::middleware(['auth'])->group(function () {
 
     // Tasks (standalone)
     Route::resource('tasks', TaskController::class)->except(['create', 'edit']);
+    // Delegated work: the assignee submits, the requester accepts or returns it.
+    Route::post('tasks/{task}/submit', [TaskController::class, 'submit'])->name('tasks.submit');
+    Route::post('tasks/{task}/review', [TaskController::class, 'review'])->name('tasks.review');
     Route::post('tasks/{task}/revisions', [TaskController::class, 'storeRevision'])->name('tasks.revisions.store');
     Route::post('tasks/{task}/comments', [TaskController::class, 'storeComment'])->name('tasks.comments.store');
     Route::delete('tasks/{task}/comments/{comment}', [TaskController::class, 'destroyComment'])->name('tasks.comments.destroy');
@@ -367,6 +370,10 @@ Route::middleware(['auth'])->group(function () {
     Route::resource('roles', RoleController::class)->only(['index', 'store', 'update', 'destroy']);
     Route::post('roles/{role}/sync-permissions', [RoleController::class, 'syncPermissions'])->name('roles.sync-permissions');
     Route::post('roles/{role}/clone', [RoleController::class, 'clone'])->name('roles.clone');
+    // Per-user grants. Declared before the resource so "users" is never taken
+    // for a {permission}.
+    Route::get('permissions/users/{user}', [PermissionController::class, 'showUser'])->name('permissions.user.show');
+    Route::post('permissions/users/{user}', [PermissionController::class, 'syncUser'])->name('permissions.user.sync');
     Route::resource('permissions', PermissionController::class)->only(['index', 'store', 'destroy']);
 });
 

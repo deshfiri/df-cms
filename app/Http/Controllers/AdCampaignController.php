@@ -131,11 +131,17 @@ class AdCampaignController extends Controller
         $clients = Client::withoutTrashed()->orderBy('client_name')->get(['id', 'client_name', 'dfid_number']);
         $users = User::where('is_active', true)->orderBy('name')->get(['id', 'name']);
 
+        // The campaign figures are scoped by the soft-delete global scope, but
+        // the report sums are not: a deleted campaign's spend would keep
+        // counting toward the headline totals while its row was gone from the
+        // table below. whereHas re-applies the same scope.
+        $liveReports = fn () => AdCampaignDailyReport::whereHas('campaign');
+
         $totals = [
             'active_count' => AdCampaign::where('status', 'Active')->count(),
             'total_budget' => (float) AdCampaign::sum('budget'),
-            'total_spend' => (float) AdCampaignDailyReport::sum('spend'),
-            'total_sales' => (float) AdCampaignDailyReport::sum('sales'),
+            'total_spend' => (float) $liveReports()->sum('spend'),
+            'total_sales' => (float) $liveReports()->sum('sales'),
         ];
         $totals['overall_roas'] = $totals['total_spend'] > 0 ? round($totals['total_sales'] / $totals['total_spend'], 2) : null;
 
@@ -224,7 +230,21 @@ class AdCampaignController extends Controller
 
                 return $spend > 0 ? number_format($sales / $spend, 2) : '—';
             })
-            ->addColumn('actions', fn(AdCampaign $c) => '<a href="' . route('clients.ads.show', [$c->client_id, $c->id]) . '" class="btn btn-sm px-2 py-1" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="View"><i class="bi bi-eye"></i></a>')
+            ->addColumn('actions', function (AdCampaign $c) use ($request) {
+                $html = '<a href="' . route('clients.ads.show', [$c->client_id, $c->id]) . '" class="btn btn-sm px-2 py-1" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="View"><i class="bi bi-eye"></i></a>';
+
+                // Deleting a campaign discards its daily reports with it, so it
+                // stays with Super Admin / Manager — the same rule the policy
+                // enforces on the endpoint.
+                if ($request->user()->can('delete', $c)) {
+                    $html .= ' <button class="btn btn-sm px-2 py-1 btn-outline-danger campaign-delete"'
+                        . ' data-id="' . $c->id . '"'
+                        . ' data-name="' . e($c->name) . '"'
+                        . ' title="Delete campaign"><i class="bi bi-trash"></i></button>';
+                }
+
+                return $html;
+            })
             ->rawColumns(['status_badge', 'actions'])
             ->make(true);
     }

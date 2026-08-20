@@ -22,7 +22,6 @@ class MeetingService
         private readonly ActivityLogService $activityLog,
         private readonly GoogleCalendarServiceInterface $googleCalendar,
         private readonly WorkflowService $workflowService,
-        private readonly ChangeApprovalService $changeApproval,
     ) {}
 
     public function create(Client $client, array $data, User $actor): ClientMeeting
@@ -50,13 +49,13 @@ class MeetingService
         });
     }
 
+    /**
+     * Not gated by change approval. Rescheduling is time-sensitive by nature —
+     * a meeting that moves has to move now, not after a manager reviews it —
+     * and the client is notified of every change either way.
+     */
     public function update(ClientMeeting $meeting, array $data, User $actor): ClientMeeting
     {
-        // Must run before anything below — this method syncs to Google Calendar
-        // and notifies participants as side effects, which must never fire for
-        // an edit that hasn't actually been approved yet.
-        $this->changeApproval->guard(ClientMeeting::class, $meeting->id, $meeting->only(array_keys($data)), $data, $actor);
-
         return DB::transaction(function () use ($meeting, $data, $actor) {
             $previousTime = $meeting->scheduled_at->copy();
             $old = $meeting->only(['title', 'scheduled_at', 'type', 'status']);

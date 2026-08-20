@@ -41,7 +41,14 @@ class TaskController extends Controller
         $overdueCount = Task::overdue()->count();
         $reasonCategories = TaskRevision::$reasonCategories;
 
-        return view('tasks.index', compact('clients', 'users', 'labels', 'statusCounts', 'overdueCount', 'reasonCategories'));
+        // Work this person delegated that has been handed back to them.
+        $awaitingMyReview = Task::where('created_by', $request->user()->id)
+            ->where('status', Task::STATUS_SUBMITTED)
+            ->count();
+
+        return view('tasks.index', compact(
+            'clients', 'users', 'labels', 'statusCounts', 'overdueCount', 'reasonCategories', 'awaitingMyReview'
+        ));
     }
 
     public function store(StoreTaskRequest $request): JsonResponse
@@ -84,6 +91,34 @@ class TaskController extends Controller
         $this->service->delete($task);
 
         return response()->json(['success' => true]);
+    }
+
+    /** The assignee hands the work back to whoever asked for it. */
+    public function submit(Request $request, Task $task): JsonResponse
+    {
+        $this->authorize('submit', $task);
+
+        $data = $request->validate(['note' => ['nullable', 'string', 'max:1000']]);
+
+        $updated = $this->service->submitForReview($task, $request->user(), $data['note'] ?? null);
+
+        return response()->json(['success' => true, 'task' => $updated]);
+    }
+
+    /** The requester accepts the work, or sends it back with a reason. */
+    public function review(Request $request, Task $task): JsonResponse
+    {
+        $this->authorize('review', $task);
+
+        $data = $request->validate([
+            'accept'          => ['required', 'boolean'],
+            'note'            => ['nullable', 'string', 'max:1000'],
+            'reason_category' => ['nullable', Rule::in(TaskRevision::$reasonCategories)],
+        ]);
+
+        $updated = $this->service->review($task, $request->user(), (bool) $data['accept'], $data);
+
+        return response()->json(['success' => true, 'task' => $updated]);
     }
 
     public function storeRevision(Request $request, Task $task): JsonResponse
@@ -168,8 +203,14 @@ class TaskController extends Controller
         if ($request->boolean('overdue_only')) {
             $query->overdue();
         }
+        // "Waiting on me": what I delegated and somebody has handed back.
+        if ($request->boolean('review')) {
+            $query->where('created_by', $request->user()->id)
+                ->where('status', Task::STATUS_SUBMITTED);
+        }
 
-        $canManage = $request->user()->can('manage tasks');
+        $me = $request->user();
+        $canManage = $me->can('manage tasks');
 
         return DataTables::of($query)
             ->addIndexColumn()
@@ -178,8 +219,18 @@ class TaskController extends Controller
             ->addColumn('priority_badge', fn (Task $t) => $this->priorityBadge($t->priority))
             ->addColumn('status_badge', fn (Task $t) => $this->statusBadge($t))
             ->addColumn('due', fn (Task $t) => $t->due_date?->format('d M Y') ?? '-')
-            ->addColumn('actions', function (Task $t) use ($canManage) {
+            ->addColumn('actions', function (Task $t) use ($canManage, $me) {
                 $html = '<button class="btn btn-sm px-2 py-1 task-view" data-id="' . $t->id . '" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="View"><i class="bi bi-eye"></i></button> ';
+
+                // The assignee hands it back; the requester rules on it. Both
+                // are policy checks so the buttons match what the endpoints allow.
+                if ($me->can('submit', $t)) {
+                    $html .= '<button class="btn btn-sm px-2 py-1 task-submit" data-id="' . $t->id . '" data-title="' . e($t->title) . '" style="background:rgba(var(--primary-rgb),.1);border:1px solid var(--primary);color:var(--primary)" title="Submit for review"><i class="bi bi-send"></i></button> ';
+                }
+                if ($me->can('review', $t)) {
+                    $html .= '<button class="btn btn-sm px-2 py-1 task-review" data-id="' . $t->id . '" data-title="' . e($t->title) . '" style="background:var(--c-yellow-bg);border:1px solid var(--c-yellow);color:var(--c-yellow)" title="Review submission"><i class="bi bi-clipboard-check"></i></button> ';
+                }
+
                 if ($canManage) {
                     $html .= '<button class="btn btn-sm px-2 py-1 task-edit" data-id="' . $t->id . '" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="Edit"><i class="bi bi-pencil"></i></button> '
                         . '<button class="btn btn-sm px-2 py-1 task-delete" data-id="' . $t->id . '" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#dc2626" title="Delete"><i class="bi bi-trash"></i></button>';
@@ -207,6 +258,7 @@ class TaskController extends Controller
             'Pending'     => 'spill-pending',
             'In Progress' => 'spill-in-progress',
             'On Hold'     => 'spill-hold',
+            'Submitted'   => 'spill-warning',
             'Completed'   => 'spill-approved',
             'Cancelled'   => 'spill-rejected',
         ];

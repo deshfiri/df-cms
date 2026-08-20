@@ -10,6 +10,8 @@ use App\Models\TaskComment;
 use App\Models\TaskRevision;
 use App\Models\User;
 use App\Notifications\TaskAssigned;
+use App\Notifications\TaskReviewed;
+use App\Notifications\TaskSubmitted;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -20,7 +22,6 @@ class TaskService
 {
     public function __construct(
         private readonly ActivityLogService    $activityLog,
-        private readonly ChangeApprovalService $changeApproval,
         private readonly WorkloadService       $workload,
     ) {}
 
@@ -51,12 +52,14 @@ class TaskService
         return $task;
     }
 
+    /**
+     * Not gated by change approval. Editing a task — above all marking your own
+     * work complete — is the most routine action in the app, and requiring a
+     * manager to sign each one off meant nobody could finish anything without
+     * waiting. Task history is covered by the activity log instead.
+     */
     public function update(Task $task, array $data): Task
     {
-        // Guard on the full requested payload (label_ids included) before it's
-        // stripped below, so an approved change replays identically later.
-        $this->changeApproval->guard(Task::class, $task->id, $task->only(array_keys($data)), $data, Auth::user());
-
         $previousAssignee = $task->assigned_to;
 
         $updated = DB::transaction(function () use ($task, $data) {
@@ -109,9 +112,84 @@ class TaskService
     }
 
     /**
-     * Record a revision request against a task. Reopens a completed task so the
-     * assignee can rework it. Only 'Employee Mistake' revisions count against the
-     * quality KPI (see PerformanceCalculationService::revisionRate).
+     * The assignee hands the task back to whoever asked for it.
+     *
+     * Deliberately not "Completed": the person who requested the work decides
+     * whether it is finished, so this parks it in their review queue instead.
+     */
+    public function submitForReview(Task $task, User $actor, ?string $note = null): Task
+    {
+        $task->update([
+            'status'       => Task::STATUS_SUBMITTED,
+            'submitted_at' => now(),
+            'updated_by'   => $actor->id,
+        ]);
+
+        $description = 'Submitted for review' . ($note ? ": {$note}" : '');
+        $this->logActivity($task, 'Submitted', $description);
+        $this->activityLog->log('Task', 'Submitted', $task->client_id, null, ['title' => $task->title]);
+
+        $this->notifyReviewer($task, $actor, $note);
+
+        return $task->fresh(['assignedUser:id,name', 'client:id,client_name', 'labels']);
+    }
+
+    /**
+     * The reviewer accepts the work, or sends it back with a reason.
+     *
+     * Returning it reuses the revision record, so a rejected submission shows up
+     * in the same history — and the same quality KPI — as any other rework.
+     */
+    public function review(Task $task, User $actor, bool $accept, array $data = []): Task
+    {
+        if ($accept) {
+            $task->update([
+                'status'          => 'Completed',
+                'completion_date' => now()->toDateString(),
+                'updated_by'      => $actor->id,
+            ]);
+
+            $this->logActivity($task, 'Approved', 'Submission accepted' . (!empty($data['note']) ? ": {$data['note']}" : ''));
+            $this->activityLog->log('Task', 'Submission Accepted', $task->client_id, null, ['title' => $task->title]);
+        } else {
+            $this->requestRevision($task, [
+                'reason_category' => $data['reason_category'] ?? 'Employee Mistake',
+                'note'            => $data['note'] ?? null,
+            ]);
+        }
+
+        $task = $task->fresh(['assignedUser:id,name', 'client:id,client_name', 'labels']);
+        $this->notifySubmitter($task, $actor, $accept, $data['note'] ?? null);
+
+        return $task;
+    }
+
+    /** Tell the requester their work is waiting. */
+    private function notifyReviewer(Task $task, User $actor, ?string $note): void
+    {
+        if (!$task->created_by || $task->created_by === $actor->id) {
+            return;
+        }
+
+        $reviewer = User::find($task->created_by);
+        $reviewer?->notify(new TaskSubmitted($task, $actor, $note));
+    }
+
+    /** Tell the assignee what the verdict was. */
+    private function notifySubmitter(Task $task, User $actor, bool $accepted, ?string $note): void
+    {
+        if (!$task->assigned_to || $task->assigned_to === $actor->id) {
+            return;
+        }
+
+        $assignee = User::find($task->assigned_to);
+        $assignee?->notify(new TaskReviewed($task, $actor, $accepted, $note));
+    }
+
+    /**
+     * Record a revision request against a task. Reopens a completed or submitted
+     * task so the assignee can rework it. Only 'Employee Mistake' revisions count
+     * against the quality KPI (see PerformanceCalculationService::revisionRate).
      */
     public function requestRevision(Task $task, array $data): TaskRevision
     {
@@ -124,8 +202,15 @@ class TaskService
                 'previous_status' => $task->status,
             ]);
 
-            if ($task->status === 'Completed') {
-                $task->update(['status' => 'In Progress', 'completion_date' => null, 'updated_by' => Auth::id()]);
+            // Submitted work that is sent back reopens the same way completed
+            // work does — it goes to the assignee, not into limbo.
+            if (in_array($task->status, ['Completed', Task::STATUS_SUBMITTED], true)) {
+                $task->update([
+                    'status'          => 'In Progress',
+                    'completion_date' => null,
+                    'submitted_at'    => null,
+                    'updated_by'      => Auth::id(),
+                ]);
             }
 
             $description = "Revision requested ({$data['reason_category']})" . (!empty($data['note']) ? ": {$data['note']}" : '');

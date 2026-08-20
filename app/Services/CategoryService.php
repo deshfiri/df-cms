@@ -11,7 +11,6 @@ class CategoryService
 {
     public function __construct(
         private readonly ActivityLogService    $activityLog,
-        private readonly ChangeApprovalService $changeApproval,
     ) {}
 
     public function update(Category $category, array $data): Category
@@ -22,8 +21,8 @@ class CategoryService
             'status' => $data['status'] ?? $category->status,
         ];
 
-        $this->changeApproval->guard(Category::class, $category->id, $category->only(array_keys($payload)), $payload, Auth::user());
-
+        // Not gated by change approval: categories are settings data, and the
+        // people who can reach this screen are already trusted with it.
         return DB::transaction(function () use ($category, $payload) {
             $old = $category->only(array_keys($payload));
             $category->update($payload);

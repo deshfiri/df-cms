@@ -115,14 +115,18 @@ class DashboardController extends Controller
             ->count();
 
         // ── Payment summary ───────────────────────────────────────────
+        // Date ranges rather than MONTH()/YEAR(): wrapping the column in a
+        // function makes the index on payment_date unusable, forcing a full
+        // scan of the payments table for every dashboard load.
+        $thisMonth = [now()->startOfMonth(), now()->endOfMonth()];
+        $lastMonth = [now()->subMonth()->startOfMonth(), now()->subMonth()->endOfMonth()];
+
         $thisMonthPayments = Payment::where('status', 'Paid')
-            ->whereMonth('payment_date', now()->month)
-            ->whereYear('payment_date', now()->year)
+            ->whereBetween('payment_date', $thisMonth)
             ->sum('amount');
 
         $lastMonthPayments = Payment::where('status', 'Paid')
-            ->whereMonth('payment_date', now()->subMonth()->month)
-            ->whereYear('payment_date', now()->subMonth()->year)
+            ->whereBetween('payment_date', $lastMonth)
             ->sum('amount');
 
         $paymentGrowth = $lastMonthPayments > 0
@@ -312,8 +316,10 @@ class DashboardController extends Controller
 
     private function monthlyClientData(): array
     {
+        // The grouping still needs MONTH(), but the *filter* is a range so the
+        // index narrows the scan to this year first.
         $rows = Client::selectRaw('MONTH(joining_date) as month, COUNT(*) as count')
-            ->whereYear('joining_date', now()->year)
+            ->whereBetween('joining_date', [now()->startOfYear(), now()->endOfYear()])
             ->whereNotNull('joining_date')
             ->withoutTrashed()
             ->groupBy('month')
@@ -330,7 +336,7 @@ class DashboardController extends Controller
     {
         $rows = Payment::selectRaw('MONTH(payment_date) as month, SUM(amount) as total')
             ->where('status', 'Paid')
-            ->whereYear('payment_date', now()->year)
+            ->whereBetween('payment_date', [now()->startOfYear(), now()->endOfYear()])
             ->groupBy('month')
             ->orderBy('month')
             ->pluck('total', 'month');
@@ -440,8 +446,7 @@ class DashboardController extends Controller
             $paymentSummary = [
                 'todayAmount' => Payment::whereDate('payment_date', today())->where('status', 'Paid')->sum('amount'),
                 'thisMonthAmount' => Payment::where('status', 'Paid')
-                    ->whereMonth('payment_date', now()->month)
-                    ->whereYear('payment_date', now()->year)
+                    ->whereBetween('payment_date', [now()->startOfMonth(), now()->endOfMonth()])
                     ->sum('amount'),
                 'pendingCount' => Payment::where('status', 'Unpaid')->count(),
                 'pendingAmount' => Payment::where('status', 'Unpaid')->sum('amount'),

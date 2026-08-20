@@ -2,6 +2,7 @@
 
 namespace App\Services\Performance;
 
+use App\Models\ClientSatisfactionRating;
 use App\Models\KpiWeightConfig;
 use App\Models\Payment;
 use App\Models\PerformanceSetting;
@@ -31,6 +32,106 @@ class PerformanceCalculationService
         return $this->weightConfigsCache ??= KpiWeightConfig::all();
     }
 
+    // ── Cohort prefetch ──────────────────────────────────────────────────
+    //
+    // Scoring one employee costs six queries. The scoreboard scores everyone,
+    // so the cost was six per head — 66 queries for ten people, and it grows
+    // with the payroll. prefetch() loads the same rows for the whole cohort in
+    // a fixed five, and the per-employee methods read from it.
+    //
+    // Nothing here changes what is computed: each method still derives its
+    // numbers from exactly the rows it would have fetched for itself, and falls
+    // back to querying when the cohort was not prefetched (a single-employee
+    // page, or any other caller).
+
+    private ?string $prefetchPeriod = null;
+    /** @var array<int,\Illuminate\Support\Collection> */
+    private array $tasksByUser = [];
+    /** @var array<int,SalesTarget> */
+    private array $targetsByUser = [];
+    /** @var array<int,float> */
+    private array $salesByUser = [];
+    /** @var array<int,\Illuminate\Support\Collection> */
+    private array $ratingsByUser = [];
+
+    /**
+     * @param  \Illuminate\Support\Collection<int,User>|array<int,User>  $users
+     */
+    public function prefetch($users, string $period): void
+    {
+        $ids = collect($users)->pluck('id')->filter()->unique()->values();
+
+        if ($ids->isEmpty()) {
+            return;
+        }
+
+        [$start, $end] = $this->periodBounds($period);
+
+        // One task set per employee, serving task completion, on-time and
+        // revision rate — all three are subsets of "their tasks due this period".
+        $this->tasksByUser = Task::whereIn('assigned_to', $ids)
+            ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
+            ->withCount('revisions')
+            ->with(['revisions' => fn ($q) => $q->where('reason_category', 'Employee Mistake')])
+            ->get()
+            ->groupBy('assigned_to')
+            ->all();
+
+        $this->targetsByUser = SalesTarget::whereIn('user_id', $ids)
+            ->where('period', $period)
+            ->get()
+            ->keyBy('user_id')
+            ->all();
+
+        // Sum of paid revenue per account manager. whereNull('deleted_at')
+        // reproduces the soft-delete scope that whereHas('client') applied.
+        $this->salesByUser = Payment::query()
+            ->join('clients', 'clients.id', '=', 'payments.client_id')
+            ->where('payments.status', 'Paid')
+            ->whereBetween('payments.payment_date', [$start->toDateString(), $end->toDateString()])
+            ->whereIn('clients.assigned_to', $ids)
+            ->whereNull('clients.deleted_at')
+            ->groupBy('clients.assigned_to')
+            ->selectRaw('clients.assigned_to as user_id, sum(payments.amount) as total')
+            ->pluck('total', 'user_id')
+            ->map(fn ($total) => (float) $total)
+            ->all();
+
+        $this->ratingsByUser = ClientSatisfactionRating::included()
+            ->whereIn('employee_id', $ids)
+            ->whereBetween('created_at', [$start, $end])
+            ->get()
+            ->groupBy('employee_id')
+            ->all();
+
+        $this->prefetchPeriod = $period;
+    }
+
+    /** True when this exact period was prefetched for the cohort. */
+    private function prefetched(string $period): bool
+    {
+        return $this->prefetchPeriod === $period;
+    }
+
+    /**
+     * The employee's tasks due in the period — from the cohort load when there
+     * is one, otherwise fetched for them alone.
+     */
+    private function tasksFor(User $user, string $period): \Illuminate\Support\Collection
+    {
+        if ($this->prefetched($period)) {
+            return $this->tasksByUser[$user->id] ?? collect();
+        }
+
+        [$start, $end] = $this->periodBounds($period);
+
+        return Task::where('assigned_to', $user->id)
+            ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
+            ->withCount('revisions')
+            ->with(['revisions' => fn ($q) => $q->where('reason_category', 'Employee Mistake')])
+            ->get();
+    }
+
     public function periodBounds(string $period): array
     {
         $start = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
@@ -45,12 +146,9 @@ class PerformanceCalculationService
 
     public function taskCompletion(User $user, string $period): array
     {
-        [$start, $end] = $this->periodBounds($period);
         $settings = $this->settings();
 
-        $tasks = Task::where('assigned_to', $user->id)
-            ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
-            ->get(['id', 'status', 'due_date']);
+        $tasks = $this->tasksFor($user, $period);
 
         $total     = $tasks->count();
         $completed = $tasks->where('status', 'Completed')->count();
@@ -58,7 +156,9 @@ class PerformanceCalculationService
         $pending   = $tasks->where('status', 'Pending')->count();
         $onHold    = $tasks->where('status', 'On Hold')->count();
         $inProgress = $tasks->where('status', 'In Progress')->count();
-        $overdue   = $tasks->filter(fn (Task $t) => $t->due_date && $t->due_date->isPast() && !in_array($t->status, ['Completed', 'Cancelled'], true))->count();
+        // Task::$settledStatuses, so submitted work waiting on a reviewer is not
+        // counted late against the person who handed it in.
+        $overdue   = $tasks->filter(fn (Task $t) => $t->due_date && $t->due_date->isPast() && !in_array($t->status, Task::$settledStatuses, true))->count();
 
         $denominator = $settings->count_cancelled_against_kpi ? $total : ($total - $cancelled);
         $completionPct = $denominator > 0 ? round($completed / $denominator * 100, 2) : null;
@@ -72,13 +172,10 @@ class PerformanceCalculationService
 
     public function onTimeCompletion(User $user, string $period): array
     {
-        [$start, $end] = $this->periodBounds($period);
-
-        $completed = Task::where('assigned_to', $user->id)
+        $completed = $this->tasksFor($user, $period)
             ->where('status', 'Completed')
-            ->whereNotNull('completion_date')
-            ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
-            ->get(['id', 'due_date', 'completion_date']);
+            ->filter(fn (Task $t) => $t->completion_date !== null)
+            ->values();
 
         $before = $onTime = $after = 0;
         $delays = [];
@@ -129,16 +226,11 @@ class PerformanceCalculationService
 
     public function revisionRate(User $user, string $period): array
     {
-        [$start, $end] = $this->periodBounds($period);
-
-        $tasks = Task::where('assigned_to', $user->id)
-            ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
-            ->where(function ($q) {
-                $q->where('status', 'Completed')->orWhereHas('revisions');
-            })
-            ->withCount('revisions')
-            ->with(['revisions' => fn ($q) => $q->where('reason_category', 'Employee Mistake')])
-            ->get();
+        // Same filter the query applied: completed work, plus anything that was
+        // sent back regardless of where it ended up.
+        $tasks = $this->tasksFor($user, $period)
+            ->filter(fn (Task $t) => $t->status === 'Completed' || $t->revisions_count > 0)
+            ->values();
 
         $totalSubmitted = $tasks->count();
         $requiringRevision = $tasks->where('revisions_count', '>', 0)->count();
@@ -158,17 +250,24 @@ class PerformanceCalculationService
 
     public function salesAchievement(User $user, string $period): ?array
     {
-        $target = SalesTarget::where('user_id', $user->id)->where('period', $period)->first();
+        $prefetched = $this->prefetched($period);
+
+        $target = $prefetched
+            ? ($this->targetsByUser[$user->id] ?? null)
+            : SalesTarget::where('user_id', $user->id)->where('period', $period)->first();
+
         if (!$target) {
             return null;
         }
 
         [$start, $end] = $this->periodBounds($period);
 
-        $achieved = (float) Payment::where('status', 'Paid')
-            ->whereBetween('payment_date', [$start->toDateString(), $end->toDateString()])
-            ->whereHas('client', fn ($q) => $q->where('assigned_to', $user->id))
-            ->sum('amount');
+        $achieved = $prefetched
+            ? ($this->salesByUser[$user->id] ?? 0.0)
+            : (float) Payment::where('status', 'Paid')
+                ->whereBetween('payment_date', [$start->toDateString(), $end->toDateString()])
+                ->whereHas('client', fn ($q) => $q->where('assigned_to', $user->id))
+                ->sum('amount');
 
         $targetAmount = (float) $target->target_amount;
         $pct = $targetAmount > 0 ? round($achieved / $targetAmount * 100, 2) : null;
@@ -188,9 +287,11 @@ class PerformanceCalculationService
     {
         [$start, $end] = $this->periodBounds($period);
 
-        $ratings = $user->satisfactionRatings()->included()
-            ->whereBetween('created_at', [$start, $end])
-            ->get();
+        $ratings = $this->prefetched($period)
+            ? ($this->ratingsByUser[$user->id] ?? collect())
+            : $user->satisfactionRatings()->included()
+                ->whereBetween('created_at', [$start, $end])
+                ->get();
 
         if ($ratings->isEmpty()) {
             return null;

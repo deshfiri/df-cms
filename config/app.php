@@ -43,6 +43,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Application-level response compression
+    |--------------------------------------------------------------------------
+    |
+    | Gzips rendered responses in PHP (App\Http\Middleware\CompressResponse).
+    | This is a fallback for servers that do not compress — `php artisan serve`
+    | compresses nothing. Behind nginx, set COMPRESS_RESPONSES=false and let
+    | `gzip on` do it: it is faster and, unlike this, also covers the static
+    | files under public/. See deploy/nginx.conf.example.
+    |
+    */
+
+    'compress_responses' => (bool) env('COMPRESS_RESPONSES', true),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application URL
     |--------------------------------------------------------------------------
     |

@@ -52,7 +52,12 @@ class PerformanceController extends Controller
                 $query->role($department);
             }
 
-            $rows = $query->get(['id', 'name'])
+            $users = $query->get(['id', 'name']);
+
+            // One cohort load instead of six queries per employee.
+            $this->performance->prefetch($users, $period);
+
+            $rows = $users
                 ->map(function (User $user) use ($period) {
                     $score = $this->performance->finalScore($user, $period);
 

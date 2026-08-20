@@ -11,6 +11,16 @@ use Illuminate\Support\Facades\DB;
 
 class ClientService
 {
+    /**
+     * Client fields a non-privileged edit must have approved.
+     *
+     * Ownership decides who sees and works the account, status decides whether
+     * it is still live, and category drives reporting — a quiet change to any
+     * of them is worth a second pair of eyes. Editing an address or a phone
+     * number is not, and gating those simply stopped people doing their job.
+     */
+    private const APPROVAL_FIELDS = ['assigned_to', 'client_status', 'category_id'];
+
     public function __construct(
         private readonly ClientRepositoryInterface   $clientRepo,
         private readonly WorkflowRepositoryInterface $workflowRepo,
@@ -40,7 +50,14 @@ class ClientService
             $this->guardTermination();
         }
 
-        $this->changeApproval->guard(Client::class, $client->id, $client->only(array_keys($data)), $data, Auth::user());
+        $this->changeApproval->guardFields(
+            Client::class,
+            $client->id,
+            $client->only(array_keys($data)),
+            $data,
+            Auth::user(),
+            self::APPROVAL_FIELDS,
+        );
 
         return DB::transaction(function () use ($client, $data) {
             $old = $client->toArray();
@@ -67,12 +84,15 @@ class ClientService
             $this->guardTermination();
         }
 
-        $this->changeApproval->guard(
+        // client_status is a watched field, so this always needs approval from a
+        // non-privileged user — routed through the same check for one rule.
+        $this->changeApproval->guardFields(
             Client::class,
             $client->id,
             ['client_status' => $client->client_status],
             ['client_status' => $status],
-            Auth::user()
+            Auth::user(),
+            self::APPROVAL_FIELDS,
         );
 
         $old = $client->client_status;

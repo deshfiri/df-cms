@@ -553,6 +553,9 @@ $topCards = [
 @endsection
 
 @push('scripts')
+{{-- Loaded per page rather than app-wide: only the pages that draw charts pay
+     for it. A classic script tag, so it is ready before the code below runs. --}}
+<script src="{{ App\Support\ShellAsset::url('vendor/js/chart.umd.min.js') }}"></script>
 <script>
 var ct = chartTheme();
 var primaryRgb = getComputedStyle(document.documentElement).getPropertyValue('--primary-rgb').trim() || '37,99,235';

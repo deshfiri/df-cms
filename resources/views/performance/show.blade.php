@@ -212,6 +212,8 @@
 @endsection
 
 @push('scripts')
+{{-- Chart.js is not in the layout; this page needs it. --}}
+<script src="{{ App\Support\ShellAsset::url('vendor/js/chart.umd.min.js') }}"></script>
 @if (count($trend['labels']) > 1)
 <script>
 $(function () {

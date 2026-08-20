@@ -14,13 +14,31 @@ class Task extends Model
     use SoftDeletes, InvalidatesPerformanceBoard;
 
     public static array $priorities = ['Low', 'Medium', 'High', 'Urgent'];
-    public static array $statuses   = ['Pending', 'In Progress', 'On Hold', 'Completed', 'Cancelled', 'Overdue'];
+
+    /**
+     * 'Submitted' sits between working and done: the assignee has handed it
+     * back and it is waiting on whoever assigned it to accept or return it.
+     */
+    public const STATUS_SUBMITTED = 'Submitted';
+
+    public static array $statuses = ['Pending', 'In Progress', 'On Hold', 'Submitted', 'Completed', 'Cancelled', 'Overdue'];
+
+    /** Statuses an assignee may submit from. */
+    public static array $submittableStatuses = ['Pending', 'In Progress', 'On Hold'];
+
+    /**
+     * Statuses where the assignee no longer owes any work, so nothing can be
+     * overdue on them. 'Submitted' belongs here: the work has been handed in
+     * and is waiting on a reviewer — counting it late would blame the assignee
+     * for somebody else's delay, including in the performance KPI.
+     */
+    public static array $settledStatuses = ['Submitted', 'Completed', 'Cancelled'];
     public static array $types      = ['Call', 'Meeting', 'Email', 'Follow Up', 'Visit', 'Proposal', 'Invoice', 'Support', 'Other'];
 
     protected $fillable = [
         'title', 'description', 'client_id', 'assigned_to', 'created_by', 'updated_by',
         'priority', 'status', 'type',
-        'start_date', 'due_date', 'completion_date', 'reminder_at',
+        'start_date', 'due_date', 'completion_date', 'submitted_at', 'reminder_at',
         'estimated_hours', 'actual_hours',
     ];
 
@@ -30,6 +48,7 @@ class Task extends Model
             'start_date'       => 'date',
             'due_date'         => 'date',
             'completion_date'  => 'date',
+            'submitted_at'     => 'datetime',
             'reminder_at'      => 'datetime',
             'estimated_hours'  => 'decimal:2',
             'actual_hours'     => 'decimal:2',
@@ -85,7 +104,7 @@ class Task extends Model
     {
         return $this->due_date
             && $this->due_date->isPast()
-            && !in_array($this->status, ['Completed', 'Cancelled'], true);
+            && !in_array($this->status, self::$settledStatuses, true);
     }
 
     public function scopeStatus($query, string $status)
@@ -96,6 +115,6 @@ class Task extends Model
     public function scopeOverdue($query)
     {
         return $query->whereDate('due_date', '<', today())
-            ->whereNotIn('status', ['Completed', 'Cancelled']);
+            ->whereNotIn('status', self::$settledStatuses);
     }
 }

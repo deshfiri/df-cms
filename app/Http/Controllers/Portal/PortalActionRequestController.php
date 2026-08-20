@@ -17,7 +17,8 @@ class PortalActionRequestController extends Controller
     public function __construct(
         private readonly ActionRequestPolicy $policy,
         private readonly PortalActionRequestService $service,
-    ) {}
+    ) {
+    }
 
     public function index()
     {
@@ -46,7 +47,7 @@ class PortalActionRequestController extends Controller
 
         $data = $request->validate([
             'response_text' => ['nullable', 'string', 'max:5000'],
-            'file'          => [$actionRequest->required_attachment ? 'required' : 'nullable', 'file', 'max:20480'],
+            'file' => [$actionRequest->required_attachment ? 'required' : 'nullable', 'file', 'max:20480'],
         ]);
 
         if (empty($data['response_text']) && !$request->hasFile('file')) {

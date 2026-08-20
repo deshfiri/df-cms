@@ -281,5 +281,36 @@
                 Swal.fire('Error', r.responseJSON?.message || 'Could not save campaign.', 'error');
             });
         });
+
+        // ── Delete a campaign ─────────────────────────────────────────────
+        // The button only exists for users the policy allows, and the endpoint
+        // checks again. Campaigns are soft-deleted, so the wording promises
+        // removal from the list rather than destruction.
+        $(document).on('click', '.campaign-delete', function () {
+            var id = $(this).data('id');
+            var name = $(this).data('name');
+
+            Swal.fire({
+                icon: 'warning',
+                title: 'Delete this campaign?',
+                html: '<strong>' + $('<div>').text(name).html() + '</strong>'
+                    + '<div style="font-size:.85rem;margin-top:.5rem">It is removed from the list and from the totals above.'
+                    + ' The record and its daily reports are retained in the database, not erased.</div>',
+                showCancelButton: true,
+                confirmButtonText: 'Delete',
+                confirmButtonColor: '#dc3545',
+            }).then(function (result) {
+                if (!result.isConfirmed) return;
+
+                $.ajax({ url: '{{ url("ads") }}/' + id, type: 'DELETE' })
+                    .done(function () {
+                        window.cTable.ajax.reload();
+                        Swal.fire({ icon: 'success', title: 'Campaign deleted', timer: 1300, showConfirmButton: false });
+                    })
+                    .fail(function (r) {
+                        Swal.fire('Error', r.responseJSON?.message || 'Could not delete campaign.', 'error');
+                    });
+            });
+        });
     </script>
 @endpush

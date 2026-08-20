@@ -23,6 +23,11 @@
             <i class="bi bi-person-check me-1"></i><span id="assignBtnLabel">{{ $campaign->assigned_to ? 'Reassign' : 'Assign' }}</span>
         </button>
         @endcan
+        @can('delete', $campaign)
+        <button class="btn btn-sm btn-outline-danger" id="deleteCampaignBtn">
+            <i class="bi bi-trash me-1"></i>Delete
+        </button>
+        @endcan
     </div>
 </div>
 
@@ -170,6 +175,8 @@
 @endsection
 
 @push('scripts')
+{{-- Chart.js is not in the layout; this page needs it. --}}
+<script src="{{ App\Support\ShellAsset::url('vendor/js/chart.umd.min.js') }}"></script>
 <script>
 var campaignBase = '/clients/{{ $campaign->client_id }}/ads/{{ $campaign->id }}';
 var canEditReports = @json($canEdit);
@@ -348,6 +355,33 @@ $('#saveAssign').on('click', function () {
         Swal.fire('Error', r.responseJSON?.message || 'Could not assign campaign.', 'error');
     }).always(function () {
         setBtnLoading($btn, false);
+    });
+});
+
+// ── Delete this campaign ─────────────────────────────────────────────────
+// Soft delete, then back to the list — staying here would show a campaign that
+// no longer appears anywhere.
+$('#deleteCampaignBtn').on('click', function () {
+    Swal.fire({
+        icon: 'warning',
+        title: 'Delete this campaign?',
+        html: '<strong>{{ e($campaign->name) }}</strong>'
+            + '<div style="font-size:.85rem;margin-top:.5rem">'
+            + 'It is removed from the campaign list, along with its {{ $campaign->dailyReports->count() }} daily report(s).'
+            + ' The records are retained in the database, not erased.</div>',
+        showCancelButton: true,
+        confirmButtonText: 'Delete',
+        confirmButtonColor: '#dc3545',
+    }).then(function (result) {
+        if (!result.isConfirmed) return;
+
+        $.ajax({ url: campaignBase, type: 'DELETE' })
+            .done(function () {
+                window.location = '{{ route('ads.index') }}';
+            })
+            .fail(function (r) {
+                Swal.fire('Error', r.responseJSON?.message || 'Could not delete campaign.', 'error');
+            });
     });
 });
 </script>

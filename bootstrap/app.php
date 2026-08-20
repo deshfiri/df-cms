@@ -2,6 +2,7 @@
 
 use App\Exceptions\ChangeRequiresApprovalException;
 use App\Exceptions\WorkloadLimitException;
+use App\Http\Middleware\CompressResponse;
 use App\Http\Middleware\EnsurePortalAccountActive;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -18,6 +19,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'portal.active' => EnsurePortalAccountActive::class,
         ]);
+
+        // Outermost, so it sees the finished body of every response.
+        $middleware->append(CompressResponse::class);
 
         // Unauthenticated requests to a /portal/* route must bounce to the
         // portal login, never the staff one (and vice versa) — without this,

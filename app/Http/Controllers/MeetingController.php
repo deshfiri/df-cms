@@ -112,7 +112,27 @@ class MeetingController extends Controller
             'meeting'      => $this->resource($meeting),
             'client_url'   => route('clients.show', $client),
             'client_name'  => $client->client_name,
+            'link_warning' => $this->linkWarning($meeting),
         ]);
+    }
+
+    /**
+     * A video meeting that ended up with no join link at all.
+     *
+     * Google Calendar failures are deliberately non-fatal — booking must never
+     * depend on a third party being reachable — but staying silent means the
+     * gap is only discovered when the client asks how to join.
+     */
+    private function linkWarning(ClientMeeting $meeting): ?string
+    {
+        $needsLink = in_array($meeting->type, ['video', 'online'], true);
+
+        if (!$needsLink || $meeting->join_url) {
+            return null;
+        }
+
+        return 'No join link was set: the Google Calendar connection did not return one. '
+            . 'Add a link on the meeting, or check Settings → Google Meet Integration.';
     }
 
     public function update(Request $request, Client $client, ClientMeeting $meeting): JsonResponse

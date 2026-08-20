@@ -123,6 +123,42 @@
             </div>
         </div>
 
+        {{-- Favicon --}}
+        <div class="card border-0 shadow-sm mb-4">
+            <div class="card-header py-3">
+                <h6 class="fw-bold mb-0">Favicon</h6>
+                <small class="text-muted">ICO / PNG / SVG / WebP / JPG · Max 256 KB · A square image works best — 32×32 or larger.</small>
+            </div>
+            <div class="card-body">
+                @if($appFavicon)
+                <div class="mb-3 p-3 border rounded d-flex align-items-center gap-3">
+                    <img src="{{ asset($appFavicon) }}" alt="Current favicon"
+                         style="width:32px;height:32px;object-fit:contain">
+                    <div>
+                        <div class="small text-muted mb-1">Current favicon</div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="remove_favicon" value="1" id="removeFavicon">
+                            <label class="form-check-label small text-danger" for="removeFavicon">Remove favicon</label>
+                        </div>
+                    </div>
+                </div>
+                @endif
+                <label class="form-label small fw-semibold">{{ $appFavicon ? 'Replace favicon' : 'Upload favicon' }}</label>
+                <input type="file" name="favicon" accept=".ico,.png,.jpg,.jpeg,.svg,.webp"
+                       class="form-control @error('favicon') is-invalid @enderror" id="faviconInput">
+                @error('favicon')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                <div id="faviconPreviewWrap" class="mt-2 d-none">
+                    <img id="faviconPreview" src="" alt="Preview"
+                         style="width:32px;height:32px;object-fit:contain;border:1px solid #dee2e6;padding:3px;border-radius:6px">
+                </div>
+                @unless($appFavicon)
+                    <div class="small text-muted mt-2">
+                        None set — browsers show their own default icon in the tab.
+                    </div>
+                @endunless
+            </div>
+        </div>
+
         <button type="submit" class="btn btn-primary px-4">
             <i class="bi bi-save me-1"></i>Save Settings
         </button>
@@ -293,6 +329,20 @@ $(document).on('click', '.color-preset', function () {
 // ── App name preview ──────────────────────────────────────────────────────────
 $('#inputAppName').on('input', function () {
     $('#previewName').text($(this).val().trim() || 'App Name');
+});
+
+// ── Favicon preview ───────────────────────────────────────────────────────────
+// Shown at the size a browser tab actually uses, so a picture that is too busy
+// to read at 32px is obvious before saving.
+$('#faviconInput').on('change', function () {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        $('#faviconPreview').attr('src', e.target.result);
+        $('#faviconPreviewWrap').removeClass('d-none');
+    };
+    reader.readAsDataURL(file);
 });
 
 // ── Logo preview ──────────────────────────────────────────────────────────────

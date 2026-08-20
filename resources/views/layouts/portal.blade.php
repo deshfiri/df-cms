@@ -22,6 +22,12 @@
     @endphp
     <title>@yield('title', 'Dashboard') — {{ $appName }} Client Portal</title>
 
+    @php $appFavicon = \App\Models\Setting::get('app_favicon'); @endphp
+    @if($appFavicon)
+        <link rel="icon" href="{{ asset($appFavicon) }}">
+        <link rel="apple-touch-icon" href="{{ asset($appFavicon) }}">
+    @endif
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">

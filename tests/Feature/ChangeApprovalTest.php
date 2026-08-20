@@ -15,6 +15,12 @@ use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
+/**
+ * Change approval is deliberately narrow: it covers the client fields where a
+ * quiet change matters (owner, status, category), plus payments and user
+ * accounts. Ordinary detail edits — and all task, meeting and category work —
+ * apply immediately, because gating them stopped people doing their jobs.
+ */
 class ChangeApprovalTest extends TestCase
 {
     use RefreshDatabase;
@@ -53,6 +59,21 @@ class ChangeApprovalTest extends TestCase
         return $user;
     }
 
+    /**
+     * An edit that touches a watched field (client_status) and so requires
+     * approval, carrying an ordinary field along with it.
+     */
+    private function watchedEdit(Client $client, string $remarks): array
+    {
+        return [
+            'remarks'       => $remarks,
+            'client_status' => 'Warning',
+            'client_name'   => $client->client_name,
+            'brand_name'    => $client->brand_name,
+            'category_id'   => $client->category_id,
+        ];
+    }
+
     public function test_a_non_privileged_users_edit_is_held_pending_and_does_not_apply(): void
     {
         Notification::fake();
@@ -64,7 +85,7 @@ class ChangeApprovalTest extends TestCase
         $this->expectException(ChangeRequiresApprovalException::class);
 
         try {
-            $this->clientService->update($client, ['remarks' => 'Changed by Sales', 'client_name' => $client->client_name, 'brand_name' => $client->brand_name, 'category_id' => $client->category_id]);
+            $this->clientService->update($client, $this->watchedEdit($client, 'Changed by Sales'));
         } finally {
             $this->assertSame('Original remarks', $client->fresh()->remarks);
             $this->assertDatabaseHas('pending_changes', [
@@ -86,7 +107,7 @@ class ChangeApprovalTest extends TestCase
         auth()->login($sales);
 
         try {
-            $this->clientService->update($client, ['remarks' => 'Changed by Sales', 'client_name' => $client->client_name, 'brand_name' => $client->brand_name, 'category_id' => $client->category_id]);
+            $this->clientService->update($client, $this->watchedEdit($client, 'Changed by Sales'));
         } catch (ChangeRequiresApprovalException) {
             // expected
         }
@@ -120,12 +141,7 @@ class ChangeApprovalTest extends TestCase
 
         foreach (['First edit', 'Second edit'] as $remarks) {
             try {
-                $this->clientService->update($client, [
-                    'remarks' => $remarks,
-                    'client_name' => $client->client_name,
-                    'brand_name' => $client->brand_name,
-                    'category_id' => $client->category_id,
-                ]);
+                $this->clientService->update($client, $this->watchedEdit($client, $remarks));
             } catch (ChangeRequiresApprovalException) {
                 // expected
             }
@@ -144,12 +160,7 @@ class ChangeApprovalTest extends TestCase
         auth()->login($sales);
 
         try {
-            $this->clientService->update($client, [
-                'remarks' => 'Awaiting approval',
-                'client_name' => $client->client_name,
-                'brand_name' => $client->brand_name,
-                'category_id' => $client->category_id,
-            ]);
+            $this->clientService->update($client, $this->watchedEdit($client, 'Awaiting approval'));
         } catch (ChangeRequiresApprovalException) {
             // expected
         }
@@ -172,12 +183,7 @@ class ChangeApprovalTest extends TestCase
         auth()->login($sales);
 
         try {
-            $this->clientService->update($client, [
-                'remarks' => 'Should not apply',
-                'client_name' => $client->client_name,
-                'brand_name' => $client->brand_name,
-                'category_id' => $client->category_id,
-            ]);
+            $this->clientService->update($client, $this->watchedEdit($client, 'Should not apply'));
         } catch (ChangeRequiresApprovalException) {
             // expected
         }
@@ -189,6 +195,96 @@ class ChangeApprovalTest extends TestCase
 
         $this->assertSame('Original remarks', $client->fresh()->remarks);
         $this->assertSame(PendingChange::STATUS_REJECTED, $pending->fresh()->status);
+    }
+
+    // ── What is deliberately NOT gated ───────────────────────────────────
+
+    public function test_an_ordinary_detail_edit_applies_immediately(): void
+    {
+        $client = $this->makeClient();
+        auth()->login($this->makeUser('Sales'));
+
+        // Correcting a remark or a phone number is not a four-eyes decision.
+        $updated = $this->clientService->update($client, [
+            'remarks'     => 'Called, will follow up Tuesday',
+            'client_name' => $client->client_name,
+            'brand_name'  => $client->brand_name,
+        ]);
+
+        $this->assertSame('Called, will follow up Tuesday', $updated->remarks);
+        $this->assertDatabaseCount('pending_changes', 0);
+    }
+
+    public function test_resubmitting_a_watched_field_unchanged_is_not_an_approval(): void
+    {
+        $client = $this->makeClient();
+        auth()->login($this->makeUser('Sales'));
+
+        // The edit form posts every field, so a watched field present but
+        // unchanged must not queue a change on its own.
+        $updated = $this->clientService->update($client, [
+            'remarks'     => 'Just a note',
+            'category_id' => $client->category_id,
+            'client_name' => $client->client_name,
+            'brand_name'  => $client->brand_name,
+        ]);
+
+        $this->assertSame('Just a note', $updated->remarks);
+        $this->assertDatabaseCount('pending_changes', 0);
+    }
+
+    public function test_changing_the_owner_still_needs_approval(): void
+    {
+        $client = $this->makeClient();
+        $newOwner = $this->makeUser('Sales');
+        auth()->login($this->makeUser('Sales'));
+
+        $this->expectException(ChangeRequiresApprovalException::class);
+
+        try {
+            $this->clientService->update($client, [
+                'assigned_to' => $newOwner->id,
+                'client_name' => $client->client_name,
+                'brand_name'  => $client->brand_name,
+            ]);
+        } finally {
+            $this->assertNull($client->fresh()->assigned_to);
+            $this->assertDatabaseCount('pending_changes', 1);
+        }
+    }
+
+    public function test_a_task_edit_is_not_gated(): void
+    {
+        $client = $this->makeClient();
+        $worker = $this->makeUser('Sales');
+        auth()->login($worker);
+
+        $task = \App\Models\Task::create([
+            'title'       => 'Prepare the deck',
+            'client_id'   => $client->id,
+            'assigned_to' => $worker->id,
+            'created_by'  => $worker->id,
+            'status'      => 'In Progress',
+            'priority'    => 'Medium',
+        ]);
+
+        // Marking your own work complete is the single most routine action in
+        // the app; it must never wait on a manager.
+        $updated = app(\App\Services\TaskService::class)->update($task, ['status' => 'Completed']);
+
+        $this->assertSame('Completed', $updated->status);
+        $this->assertDatabaseCount('pending_changes', 0);
+    }
+
+    public function test_a_category_edit_is_not_gated(): void
+    {
+        $category = Category::create(['name' => 'Retail', 'slug' => 'retail-' . uniqid(), 'status' => true]);
+        auth()->login($this->makeUser('Sales'));
+
+        $updated = app(\App\Services\CategoryService::class)->update($category, ['name' => 'Retail & Wholesale']);
+
+        $this->assertSame('Retail & Wholesale', $updated->name);
+        $this->assertDatabaseCount('pending_changes', 0);
     }
 
     public function test_a_non_approver_cannot_access_the_pending_changes_queue(): void

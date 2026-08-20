@@ -28,6 +28,42 @@ class ChangeApprovalService
     }
 
     /**
+     * Guard an edit only when it actually touches something worth reviewing.
+     *
+     * Applying four-eyes review to every field of every record turned routine
+     * work into a two-step process — a salesperson could not correct a phone
+     * number without a manager signing it off. Review is now reserved for the
+     * fields where a wrong or quiet change matters: who owns a client, whether
+     * it is still active, and what it is categorised as.
+     *
+     * @param  array<int,string>  $watched  Fields that require approval.
+     *
+     * @throws ChangeRequiresApprovalException
+     */
+    public function guardFields(
+        string $modelClass,
+        int $modelId,
+        array $oldValues,
+        array $newValues,
+        User $actor,
+        array $watched,
+    ): void {
+        $touched = array_filter(
+            $watched,
+            fn (string $field) => array_key_exists($field, $newValues)
+                && ($oldValues[$field] ?? null) != $newValues[$field]
+        );
+
+        if (!$touched) {
+            return;
+        }
+
+        // The whole edit waits, not just the sensitive field: approving replays
+        // the payload as one update, and splitting it would apply half an edit.
+        $this->guard($modelClass, $modelId, $oldValues, $newValues, $actor);
+    }
+
+    /**
      * No-op for a Super Admin/Manager (their edit proceeds immediately).
      * Otherwise, records (or amends) a pending proposal for this exact record,
      * notifies the approvers, and throws — the pending row is fully committed

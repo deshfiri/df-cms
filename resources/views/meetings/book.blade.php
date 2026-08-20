@@ -201,9 +201,15 @@
                     </div>
                     <div class="col-12 d-none" id="bookLinkWrap">
                         <label class="form-label fw-semibold">Join Link</label>
-                        <div class="d-flex align-items-center gap-2 p-2 rounded" style="background:var(--surface2);border:1px solid var(--border);color:var(--text3)">
-                            <i class="bi bi-camera-video"></i>
-                            <span>A Google Meet link is generated automatically when saved</span>
+                        <input type="url" id="bookLink" class="form-control"
+                               placeholder="https://meet.google.com/… or a Zoom / Teams link">
+                        {{-- An editable field rather than a promise: Google fills this
+                             in automatically when the Calendar integration is connected,
+                             but if it is not, a link pasted here is what the client
+                             actually receives. --}}
+                        <div style="font-size:.72rem;color:var(--text3);margin-top:4px">
+                            Leave blank to use the Google Meet link generated on save. If Google Calendar
+                            is not connected, paste a link here so the meeting still has one.
                         </div>
                     </div>
 
@@ -433,16 +439,25 @@ $('#bookSubmitBtn').on('click', function() {
             scheduled_at:     selectedSlot.date + ' ' + selectedSlot.time,
             duration_minutes: $('#bookDuration').val(),
             location:         $('#bookLocation').val().trim(),
+            meeting_link:     $('#bookLink').val().trim(),
             assigned_to:      assignedTo,
             agenda:           $('#bookAgenda').val().trim(),
         }
     })
     .done(function(r) {
-        $('#bookSuccessMsg').removeClass('d-none').html(
-            '<i class="bi bi-check-circle-fill me-2"></i>' +
+        var msg = '<i class="bi bi-check-circle-fill me-2"></i>' +
             'Meeting booked successfully for <strong>' + $('<div>').text(r.client_name).html() + '</strong>! ' +
-            '<a href="' + r.client_url + '?tab=meetings" class="ms-2 fw-semibold c-green">View in client profile →</a>'
-        );
+            '<a href="' + r.client_url + '?tab=meetings" class="ms-2 fw-semibold c-green">View in client profile →</a>';
+
+        // A video meeting with no link at all is the failure people otherwise
+        // only discover when the client asks how to join.
+        if (r.link_warning) {
+            msg += '<div class="mt-2" style="font-size:.78rem;color:var(--c-yellow)">'
+                 + '<i class="bi bi-exclamation-triangle-fill me-1"></i>'
+                 + $('<div>').text(r.link_warning).html() + '</div>';
+        }
+
+        $('#bookSuccessMsg').removeClass('d-none').html(msg);
         $('html,body').animate({ scrollTop: 0 }, 300);
         resetBookForm();
     })
@@ -466,7 +481,7 @@ $('#bookSubmitBtn').on('click', function() {
 function resetBookForm() {
     $('#bookClientId').val(null).trigger('change');
     $('#bookAssignedTo').val('').trigger('change');
-    $('#bookTitle,#bookLocation,#bookAgenda').val('');
+    $('#bookTitle,#bookLocation,#bookLink,#bookAgenda').val('');
     $('#bookDuration').val('60');
     $('#bookType').val('in_person');
     $('.type-card').removeClass('selected');

@@ -178,7 +178,12 @@ function renderMeetingCard(m) {
         (m.client_dfid ? ' <span style="font-size:.68rem;color:var(--text3);font-family:monospace">' + esc(m.client_dfid) + '</span>' : '');
 
     var locationHtml = m.location ? '<span><i class="bi bi-geo-alt me-1"></i>' + esc(m.location) + '</span>' : '';
-    var linkHtml = m.join_url ? '<a href="' + esc(m.join_url) + '" target="_blank" style="color:var(--primary)"><i class="bi bi-box-arrow-up-right me-1"></i>Join</a>' : '';
+    // A video meeting with no link is a problem worth showing, not a blank space.
+    var needsLink = (m.type === 'video' || m.type === 'online');
+    var linkHtml = m.join_url
+        ? '<a href="' + esc(m.join_url) + '" target="_blank" style="color:var(--primary)"><i class="bi bi-box-arrow-up-right me-1"></i>Join</a>'
+          + (m.google_meet_url ? ' <span title="Google Meet"><i class="bi bi-camera-video-fill" style="color:var(--c-green)"></i></span>' : '')
+        : (needsLink ? '<span style="color:var(--c-yellow)" title="No Google Meet link was generated for this meeting"><i class="bi bi-exclamation-triangle me-1"></i>No join link</span>' : '');
     var notesHtml = (m.notes && m.status === 'Completed') ? '<div class="mt-2 p-2 rounded" style="background:var(--surface2);border:1px solid var(--border);font-size:.74rem;color:var(--text2)"><i class="bi bi-journal-text me-1"></i>' + esc(m.notes) + '</div>' : '';
 
     return '<div class="meeting-card status-' + statusSlug(m.status) + (m.is_overdue ? ' overdue' : '') + '">' +

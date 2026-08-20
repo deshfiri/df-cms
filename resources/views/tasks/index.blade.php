@@ -25,7 +25,7 @@
 {{-- Filter pills --}}
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
     <button class="fpill" data-status="" id="pillAll">All</button>
-    @php $statusCls = ['Pending'=>'spill-pending','In Progress'=>'spill-in-progress','On Hold'=>'spill-hold','Completed'=>'spill-approved','Cancelled'=>'spill-rejected']; @endphp
+    @php $statusCls = ['Pending'=>'spill-pending','In Progress'=>'spill-in-progress','On Hold'=>'spill-hold','Submitted'=>'spill-warning','Completed'=>'spill-approved','Cancelled'=>'spill-rejected']; @endphp
     @foreach($statusCls as $st => $cls)
     <button class="fpill" data-status="{{ $st }}">
         <span class="spill {{ $cls }}" style="padding:1px 7px;font-size:.65rem">{{ $st }}</span>
@@ -34,6 +34,13 @@
     @endforeach
     <button class="fpill" id="pillOverdue">
         <i class="bi bi-exclamation-triangle" style="font-size:.67rem"></i> Overdue
+    </button>
+    {{-- Work this person delegated that has been handed back to them. --}}
+    <button class="fpill" id="pillReview">
+        <i class="bi bi-clipboard-check" style="font-size:.67rem"></i> Awaiting my review
+        @if($awaitingMyReview > 0)
+            <span class="fcnt" style="background:var(--c-yellow-bg);color:var(--c-yellow)">{{ $awaitingMyReview }}</span>
+        @endif
     </button>
 
     <div class="ms-auto d-flex gap-2">
@@ -89,9 +96,11 @@
                         <input type="text" id="taskTitle" class="form-control form-control-sm">
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label fw-semibold small">Client <span class="text-danger">*</span></label>
+                        <label class="form-label fw-semibold small">
+                            Client <span style="color:var(--text3);font-weight:400">(optional)</span>
+                        </label>
                         <select id="taskClient" class="form-select form-select-sm select2">
-                            <option value="">Select client…</option>
+                            <option value="">No client — internal task</option>
                             @foreach($clients as $c)
                             <option value="{{ $c->id }}">{{ $c->client_name }} ({{ $c->dfid_number }})</option>
                             @endforeach
@@ -184,6 +193,7 @@
 <script>
 var activeStatus = '';
 var overdueOnly  = false;
+var reviewOnly   = false;
 var currentUserId  = {{ auth()->id() }};
 var canManageTasks = @json(auth()->user()->can('manage tasks'));
 var revisionReasons = @json($reasonCategories);
@@ -204,7 +214,19 @@ $('.fpill[data-status]').on('click', function () {
 });
 $('#pillOverdue').on('click', function () {
     overdueOnly = !overdueOnly;
+    reviewOnly = false;
     activeStatus = '';
+    syncPills();
+    window.tTable.ajax.reload();
+});
+
+// ── Awaiting my review ───────────────────────────────────────────────────
+// Work I delegated that somebody has handed back.
+$('#pillReview').on('click', function () {
+    reviewOnly = !reviewOnly;
+    overdueOnly = false;
+    activeStatus = '';
+    $(this).toggleClass('active', reviewOnly);
     syncPills();
     window.tTable.ajax.reload();
 });
@@ -224,6 +246,7 @@ $(function () {
                 d.overdue_only = overdueOnly ? 1 : 0;
                 d.client_id    = $('#filterClient').val();
                 d.assigned_to  = $('#filterAssigned').val();
+                d.review       = reviewOnly ? 1 : 0;
             }
         },
         columns: [
@@ -257,7 +280,8 @@ $('#saveTaskBtn').on('click', function () {
     const id = $('#taskEditId').val();
     const payload = {
         title: $('#taskTitle').val(),
-        client_id: $('#taskClient').val(),
+        // Explicit null rather than '' — an internal task has no client.
+        client_id: $('#taskClient').val() || null,
         assigned_to: $('#taskAssigned').val() || null,
         priority: $('#taskPriority').val(),
         status: $('#taskStatus').val(),
@@ -426,6 +450,73 @@ $(document).on('click', '#taskReviseSubmit', function () {
 $(document).on('click', '.task-att-delete', function () {
     const taskId = $(this).data('task'), attId = $(this).data('id');
     $.ajax({ url: '/tasks/' + taskId + '/attachments/' + attId, type: 'DELETE' }).done(() => loadTaskDetail(taskId));
+});
+
+// ── Submit for review (assignee) ─────────────────────────────────────────
+$(document).on('click', '.task-submit', function () {
+    var id = $(this).data('id');
+    var title = $(this).data('title');
+
+    Swal.fire({
+        title: 'Submit for review?',
+        html: '<div class="mb-2" style="font-size:.85rem"><strong>' + $('<div>').text(title).html() + '</strong></div>'
+            + '<div style="font-size:.8rem;color:var(--text3)">It goes back to whoever asked for it. They accept it or send it back.</div>',
+        input: 'textarea',
+        inputPlaceholder: 'Anything they should know (optional)',
+        inputAttributes: { maxlength: 1000 },
+        showCancelButton: true,
+        confirmButtonText: 'Submit',
+    }).then(function (r) {
+        if (!r.isConfirmed) return;
+
+        $.post('/tasks/' + id + '/submit', { note: r.value || '' })
+            .done(function () {
+                window.tTable.ajax.reload();
+                Swal.fire({ icon: 'success', title: 'Submitted for review', timer: 1400, showConfirmButton: false });
+            })
+            .fail(x => Swal.fire('Error', x.responseJSON?.message || 'Could not submit.', 'error'));
+    });
+});
+
+// ── Review a submission (requester) ──────────────────────────────────────
+$(document).on('click', '.task-review', function () {
+    var id = $(this).data('id');
+    var title = $(this).data('title');
+
+    var reasonOptions = revisionReasons.map(function (rc) {
+        return '<option value="' + $('<div>').text(rc).html() + '">' + $('<div>').text(rc).html() + '</option>';
+    }).join('');
+
+    Swal.fire({
+        title: 'Review submission',
+        html: '<div class="mb-2" style="font-size:.85rem"><strong>' + $('<div>').text(title).html() + '</strong></div>'
+            + '<textarea id="revNote" class="form-control form-control-sm mb-2" rows="2" maxlength="1000" placeholder="Note (optional)"></textarea>'
+            + '<select id="revReason" class="form-select form-select-sm">' + reasonOptions + '</select>'
+            + '<div style="font-size:.72rem;color:var(--text3);margin-top:.35rem;text-align:left">'
+            + 'The reason is only used when you send it back.</div>',
+        showDenyButton: true,
+        showCancelButton: true,
+        confirmButtonText: 'Accept',
+        confirmButtonColor: '#16a34a',
+        denyButtonText: 'Send back',
+        denyButtonColor: '#dc3545',
+        preConfirm: () => ({ accept: 1, note: $('#revNote').val() }),
+        preDeny:    () => ({ accept: 0, note: $('#revNote').val(), reason_category: $('#revReason').val() }),
+    }).then(function (r) {
+        if (!r.isConfirmed && !r.isDenied) return;
+
+        $.post('/tasks/' + id + '/review', r.value)
+            .done(function () {
+                window.tTable.ajax.reload();
+                Swal.fire({
+                    icon: 'success',
+                    title: r.isConfirmed ? 'Accepted' : 'Sent back',
+                    timer: 1400,
+                    showConfirmButton: false,
+                });
+            })
+            .fail(x => Swal.fire('Error', x.responseJSON?.message || 'Could not save the review.', 'error'));
+    });
 });
 
 $(document).on('click', '.task-delete', function () {
