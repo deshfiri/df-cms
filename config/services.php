@@ -35,6 +35,28 @@ return [
         ],
     ],
 
+    /*
+    |----------------------------------------------------------------------
+    | Meta (Facebook) Marketing API
+    |----------------------------------------------------------------------
+    |
+    | App-level credentials only. Per-brand access tokens are stored encrypted
+    | on brand_integrations and never appear here or in the frontend.
+    |
+    */
+    'meta' => [
+        'app_id'       => env('META_APP_ID'),
+        'app_secret'   => env('META_APP_SECRET'),
+        'redirect_uri' => env('META_REDIRECT_URI'),
+        'api_version'  => env('META_API_VERSION', 'v21.0'),
+        // Read-only by default. Ask for ads_management only when the app is
+        // actually expected to create or pause campaigns.
+        'scopes'       => array_filter(explode(',', (string) env(
+            'META_SCOPES',
+            'ads_read,business_management,pages_show_list,pages_read_engagement,instagram_basic'
+        ))),
+    ],
+
     'google_calendar' => [
         // Path to a Google Cloud service-account JSON key file. Meeting <-> Calendar
         // sync silently no-ops everywhere until this is set and the file exists.

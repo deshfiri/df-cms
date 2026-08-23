@@ -3,11 +3,14 @@
 namespace App\Providers;
 
 use App\Models\AdCampaign;
+use App\Models\Brand;
+use App\Models\BrandIntegration;
 use App\Models\Client;
 use App\Models\EmployeeRequest;
 use App\Models\Task;
 use App\Models\User;
 use App\Policies\AdCampaignPolicy;
+use App\Policies\BrandIntegrationPolicy;
 use App\Policies\ClientPolicy;
 use App\Policies\EmployeeRequestPolicy;
 use App\Policies\TaskPolicy;
@@ -32,6 +35,9 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Task::class, TaskPolicy::class);
         Gate::policy(EmployeeRequest::class, EmployeeRequestPolicy::class);
         Gate::policy(AdCampaign::class, AdCampaignPolicy::class);
+        // Brand-level marketing access: dashboards, integrations, syncing.
+        Gate::policy(Brand::class, BrandIntegrationPolicy::class);
+        Gate::policy(BrandIntegration::class, BrandIntegrationPolicy::class);
 
         // Super Admins bypass all gates. Guarded with an instanceof check because
         // ClientPortalUser (the client-portal auth principal) has no HasRoles trait —

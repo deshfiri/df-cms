@@ -19,7 +19,10 @@ use App\Http\Controllers\PerformanceController;
 use App\Http\Controllers\PerformanceConfigController;
 use App\Http\Controllers\ProjectUpdateController;
 use App\Http\Controllers\SearchController;
+use App\Http\Controllers\BrandIntegrationController;
 use App\Http\Controllers\GoogleIntegrationController;
+use App\Http\Controllers\MarketingController;
+use App\Http\Controllers\MetaSettingsController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DashboardController;
@@ -227,6 +230,32 @@ Route::middleware(['auth'])->group(function () {
     Route::post('payments', [PaymentController::class, 'storeAny'])->name('payments.store');
     Route::delete('payments/{payment}', [PaymentController::class, 'destroyAny'])->name('payments.destroy');
 
+    // ── Marketing: brands, platform integrations, synced ad data ─────────
+    // Gated per brand inside the controllers (BrandIntegrationPolicy), so a
+    // brand id in the URL is a request rather than an entitlement.
+    Route::prefix('marketing')->name('marketing.')->group(function () {
+        Route::get('/', [MarketingController::class, 'index'])->name('index');
+        Route::get('brands/{brand}', [MarketingController::class, 'brand'])->name('brand');
+        Route::get('brands/{brand}/dashboard', [MarketingController::class, 'dashboardData'])->name('dashboard');
+        Route::get('brands/{brand}/browse', [MarketingController::class, 'browse'])->name('browse');
+        Route::get('brands/{brand}/campaigns', [MarketingController::class, 'campaigns'])->name('campaigns');
+        Route::get('brands/{brand}/ad-sets', [MarketingController::class, 'adSets'])->name('ad-sets');
+        Route::get('brands/{brand}/ads', [MarketingController::class, 'ads'])->name('ads');
+
+        Route::get('brands/{brand}/integrations', [BrandIntegrationController::class, 'index'])->name('integrations');
+        Route::get('brands/{brand}/integrations/meta/connect', [BrandIntegrationController::class, 'connect'])->name('meta.connect');
+        Route::get('brands/{brand}/sync-logs', [BrandIntegrationController::class, 'syncLogs'])->name('sync-logs');
+
+        Route::get('integrations/{integration}/discover', [BrandIntegrationController::class, 'discover'])->name('integrations.discover');
+        Route::post('integrations/{integration}/resources', [BrandIntegrationController::class, 'saveResources'])->name('integrations.resources');
+        Route::post('integrations/{integration}/sync', [BrandIntegrationController::class, 'syncNow'])->name('integrations.sync');
+        Route::post('integrations/{integration}/disconnect', [BrandIntegrationController::class, 'disconnect'])->name('integrations.disconnect');
+    });
+
+    // Registered as the redirect URI on the Meta app; the brand travels in the
+    // signed state parameter, not the path.
+    Route::get('oauth/meta/callback', [BrandIntegrationController::class, 'callback'])->name('marketing.meta.callback');
+
     // Ad Campaigns (standalone)
     Route::get('ads', [AdCampaignController::class, 'all'])->name('ads.index');
     Route::post('ads', [AdCampaignController::class, 'storeAny'])->name('ads.store');
@@ -358,6 +387,11 @@ Route::middleware(['auth'])->group(function () {
     Route::post('settings', [SettingController::class, 'update'])->name('settings.update');
 
     // Google Calendar / Meet connection (Super Admin only; gated in the controller).
+    // Meta app credentials (shared by every brand; per-brand tokens live under
+    // Marketing). Super Admin only, gated inside the controller.
+    Route::get('settings/meta', [MetaSettingsController::class, 'index'])->name('settings.meta');
+    Route::post('settings/meta', [MetaSettingsController::class, 'update'])->name('settings.meta.update');
+
     Route::get('settings/google', [GoogleIntegrationController::class, 'index'])->name('settings.google');
     Route::post('settings/google', [GoogleIntegrationController::class, 'update'])->name('settings.google.update');
     Route::get('settings/google/connect', [GoogleIntegrationController::class, 'connect'])->name('settings.google.connect');

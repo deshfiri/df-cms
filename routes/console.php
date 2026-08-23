@@ -21,3 +21,10 @@ Schedule::command('flow:overdue-reminders')->dailyAt('08:00');
 // Settle abandoned audio calls. Runs every minute — a "ringing" row that never
 // resolves blocks both participants from placing any further call.
 Schedule::command('calls:reconcile')->everyMinute()->withoutOverlapping();
+
+// Advertising data from Meta (and later platforms) refreshes every 20 minutes.
+// The command only queues jobs; the queue workers do the API work, so one slow
+// or broken brand never delays the rest.
+// cron() rather than a helper: this Laravel has everyFifteenMinutes and
+// everyThirtyMinutes but no twenty-minute equivalent.
+Schedule::command('platforms:sync')->cron('*/20 * * * *')->withoutOverlapping();

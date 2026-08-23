@@ -4,9 +4,14 @@
 @section('content')
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
     <h4 class="page-title mb-0"><i class="bi bi-gear me-2"></i>General Settings</h4>
-    <a href="{{ route('settings.google') }}" class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-camera-video me-1"></i>Google Meet Integration
-    </a>
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="{{ route('settings.google') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-camera-video me-1"></i>Google Meet Integration
+        </a>
+        <a href="{{ route('settings.meta') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-meta me-1"></i>Meta Marketing Integration
+        </a>
+    </div>
 </div>
 
 <form method="POST" action="{{ route('settings.update') }}" enctype="multipart/form-data">

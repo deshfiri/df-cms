@@ -351,6 +351,13 @@
                 title="Reviews & Reports" data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-chat-square-text"></i><span class="sb-lbl">Reviews & Reports</span>
             </a>
+            @canany(['view ads', 'manage ads'])
+                <a href="{{ route('marketing.index') }}"
+                    class="sb-link {{ request()->routeIs('marketing.*') ? 'active' : '' }}" title="Marketing"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-megaphone"></i><span class="sb-lbl">Marketing</span>
+                </a>
+            @endcanany
             @can('view performance')
                 <a href="{{ route('performance.index') }}"
                     class="sb-link {{ request()->routeIs('performance.*') ? 'active' : '' }}" title="Performance"
@@ -474,6 +481,15 @@
                 title="Toggle theme">
                 <i id="darkIcon" class="bi bi-moon-stars" style="font-size:.88rem"></i>
             </button>
+
+            {{-- Shown only while the websocket is down — see the state_change
+                 binding below. Chat alerts and desktop notifications have no
+                 other delivery path, so a silent socket is worth surfacing. --}}
+            <span id="realtimePill" style="display:none;align-items:center;gap:.3rem;
+                background:var(--c-yellow-bg);color:var(--c-yellow);border:1px solid var(--c-yellow);
+                border-radius:999px;font-size:.66rem;font-weight:600;padding:.15rem .5rem;height:26px">
+                <i class="bi bi-broadcast"></i>Live off
+            </span>
 
             <div class="dropdown">
                 <button class="btn btn-sm d-flex align-items-center justify-content-center position-relative"
@@ -740,7 +756,35 @@
         $reverbScheme = config('broadcasting.connections.reverb.options.scheme') ?: 'https';
         $reverbPort   = (int) (config('broadcasting.connections.reverb.options.port') ?: ($reverbScheme === 'https' ? 443 : 80));
         $reverbReady  = filled($reverbKey) && filled($reverbHost);
+
+        // Two misconfigurations that look fine on a developer's own machine and
+        // can never work for anyone else. Both are silent without this: the app
+        // loads, the websocket quietly fails, and desktop notifications simply
+        // never arrive.
+        $appHost = parse_url(config('app.url'), PHP_URL_HOST);
+        $appIsHttps = str_starts_with((string) config('app.url'), 'https://');
+        $reverbIsLoopback = in_array($reverbHost, ['127.0.0.1', 'localhost', '::1'], true);
+
+        $realtimeWarning = null;
+        if ($reverbReady && $reverbIsLoopback && $appHost && !in_array($appHost, ['127.0.0.1', 'localhost'], true)) {
+            // The browser resolves REVERB_HOST on the *visitor's* machine.
+            $realtimeWarning = 'REVERB_HOST is ' . $reverbHost . ' but the app is served from ' . $appHost
+                . '. Every browser will try to open the websocket against its own machine, so live updates '
+                . 'and desktop notifications will never arrive. Set REVERB_HOST=' . $appHost . '.';
+        } elseif ($reverbReady && $appIsHttps && $reverbScheme !== 'https') {
+            // Browsers refuse a plain ws:// socket from an https page.
+            $realtimeWarning = 'The app is served over HTTPS but REVERB_SCHEME is ' . $reverbScheme
+                . '. Browsers block an insecure websocket from a secure page. Set REVERB_SCHEME=https '
+                . 'and proxy the websocket through your web server.';
+        }
     @endphp
+
+    @if($realtimeWarning && auth()->user()->hasRole('Super Admin'))
+        <div class="alert alert-warning py-2 px-3 mb-0" style="font-size:.78rem;border-radius:0">
+            <i class="bi bi-broadcast me-1"></i><strong>Live updates misconfigured.</strong>
+            {{ $realtimeWarning }}
+        </div>
+    @endif
     <script>
         window.CURRENT_USER_ID = {{ auth()->id() }};
         window.OnlineUsers = new Set();
@@ -769,6 +813,25 @@
                 // "failed" without a single network request.
                 enabledTransports: ['ws', 'wss'],
             });
+
+            // Say so when the socket is down. Without this the app looks
+            // perfectly healthy while chat messages and desktop notifications
+            // silently never arrive — they have no other delivery path.
+            (function () {
+                var connection = window.Echo.connector.pusher.connection;
+
+                connection.bind('state_change', function (states) {
+                    var pill = document.getElementById('realtimePill');
+                    if (!pill) return;
+
+                    var down = states.current !== 'connected';
+                    pill.style.display = down ? 'inline-flex' : 'none';
+                    pill.title = down
+                        ? 'Live updates are not connected (' + states.current + '). Chat alerts and '
+                          + 'desktop notifications will not arrive until this reconnects.'
+                        : '';
+                });
+            })();
 
             // App-wide presence: who is currently online.
             window.Echo.join('online')

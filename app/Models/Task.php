@@ -33,25 +33,37 @@ class Task extends Model
      * for somebody else's delay, including in the performance KPI.
      */
     public static array $settledStatuses = ['Submitted', 'Completed', 'Cancelled'];
-    public static array $types      = ['Call', 'Meeting', 'Email', 'Follow Up', 'Visit', 'Proposal', 'Invoice', 'Support', 'Other'];
+    public static array $types = ['Call', 'Meeting', 'Email', 'Follow Up', 'Visit', 'Proposal', 'Invoice', 'Support', 'Other'];
 
     protected $fillable = [
-        'title', 'description', 'client_id', 'assigned_to', 'created_by', 'updated_by',
-        'priority', 'status', 'type',
-        'start_date', 'due_date', 'completion_date', 'submitted_at', 'reminder_at',
-        'estimated_hours', 'actual_hours',
+        'title',
+        'description',
+        'client_id',
+        'assigned_to',
+        'created_by',
+        'updated_by',
+        'priority',
+        'status',
+        'type',
+        'start_date',
+        'due_date',
+        'completion_date',
+        'submitted_at',
+        'reminder_at',
+        'estimated_hours',
+        'actual_hours',
     ];
 
     protected function casts(): array
     {
         return [
-            'start_date'       => 'date',
-            'due_date'         => 'date',
-            'completion_date'  => 'date',
-            'submitted_at'     => 'datetime',
-            'reminder_at'      => 'datetime',
-            'estimated_hours'  => 'decimal:2',
-            'actual_hours'     => 'decimal:2',
+            'start_date' => 'date',
+            'due_date' => 'date',
+            'completion_date' => 'date',
+            'submitted_at' => 'datetime',
+            'reminder_at' => 'datetime',
+            'estimated_hours' => 'decimal:2',
+            'actual_hours' => 'decimal:2',
         ];
     }
 
