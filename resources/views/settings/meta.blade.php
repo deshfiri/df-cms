@@ -25,22 +25,26 @@
 
 @section('content')
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
-    <h4 class="page-title mb-0"><i class="bi bi-meta me-2"></i>Meta Marketing Integration</h4>
-    <a href="{{ route('settings.index') }}" class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-arrow-left me-1"></i>General Settings
-    </a>
+    <div>
+        <h4 class="page-title mb-0"><i class="bi bi-meta me-2"></i>Meta Marketing</h4>
+        <small style="color:var(--text3)">App credentials shared by every brand's ad account.</small>
+    </div>
 </div>
 
+<div class="set-layout">
+@include('settings.partials.nav', ['active' => 'meta'])
+
+<div>
 @if(session('success'))
     <div class="alert alert-success py-2" style="font-size:.84rem">{{ session('success') }}</div>
 @endif
 
 <div class="row g-4">
     <div class="col-lg-7">
-        <div class="card border-0 shadow-sm mb-4">
+        <div class="card section-card mb-4">
             <div class="card-header py-3">
                 <h6 class="fw-bold mb-0">App credentials</h6>
-                <small class="text-muted">
+                <small style="color:var(--text3)">
                     These identify this application to Meta and are shared by every brand.
                 </small>
             </div>
@@ -155,5 +159,7 @@
             </div>
         </div>
     </div>
+</div>
+</div>
 </div>
 @endsection

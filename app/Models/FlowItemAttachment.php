@@ -13,7 +13,7 @@ class FlowItemAttachment extends Model
 
     protected $fillable = [
         'flow_item_id', 'kind', 'title',
-        'original_name', 'file_path', 'mime_type', 'file_size',
+        'original_name', 'file_path', 'disk', 'mime_type', 'file_size',
         'url', 'body', 'uploaded_by',
     ];
 

@@ -67,6 +67,45 @@ return [
             'report' => false,
         ],
 
+        /*
+        |----------------------------------------------------------------------
+        | CDN disks — configured from Settings → Storage & CDN, not from here
+        |----------------------------------------------------------------------
+        |
+        | Deliberately thin: both entries name a custom driver registered in
+        | StorageServiceProvider, which reads the live credentials out of the
+        | settings table when the disk is first resolved. Nothing here touches
+        | the database, so config:cache and a fresh install stay safe, and a
+        | credential change takes effect without an env edit or a deploy.
+        |
+        | The `disk` recorded on every uploaded file is one of these names, so
+        | files keep resolving to wherever they were written even after the
+        | active provider changes.
+        */
+
+        'cloudflare' => [
+            'driver' => 'cloudflare-r2',
+            // Fallbacks only: a value saved in Settings always wins. Useful for
+            // seeding a fresh environment from a deployment secret store.
+            'account_id' => env('R2_ACCOUNT_ID'),
+            'key' => env('R2_ACCESS_KEY_ID'),
+            'secret' => env('R2_SECRET_ACCESS_KEY'),
+            'bucket' => env('R2_BUCKET'),
+            'url' => env('R2_URL'),
+            'throw' => false,
+            'report' => false,
+        ],
+
+        'cloudinary' => [
+            'driver' => 'cloudinary',
+            'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
+            'api_key' => env('CLOUDINARY_API_KEY'),
+            'api_secret' => env('CLOUDINARY_API_SECRET'),
+            'folder' => env('CLOUDINARY_FOLDER'),
+            'throw' => false,
+            'report' => false,
+        ],
+
     ],
 
     /*

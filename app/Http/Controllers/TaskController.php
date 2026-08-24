@@ -169,9 +169,10 @@ class TaskController extends Controller
     {
         $this->authorize('view', $task);
         abort_if($attachment->task_id !== $task->id, 404);
-        abort_unless(Storage::disk('local')->exists($attachment->file_path), 404);
+        $disk = Storage::disk($attachment->disk ?: 'local');
+        abort_unless($disk->exists($attachment->file_path), 404);
 
-        return Storage::disk('local')->download($attachment->file_path, $attachment->original_name);
+        return $disk->download($attachment->file_path, $attachment->original_name);
     }
 
     public function destroyAttachment(Task $task, TaskAttachment $attachment): JsonResponse

@@ -8,6 +8,7 @@ use App\Models\Document;
 use App\Models\DocumentDownload;
 use App\Notifications\Portal\DocumentUploaded;
 use App\Services\Portal\NotifiesPortalUsers;
+use App\Services\Storage\StorageSettings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -24,22 +25,25 @@ class DocumentService
     public function __construct(
         private readonly ActivityLogService $activityLog,
         private readonly FileManagerService $fileManager,
+        private readonly StorageSettings $storage,
     ) {}
 
     // ── Legacy (old Document model) ──────────────────────────────
     public function upload(Client $client, UploadedFile $file, array $data): Document
     {
         return DB::transaction(function () use ($client, $file, $data) {
+            $disk = $this->storage->activeDisk();
             $path = $file->storeAs(
                 'documents/' . $client->id,
                 Str::uuid() . '.' . $file->getClientOriginalExtension(),
-                'local'
+                $disk
             );
             $doc = Document::create([
                 'client_id'     => $client->id,
                 'document_type' => $data['document_type'],
                 'title'         => $data['title'],
                 'file_path'     => $path,
+                'disk'          => $disk,
                 'original_name' => $file->getClientOriginalName(),
                 'mime_type'     => $file->getMimeType(),
                 'file_size'     => $file->getSize(),
@@ -53,7 +57,8 @@ class DocumentService
     public function delete(Document $doc): void
     {
         DB::transaction(function () use ($doc) {
-            Storage::disk('local')->delete($doc->file_path);
+            // The disk the file was written to, not the one in use now.
+            Storage::disk($doc->disk ?: 'local')->delete($doc->file_path);
             $this->activityLog->log('Document', 'Deleted', $doc->client_id, $doc->toArray());
             $doc->delete();
         });
@@ -66,7 +71,7 @@ class DocumentService
             $ext        = strtolower($file->getClientOriginalExtension());
             $storedName = Str::uuid() . '.' . $ext;
             $folder     = 'client-documents/' . $client->id;
-            $disk       = config('filesystems.default', 'local');
+            $disk       = $this->storage->activeDisk();
 
             $path = $file->storeAs($folder, $storedName, $disk);
 

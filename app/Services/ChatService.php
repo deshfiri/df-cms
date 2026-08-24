@@ -8,6 +8,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageReaction;
 use App\Models\User;
+use App\Services\Storage\StorageSettings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -24,6 +25,10 @@ class ChatService
         'audio/wav', 'audio/x-wav', 'video/webm', 'video/ogg', 'application/ogg',
     ];
 
+    public function __construct(
+        private readonly StorageSettings $storage,
+    ) {}
+
     /**
      * @param  UploadedFile|null  $file  Optional attachment; an image may be
      *                                   sent with no accompanying text.
@@ -31,6 +36,10 @@ class ChatService
      *                                   honoured when the upload really is audio,
      *                                   so a mislabelled file just renders as a
      *                                   normal file chip instead of a dead player.
+     * @param  Message|null  $replyTo  The message being quoted. Silently ignored
+     *                                 unless it belongs to this same conversation
+     *                                 — quoting across threads would expose one
+     *                                 conversation's text inside another.
      */
     public function sendMessage(
         Conversation $conversation,
@@ -38,6 +47,7 @@ class ChatService
         ?string $body,
         ?UploadedFile $file = null,
         ?int $voiceDuration = null,
+        ?Message $replyTo = null,
     ): Message {
         $attachment = $file ? $this->storeAttachment($conversation, $file) : [];
 
@@ -45,10 +55,13 @@ class ChatService
             $attachment['attachment_duration'] = $voiceDuration;
         }
 
-        $message = DB::transaction(function () use ($conversation, $sender, $body, $attachment) {
+        $replyToId = ($replyTo && $replyTo->conversation_id === $conversation->id) ? $replyTo->id : null;
+
+        $message = DB::transaction(function () use ($conversation, $sender, $body, $attachment, $replyToId) {
             $message = $conversation->messages()->create([
-                'sender_id' => $sender->id,
-                'body'      => $body !== null && $body !== '' ? $body : null,
+                'sender_id'   => $sender->id,
+                'reply_to_id' => $replyToId,
+                'body'        => $body !== null && $body !== '' ? $body : null,
             ] + $attachment);
 
             $conversation->forceFill(['last_message_at' => $message->created_at])->save();
@@ -60,6 +73,9 @@ class ChatService
         // Reverb server is unreachable the message is still saved and delivered
         // on next load, we just skip the realtime push.
         $message->setRelation('sender', $sender);
+        // The quote travels with the event so it renders on arrival rather than
+        // only after the recipient reloads the thread.
+        $message->loadMissing('replyTo.sender:id,name');
         try {
             broadcast(new MessageSent($message, $conversation->otherParticipantId($sender->id)));
         } catch (\Throwable $e) {
@@ -82,8 +98,11 @@ class ChatService
     {
         $stored = Str::uuid() . '.' . strtolower($file->getClientOriginalExtension() ?: 'bin');
 
+        $disk = $this->storage->activeDisk();
+
         return [
-            'attachment_path' => $file->storeAs('chat/' . $conversation->id, $stored, 'local'),
+            'attachment_path' => $file->storeAs('chat/' . $conversation->id, $stored, $disk),
+            'attachment_disk' => $disk,
             'attachment_name' => $file->getClientOriginalName(),
             'attachment_mime' => $file->getMimeType() ?: 'application/octet-stream',
             'attachment_size' => $file->getSize(),

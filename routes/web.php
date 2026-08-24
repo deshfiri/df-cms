@@ -23,6 +23,7 @@ use App\Http\Controllers\BrandIntegrationController;
 use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\MarketingController;
 use App\Http\Controllers\MetaSettingsController;
+use App\Http\Controllers\StorageSettingsController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DashboardController;
@@ -399,6 +400,13 @@ Route::middleware(['auth'])->group(function () {
     Route::get('settings/google/callback', [GoogleIntegrationController::class, 'callback'])->name('settings.google.callback');
     Route::post('settings/google/disconnect', [GoogleIntegrationController::class, 'disconnect'])->name('settings.google.disconnect');
     Route::post('settings/google/test', [GoogleIntegrationController::class, 'test'])->name('settings.google.test');
+
+    // Storage & CDN — where uploaded files are kept (Super Admin only).
+    Route::get('settings/storage', [StorageSettingsController::class, 'index'])->name('settings.storage');
+    Route::post('settings/storage', [StorageSettingsController::class, 'update'])->name('settings.storage.update');
+    Route::post('settings/storage/activate', [StorageSettingsController::class, 'activate'])->name('settings.storage.activate');
+    Route::post('settings/storage/test', [StorageSettingsController::class, 'test'])->name('settings.storage.test');
+    Route::post('settings/storage/disconnect', [StorageSettingsController::class, 'disconnect'])->name('settings.storage.disconnect');
 
     // Roles & Permissions (Super Admin only)
     Route::resource('roles', RoleController::class)->only(['index', 'store', 'update', 'destroy']);

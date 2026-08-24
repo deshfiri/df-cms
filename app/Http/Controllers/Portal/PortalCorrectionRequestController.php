@@ -7,6 +7,7 @@ use App\Http\Controllers\Portal\Concerns\InteractsWithPortalUser;
 use App\Models\ClientCorrectionRequest;
 use App\Notifications\CorrectionRequestSubmitted;
 use App\Services\PortalActivityLogService;
+use App\Services\Storage\StorageSettings;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
@@ -20,6 +21,7 @@ class PortalCorrectionRequestController extends Controller
 
     public function __construct(
         private readonly PortalActivityLogService $activityLog,
+        private readonly StorageSettings $storage,
     ) {}
 
     public function index()
@@ -48,11 +50,12 @@ class PortalCorrectionRequestController extends Controller
             $file = $request->file('file');
             $ext = strtolower($file->getClientOriginalExtension());
             $storedName = Str::uuid() . '.' . $ext;
-            $path = $file->storeAs('portal/corrections/' . $client->id, $storedName, 'local');
+            $disk = $this->storage->activeDisk();
+            $path = $file->storeAs('portal/corrections/' . $client->id, $storedName, $disk);
             $fileData = [
                 'original_name' => $file->getClientOriginalName(),
                 'stored_name'   => $storedName,
-                'disk'          => 'local',
+                'disk'          => $disk,
                 'path'          => $path,
                 'mime_type'     => $file->getMimeType() ?? 'application/octet-stream',
                 'file_size'     => $file->getSize(),

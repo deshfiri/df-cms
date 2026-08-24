@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use App\Models\MessageReaction;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class ChatController extends Controller
@@ -49,22 +50,11 @@ class ChatController extends Controller
             $other = $c->user_one_id === $otherId ? $c->userOne : $c->userTwo;
             $last = $c->messages->first();
 
-            // An attachment-only message has no body, so show what was sent
-            // rather than a blank row in the conversation list.
-            $preview = $last?->body;
-            if ($last && !$preview && $last->hasAttachment()) {
-                $preview = match (true) {
-                    $last->attachmentIsImage() => '📷 Photo',
-                    $last->attachmentIsVoice() => '🎤 Voice message (' . $last->formattedAttachmentDuration() . ')',
-                    default                    => '📎 ' . $last->attachment_name,
-                };
-            }
-
             return [
                 'conversation_id' => $c->id,
                 'user_id' => $otherId,
                 'name' => $other->name ?? '—',
-                'last_body' => $preview,
+                'last_body' => $last?->previewLine(),
                 'last_from_me' => $last && $last->sender_id === $me,
                 'last_at' => $c->last_message_at?->diffForHumans(),
                 'unread' => (int) ($unread[$c->id] ?? 0),
@@ -99,7 +89,7 @@ class ChatController extends Controller
         $this->chat->markRead($conversation, $me);
 
         $messages = $conversation->messages()
-            ->with(['sender:id,name', 'reactions'])
+            ->with(['sender:id,name', 'reactions', 'replyTo.sender:id,name'])
             ->orderByDesc('id')->limit(200)->get()
             ->sortBy('id')->values()
             ->map(fn(Message $m) => $this->messageResource($m));
@@ -136,15 +126,29 @@ class ChatController extends Controller
             // Sent only by the recorder. Capped at 10 minutes: a voice note is a
             // message, and anything longer belongs in a call.
             'duration' => ['nullable', 'integer', 'min:1', 'max:600'],
+            // The message being quoted. Existence only — that it belongs to this
+            // conversation is checked below, where the conversation is known.
+            'reply_to_id' => ['nullable', 'integer', 'exists:messages,id'],
         ]);
 
         $conversation = Conversation::between($me->id, $user->id);
+
+        $replyTo = isset($data['reply_to_id']) ? Message::find($data['reply_to_id']) : null;
+        // Quoting a message from a conversation you are not in would leak its
+        // text into this thread, so refuse rather than quietly dropping it.
+        abort_if(
+            $replyTo && $replyTo->conversation_id !== $conversation->id,
+            422,
+            'You can only reply to a message in this conversation.',
+        );
+
         $message = $this->chat->sendMessage(
             $conversation,
             $me,
             $data['body'] ?? null,
             $request->file('file'),
             isset($data['duration']) ? (int) $data['duration'] : null,
+            $replyTo,
         );
 
         return response()->json([
@@ -193,7 +197,7 @@ class ChatController extends Controller
         // asMonitor: a retracted message still shows what was actually said,
         // flagged rather than hidden. That is the entire point of monitoring.
         $messages = $conversation->messages()
-            ->with(['sender:id,name', 'reactions'])
+            ->with(['sender:id,name', 'reactions', 'replyTo.sender:id,name'])
             ->orderByDesc('id')->limit(500)->get()
             ->sortBy('id')->values()
             ->map(fn(Message $m) => $this->messageResource($m, asMonitor: true));
@@ -251,10 +255,14 @@ class ChatController extends Controller
         abort_unless($message->hasAttachment(), 404);
         // A retracted attachment stays reachable to monitors and nobody else.
         abort_if($message->isDeleted() && !$isMonitor, 404);
-        abort_unless(Storage::disk('local')->exists($message->attachment_path), 404);
+        // The disk this attachment was written to, which is not necessarily the
+        // one new uploads go to now — see Settings → Storage & CDN.
+        $disk = Storage::disk($message->attachment_disk ?: 'local');
+
+        abort_unless($disk->exists($message->attachment_path), 404);
 
         if ($message->attachmentIsImage()) {
-            return Storage::disk('local')->response($message->attachment_path, $message->attachment_name, [
+            return $disk->response($message->attachment_path, $message->attachment_name, [
                 'Content-Type'            => $message->attachment_mime,
                 'Content-Security-Policy' => "default-src 'none'; img-src 'self'",
             ]);
@@ -264,13 +272,13 @@ class ChatController extends Controller
         // same reason an image is: the mime was confirmed as audio before the
         // message was ever marked as a recording.
         if ($message->attachmentIsVoice()) {
-            return Storage::disk('local')->response($message->attachment_path, $message->attachment_name, [
+            return $disk->response($message->attachment_path, $message->attachment_name, [
                 'Content-Type'            => $message->attachment_mime,
                 'Content-Security-Policy' => "default-src 'none'; media-src 'self'",
             ]);
         }
 
-        return Storage::disk('local')->download($message->attachment_path, $message->attachment_name);
+        return $disk->download($message->attachment_path, $message->attachment_name);
     }
 
     /**
@@ -291,6 +299,7 @@ class ChatController extends Controller
             'deleted' => $m->isDeleted(),
             'can_delete' => !$m->isDeleted() && $m->sender_id === Auth::id(),
             'reactions' => $m->relationLoaded('reactions') ? $m->reactionSummary(Auth::id()) : [],
+            'reply_to' => $this->replyResource($m),
             'attachment' => (!$redact && $m->hasAttachment()) ? [
                 'name'     => $m->attachment_name,
                 'size'     => $m->attachmentSizeForHumans(),
@@ -299,6 +308,32 @@ class ChatController extends Controller
                 'duration' => $m->attachmentIsVoice() ? $m->formattedAttachmentDuration() : null,
                 'url'      => route('chat.attachment', $m),
             ] : null,
+        ];
+    }
+
+    /**
+     * The quoted message shown above a reply.
+     *
+     * Only ever a snippet: the id to jump to, who wrote it, and one line of
+     * what it said. A retracted message keeps its place in the quote — hiding
+     * it would leave a reply answering nothing.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function replyResource(Message $m): ?array
+    {
+        $parent = $m->relationLoaded('replyTo') ? $m->replyTo : null;
+
+        if (!$parent) {
+            return null;
+        }
+
+        return [
+            'id'          => $parent->id,
+            'sender_name' => $parent->sender->name ?? '—',
+            'mine'        => $parent->sender_id === Auth::id(),
+            'preview'     => Str::limit($parent->previewLine(), 120),
+            'deleted'     => $parent->isDeleted(),
         ];
     }
 }

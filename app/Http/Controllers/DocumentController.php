@@ -69,8 +69,11 @@ class DocumentController extends Controller
         abort_if($document->client_id !== $client->id, 403);
         abort_unless(Storage::disk($document->disk)->exists($document->path), 404);
 
-        return response()->file(
-            Storage::disk($document->disk)->path($document->path),
+        // Streamed rather than served from an absolute path: ->path() only
+        // exists on local disks, and a document may live on R2 or Cloudinary.
+        return Storage::disk($document->disk)->response(
+            $document->path,
+            $document->original_name,
             ['Content-Type' => $document->mime_type]
         );
     }

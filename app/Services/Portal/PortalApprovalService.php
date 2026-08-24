@@ -7,6 +7,7 @@ use App\Models\ClientApprovalResponse;
 use App\Models\ClientPortalUser;
 use App\Notifications\ApprovalResponseReceived;
 use App\Services\PortalActivityLogService;
+use App\Services\Storage\StorageSettings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
@@ -17,6 +18,7 @@ class PortalApprovalService
 {
     public function __construct(
         private readonly PortalActivityLogService $activityLog,
+        private readonly StorageSettings $storage,
     ) {}
 
     public function respond(
@@ -39,12 +41,13 @@ class PortalApprovalService
             if ($file) {
                 $ext = strtolower($file->getClientOriginalExtension());
                 $storedName = Str::uuid() . '.' . $ext;
-                $path = $file->storeAs('portal/approvals/' . $approvalRequest->client_id, $storedName, 'local');
+                $disk = $this->storage->activeDisk();
+                $path = $file->storeAs('portal/approvals/' . $approvalRequest->client_id, $storedName, $disk);
 
                 $fileData = [
                     'original_name' => $file->getClientOriginalName(),
                     'stored_name'   => $storedName,
-                    'disk'          => 'local',
+                    'disk'          => $disk,
                     'path'          => $path,
                     'mime_type'     => $file->getMimeType() ?? 'application/octet-stream',
                     'file_size'     => $file->getSize(),

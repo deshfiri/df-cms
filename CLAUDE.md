@@ -170,6 +170,27 @@ Standalone top-level modules (`tasks`, `meetings`, etc.) are registered at root 
 - External URLs must be normalized through a `get{Field}UrlAttribute` accessor that prepends `https://` when no protocol is present.
 - `Client::$statuses` and similar static arrays on models define valid enum-like values used in both validation and views.
 
+### File Storage
+
+Uploads are provider-agnostic. Where new files go is an installation-wide setting (Settings → Storage & CDN), backed by `App\Services\Storage\StorageSettings`:
+
+```php
+$disk = $this->storage->activeDisk();          // 'local' | 'cloudflare' | 'cloudinary'
+$path = $file->storeAs($folder, $name, $disk);
+Model::create([... 'path' => $path, 'disk' => $disk]);
+```
+
+Two rules make provider switching safe, and both must be honoured by any new upload path:
+
+1. **Write to `activeDisk()`, never a hardcoded disk name.** It answers `'local'` whenever no provider is connected or a selected provider's credentials are incomplete, so self-hosted is always the working default.
+2. **Persist the disk next to the path, and read back through it** — `Storage::disk($model->disk ?: 'local')`. Never read through `activeDisk()`; a file written before a switch still lives where it was put.
+
+`Storage::disk('cloudflare')` is Laravel's S3 driver pointed at R2; `Storage::disk('cloudinary')` is a custom Flysystem adapter (`app/Services/Storage/Cloudinary/`). Both are registered in `StorageServiceProvider`, which reads credentials lazily inside the resolver so nothing touches the database at boot.
+
+Downloads are always proxied through the app's authorized controllers, so permissions and download logging work identically on every provider. Because of that, **never use `Storage::disk(...)->path()`** — it only exists on local disks. Use `->response()` or `->download()`.
+
+The File Manager keeps its own dedicated `file_manager` local disk: it is a browsable folder tree with no per-file database record, so it has no way to remember which files predate a provider switch.
+
 ### Queue
 
 Queue driver is `database`. Long-running operations (exports, imports, notifications) should be dispatched as jobs. The dev command starts `php artisan queue:listen` automatically.

@@ -9,8 +9,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Message extends Model
 {
     protected $fillable = [
-        'conversation_id', 'sender_id', 'body', 'read_at',
-        'attachment_path', 'attachment_name', 'attachment_mime', 'attachment_size',
+        'conversation_id', 'sender_id', 'reply_to_id', 'body', 'read_at',
+        'attachment_path', 'attachment_disk', 'attachment_name', 'attachment_mime', 'attachment_size',
         'attachment_duration', 'deleted_at', 'deleted_by',
     ];
 
@@ -92,6 +92,34 @@ class Message extends Model
         return max(1, (int) round($bytes / 1024)) . ' KB';
     }
 
+    /**
+     * One line describing this message, for anywhere it is shown in miniature:
+     * the conversation list, and the quote block above a reply.
+     *
+     * An attachment-only message has no body, so it is named by what it is
+     * rather than rendering as a blank row.
+     */
+    public function previewLine(): string
+    {
+        if ($this->isDeleted()) {
+            return 'This message was deleted';
+        }
+
+        if (filled($this->body)) {
+            return $this->body;
+        }
+
+        if (!$this->hasAttachment()) {
+            return '';
+        }
+
+        return match (true) {
+            $this->attachmentIsImage() => '📷 Photo',
+            $this->attachmentIsVoice() => '🎤 Voice message (' . $this->formattedAttachmentDuration() . ')',
+            default                    => '📎 ' . $this->attachment_name,
+        };
+    }
+
     public function conversation(): BelongsTo
     {
         return $this->belongsTo(Conversation::class);
@@ -100,5 +128,11 @@ class Message extends Model
     public function sender(): BelongsTo
     {
         return $this->belongsTo(User::class, 'sender_id');
+    }
+
+    /** The earlier message this one quotes, if any. */
+    public function replyTo(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'reply_to_id');
     }
 }

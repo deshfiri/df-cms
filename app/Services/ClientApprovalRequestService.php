@@ -7,6 +7,7 @@ use App\Models\ClientApprovalRequest;
 use App\Models\User;
 use App\Notifications\Portal\ApprovalRequested;
 use App\Services\Portal\NotifiesPortalUsers;
+use App\Services\Storage\StorageSettings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -17,6 +18,7 @@ class ClientApprovalRequestService
 
     public function __construct(
         private readonly ActivityLogService $activityLog,
+        private readonly StorageSettings $storage,
     ) {}
 
     public function create(Client $client, array $data, ?UploadedFile $file, User $actor): ClientApprovalRequest
@@ -26,11 +28,12 @@ class ClientApprovalRequestService
             if ($file) {
                 $ext = strtolower($file->getClientOriginalExtension());
                 $storedName = Str::uuid() . '.' . $ext;
-                $path = $file->storeAs('portal/approvals/' . $client->id, $storedName, 'local');
+                $disk = $this->storage->activeDisk();
+                $path = $file->storeAs('portal/approvals/' . $client->id, $storedName, $disk);
                 $fileData = [
                     'original_name' => $file->getClientOriginalName(),
                     'stored_name'   => $storedName,
-                    'disk'          => 'local',
+                    'disk'          => $disk,
                     'path'          => $path,
                     'mime_type'     => $file->getMimeType() ?? 'application/octet-stream',
                     'file_size'     => $file->getSize(),
@@ -61,11 +64,12 @@ class ClientApprovalRequestService
         if ($file) {
             $ext = strtolower($file->getClientOriginalExtension());
             $storedName = Str::uuid() . '.' . $ext;
-            $path = $file->storeAs('portal/approvals/' . $approvalRequest->client_id, $storedName, 'local');
+            $disk = $this->storage->activeDisk();
+            $path = $file->storeAs('portal/approvals/' . $approvalRequest->client_id, $storedName, $disk);
             $fileData = [
                 'original_name' => $file->getClientOriginalName(),
                 'stored_name'   => $storedName,
-                'disk'          => 'local',
+                'disk'          => $disk,
                 'path'          => $path,
                 'mime_type'     => $file->getMimeType() ?? 'application/octet-stream',
                 'file_size'     => $file->getSize(),

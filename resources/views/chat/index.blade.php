@@ -92,6 +92,47 @@
     }
     .msg-tool:hover { color: var(--primary); background: var(--surface2); }
 
+    /* ── Quoted message inside a reply ──────────────────────────────── */
+    .msg-quote {
+        display: block; width: 100%; text-align: left; cursor: pointer;
+        border: none; border-left: 3px solid currentColor;
+        border-radius: 6px; padding: .28rem .5rem; margin-bottom: .3rem;
+        font-size: .74rem; line-height: 1.3;
+        /* Tinted with the bubble's own colour so it reads as part of it in
+           both directions, without a second palette for me/them. */
+        background: rgba(var(--primary-rgb), .09);
+        color: inherit;
+    }
+    .msg.me .msg-quote { background: rgba(255, 255, 255, .18); }
+    .msg-quote:hover { filter: brightness(1.08); }
+    .msg-quote-who { font-weight: 700; display: block; opacity: .95; }
+    .msg-quote-text {
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        overflow: hidden; opacity: .85; word-break: break-word;
+    }
+    .msg-quote.is-deleted .msg-quote-text { font-style: italic; opacity: .65; }
+
+    /* Where a jumped-to message flashes, so "which one?" is never a guess. */
+    @keyframes msgFlash {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0); }
+        20%, 60% { box-shadow: 0 0 0 3px rgba(var(--primary-rgb), .55); }
+    }
+    .msg-flash { animation: msgFlash 1.6s ease-in-out; }
+
+    /* ── "Replying to" bar above the composer ───────────────────────── */
+    .reply-bar {
+        display: flex; align-items: center; gap: .6rem;
+        padding: .4rem .6rem; margin: 0 .55rem;
+        border-left: 3px solid var(--primary);
+        border-radius: 6px; background: var(--surface2);
+    }
+    .reply-bar-body { min-width: 0; flex: 1; }
+    .reply-bar-who { font-size: .7rem; font-weight: 700; color: var(--primary); }
+    .reply-bar-text {
+        font-size: .74rem; color: var(--text3);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
     .msg-reacts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
     .react-chip {
         display: inline-flex; align-items: center; gap: 4px;
@@ -222,6 +263,18 @@
             </div>
             <div class="chat-msgs" id="msgList"></div>
             <div class="chat-typing" id="typingIndicator"></div>
+
+            {{-- What this message will quote, shown until it is sent or cancelled --}}
+            <div id="replyBar" class="reply-bar d-none">
+                <i class="bi bi-reply-fill" style="color:var(--primary)"></i>
+                <div class="reply-bar-body">
+                    <div class="reply-bar-who" id="replyBarWho"></div>
+                    <div class="reply-bar-text" id="replyBarText"></div>
+                </div>
+                <button class="btn btn-sm p-0" id="replyCancel" title="Cancel reply"
+                    style="color:var(--text3)"><i class="bi bi-x-lg"></i></button>
+            </div>
+
             {{-- Staged attachment, shown between the thread and the input --}}
             <div id="attachBar" class="d-none">
                 <img id="attachThumb" alt="" class="d-none">
@@ -425,6 +478,9 @@ $(function () {
         $('#threadAvatar').html(esc(initials(name)) + '<span class="chat-dot" id="threadDot"></span>');
         $('#msgList').html('<div class="text-center py-4 small" style="color:var(--text3)">Loading…</div>');
         $('#typingIndicator').text('');
+        // A pending reply belongs to the thread it was started in.
+        cancelReply();
+        clearStagedFile();
         updateThreadPresence();
 
         $.get('/chat/with/' + userId).done(function (r) {
@@ -502,6 +558,26 @@ $(function () {
         }).join('') + '</div>';
     }
 
+    /**
+     * The quote block shown at the top of a reply.
+     *
+     * `mine` comes from the REST response; the broadcast payload cannot know
+     * who "you" are (one event serves both participants) so it sends the
+     * original sender's id and ownership is resolved here — same arrangement
+     * as reactions above.
+     */
+    function quoteHtml(q) {
+        if (!q) return '';
+
+        const mine = (typeof q.mine === 'boolean') ? q.mine : q.sender_id === ME;
+        const who = mine ? 'You' : q.sender_name;
+
+        return `<button type="button" class="msg-quote ${q.deleted ? 'is-deleted' : ''}" data-jump="${q.id}">
+                    <span class="msg-quote-who">${esc(who)}</span>
+                    <span class="msg-quote-text">${esc(q.preview || '')}</span>
+                </button>`;
+    }
+
     function messageHtml(m) {
         const mine = m.sender_id === ME;
 
@@ -517,14 +593,93 @@ $(function () {
 
         return `<div class="msg ${mine ? 'me' : 'them'}" data-id="${m.id}">
                     <div class="msg-tools">
+                        <button class="msg-tool msg-reply" title="Reply"><i class="bi bi-reply"></i></button>
                         <button class="msg-tool react-open" title="React"><i class="bi bi-emoji-smile"></i></button>
                         ${m.can_delete ? '<button class="msg-tool msg-del" title="Delete"><i class="bi bi-trash"></i></button>' : ''}
                     </div>
-                    ${text}${attachmentHtml(m.attachment)}
+                    ${quoteHtml(m.reply_to)}${text}${attachmentHtml(m.attachment)}
                     <div class="msg-meta">${timeOf(m.created_at)}</div>
                     ${reactionsHtml(m.reactions)}
                 </div>`;
     }
+
+    // ── Reply ────────────────────────────────────────────────────────
+    // Which message the next send will quote. Cleared on send, on cancel,
+    // and whenever the thread changes — a reply must never follow you into
+    // a different conversation.
+    let replyTo = null;
+
+    function startReply(id, who, preview) {
+        replyTo = { id, who, preview };
+        $('#replyBarWho').text('Replying to ' + who);
+        $('#replyBarText').text(preview || '');
+        $('#replyBar').removeClass('d-none');
+        $('#msgInput').focus();
+    }
+
+    function cancelReply() {
+        replyTo = null;
+        $('#replyBar').addClass('d-none');
+    }
+
+    /**
+     * Read a bubble back into the snippet the reply bar needs.
+     *
+     * Cosmetic and short-lived — the authoritative preview comes back from the
+     * server once the reply is sent. Everything that is not the caption is
+     * stripped first, so a file's own name and size cannot pass for body text.
+     */
+    function summarise($msg) {
+        if ($msg.hasClass('msg-deleted')) return 'This message was deleted';
+
+        const $clone = $msg.clone();
+        $clone.find('.msg-tools, .msg-meta, .msg-reacts, .msg-quote, .msg-file, .msg-voice').remove();
+
+        const text = $.trim($clone.text());
+        if (text) return text;
+
+        // Attachment with no caption — name it by what it is.
+        if ($msg.find('.msg-img').length) return '📷 Photo';
+        if ($msg.find('.msg-voice').length) return '🎤 Voice message';
+        if ($msg.find('.msg-file').length) return '📎 ' + $.trim($msg.find('.msg-file-name').text());
+
+        return '';
+    }
+
+    $(document).on('click', '.msg-reply', function () {
+        const $msg = $(this).closest('.msg');
+        const who = $msg.hasClass('me') ? 'yourself' : $('#threadName').text();
+
+        startReply($msg.data('id'), who, summarise($msg));
+    });
+
+    $('#replyCancel').on('click', cancelReply);
+
+    // Escape backs out of a reply before it clears the input.
+    $('#msgInput').on('keydown', function (e) {
+        if (e.key === 'Escape' && replyTo) { e.preventDefault(); cancelReply(); }
+    });
+
+    // Tapping a quote jumps to the original and flashes it.
+    $(document).on('click', '.msg-quote', function () {
+        const $target = $(`.msg[data-id="${$(this).data('jump')}"]`);
+
+        if (!$target.length) {
+            Swal.fire({
+                toast: true, position: 'top', icon: 'info',
+                title: 'That message is further back than this thread loads.',
+                showConfirmButton: false, timer: 2600,
+            });
+            return;
+        }
+
+        $target[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        $target.removeClass('msg-flash');
+        // Reflow between removing and re-adding, or the animation will not
+        // restart when the same message is jumped to twice in a row.
+        void $target[0].offsetWidth;
+        $target.addClass('msg-flash');
+    });
 
     function appendMessage(m) {
         const $empty = $('#msgList').find('.chat-empty');
@@ -719,10 +874,13 @@ $(function () {
         const form = new FormData();
         if (body) form.append('body', body);
         if (pendingFile) form.append('file', pendingFile, pendingFile.name || 'pasted-image.png');
+        if (replyTo) form.append('reply_to_id', replyTo.id);
 
         $('#msgInput').val('');
         const sending = pendingFile;
+        const quoting = replyTo;
         clearStagedFile();
+        cancelReply();
         $('#msgSend').prop('disabled', true);
 
         $.ajax({
@@ -735,8 +893,10 @@ $(function () {
             appendMessage(r.message);
             loadConversations();
         }).fail(function (x) {
-            // Put the file back so an upload failure doesn't lose it.
+            // Put everything back so a failure doesn't lose the message,
+            // the attachment, or what it was answering.
             if (sending) stageFile(sending);
+            if (quoting) startReply(quoting.id, quoting.who, quoting.preview);
             if (body) $('#msgInput').val(body);
             Swal.fire('Error', x.responseJSON?.message || 'Message failed', 'error');
         }).always(function () {

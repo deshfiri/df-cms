@@ -9,6 +9,7 @@ use App\Models\FlowItemAttachment;
 use App\Models\FlowItemComment;
 use App\Models\User;
 use App\Services\FlowService;
+use App\Services\Storage\StorageSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -27,6 +28,7 @@ class FlowItemController extends Controller
 {
     public function __construct(
         private readonly FlowService $flow,
+        private readonly StorageSettings $storage,
     ) {}
 
     public function queue(Request $request)
@@ -279,9 +281,11 @@ class FlowItemController extends Controller
         if ($data['kind'] === 'file') {
             $file   = $request->file('file');
             $stored = Str::uuid() . '.' . $file->getClientOriginalExtension();
+            $disk   = $this->storage->activeDisk();
             $payload += [
                 'original_name' => $file->getClientOriginalName(),
-                'file_path'     => $file->storeAs('flow-attachments/' . $item->id, $stored, 'local'),
+                'file_path'     => $file->storeAs('flow-attachments/' . $item->id, $stored, $disk),
+                'disk'          => $disk,
                 'mime_type'     => $file->getMimeType(),
                 'file_size'     => $file->getSize(),
             ];
@@ -300,9 +304,10 @@ class FlowItemController extends Controller
     {
         abort_unless($this->flow->canView($request->user(), $item), 403);
         abort_if($attachment->flow_item_id !== $item->id, 404);
-        abort_unless($attachment->isFile() && Storage::disk('local')->exists($attachment->file_path), 404);
+        $disk = Storage::disk($attachment->disk ?: 'local');
+        abort_unless($attachment->isFile() && $disk->exists($attachment->file_path), 404);
 
-        return Storage::disk('local')->download($attachment->file_path, $attachment->original_name);
+        return $disk->download($attachment->file_path, $attachment->original_name);
     }
 
     public function destroyAttachment(Request $request, FlowItem $item, FlowItemAttachment $attachment): JsonResponse
@@ -311,7 +316,7 @@ class FlowItemController extends Controller
         abort_unless($attachment->uploaded_by === $request->user()->id || $request->user()->can('manage workflows'), 403);
 
         if ($attachment->isFile() && $attachment->file_path) {
-            Storage::disk('local')->delete($attachment->file_path);
+            Storage::disk($attachment->disk ?: 'local')->delete($attachment->file_path);
         }
         $attachment->delete();
 

@@ -73,6 +73,10 @@ class GoogleIntegrationController extends Controller
             }
 
             // Private disk: a service-account key in public/ would be a handout.
+            //
+            // Deliberately not routed through the configured storage provider
+            // like other uploads: the Google client loads this key by absolute
+            // filesystem path, which only a local disk can give it.
             $path = $file->storeAs('google', 'service-account.json', 'local');
             $this->settings->putServiceAccountPath($path);
         }

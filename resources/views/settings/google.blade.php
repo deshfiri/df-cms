@@ -26,12 +26,16 @@
 
 @section('content')
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
-    <h4 class="page-title mb-0"><i class="bi bi-camera-video me-2"></i>Google Meet Integration</h4>
-    <a href="{{ route('settings.index') }}" class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-arrow-left me-1"></i>General Settings
-    </a>
+    <div>
+        <h4 class="page-title mb-0"><i class="bi bi-camera-video me-2"></i>Google Meet</h4>
+        <small style="color:var(--text3)">Generates a Meet link when a meeting is booked.</small>
+    </div>
 </div>
 
+<div class="set-layout">
+@include('settings.partials.nav', ['active' => 'google'])
+
+<div>
 @if(session('success'))
     <div class="alert alert-success py-2" style="font-size:.84rem">{{ session('success') }}</div>
 @endif
@@ -43,10 +47,10 @@
     <div class="col-lg-7">
 
         {{-- Current state, in plain words --}}
-        <div class="card border-0 shadow-sm mb-4">
+        <div class="card section-card mb-4">
             <div class="card-header py-3">
                 <h6 class="fw-bold mb-0">Connection</h6>
-                <small class="text-muted">A meeting booked while this is disconnected is still saved — it just has no Meet link.</small>
+                <small style="color:var(--text3)">A meeting booked while this is disconnected is still saved — it just has no Meet link.</small>
             </div>
             <div class="card-body">
                 <div class="gi-state mb-3">
@@ -98,10 +102,10 @@
         @csrf
 
         {{-- Preferred path --}}
-        <div class="card border-0 shadow-sm mb-4">
+        <div class="card section-card mb-4">
             <div class="card-header py-3">
                 <h6 class="fw-bold mb-0">OAuth client <span class="badge bg-success-subtle text-success ms-1" style="font-size:.62rem">Recommended</span></h6>
-                <small class="text-muted">Works with an ordinary Google account and reliably produces Meet links.</small>
+                <small style="color:var(--text3)">Works with an ordinary Google account and reliably produces Meet links.</small>
             </div>
             <div class="card-body">
                 <label class="form-label small fw-semibold">Client ID</label>
@@ -121,10 +125,10 @@
         </div>
 
         {{-- Fallback path --}}
-        <div class="card border-0 shadow-sm mb-4">
+        <div class="card section-card mb-4">
             <div class="card-header py-3">
                 <h6 class="fw-bold mb-0">Service account <span class="text-muted" style="font-size:.7rem;font-weight:400">— manual fallback</span></h6>
-                <small class="text-muted">Used only when no Google account is connected above.</small>
+                <small style="color:var(--text3)">Used only when no Google account is connected above.</small>
             </div>
             <div class="card-body">
                 <label class="form-label small fw-semibold">Key file (JSON)</label>
@@ -151,7 +155,7 @@
             </div>
         </div>
 
-        <div class="card border-0 shadow-sm mb-4">
+        <div class="card section-card mb-4">
             <div class="card-header py-3">
                 <h6 class="fw-bold mb-0">Calendar</h6>
             </div>
@@ -208,5 +212,7 @@
             </div>
         </div>
     </div>
+</div>
+</div>
 </div>
 @endsection

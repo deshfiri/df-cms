@@ -31,6 +31,13 @@
         display: inline-flex; align-items: center; gap: .35rem; margin-top: .2rem;
         font-size: .75rem; text-decoration: none; color: var(--primary);
     }
+    .mmsg-quote {
+        border-left: 2px solid var(--primary); border-radius: 4px;
+        background: rgba(var(--primary-rgb), .08);
+        padding: .2rem .4rem; margin-bottom: .25rem;
+        font-size: .68rem; line-height: 1.3; color: var(--text3);
+    }
+    .mmsg-quote-who { font-weight: 700; display: block; color: var(--text2); }
     .mmsg-reacts { display: flex; gap: 4px; margin-top: 3px; font-size: .66rem; color: var(--text3); }
 
     /* A fixed 340px sidebar beside a thread leaves nothing usable on a phone,
@@ -132,10 +139,16 @@ $(function () {
             ? '<div class="mmsg-reacts">' + m.reactions.map(r => `<span>${esc(r.emoji)} ${r.count}</span>`).join('') + '</div>'
             : '';
 
+        // Without the quote a reply reads as a non-sequitur, which defeats the
+        // point of reading a conversation back.
+        const quote = m.reply_to
+            ? `<div class="mmsg-quote"><span class="mmsg-quote-who">${esc(m.reply_to.sender_name)}</span>${esc(m.reply_to.preview || '')}</div>`
+            : '';
+
         $('#monMsgs').append(
             `<div class="mmsg ${side} ${m.deleted ? 'is-deleted' : ''}">
                 <div class="mmsg-who">${esc(m.sender_name)}${deletedTag}</div>
-                ${m.body ? esc(m.body) : ''}${attachment}
+                ${quote}${m.body ? esc(m.body) : ''}${attachment}
                 <div class="mmsg-meta">${timeOf(m.created_at)}</div>
                 ${reacts}
             </div>`

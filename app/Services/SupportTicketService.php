@@ -11,6 +11,7 @@ use App\Notifications\Portal\SupportReplyPosted;
 use App\Notifications\SupportTicketCreated;
 use App\Notifications\SupportTicketReplied;
 use App\Services\Portal\NotifiesPortalUsers;
+use App\Services\Storage\StorageSettings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
@@ -26,6 +27,7 @@ class SupportTicketService
     public function __construct(
         private readonly ActivityLogService $activityLog,
         private readonly PortalActivityLogService $portalActivityLog,
+        private readonly StorageSettings $storage,
     ) {}
 
     public function create(
@@ -113,12 +115,13 @@ class SupportTicketService
 
         $ext = strtolower($file->getClientOriginalExtension());
         $storedName = Str::uuid() . '.' . $ext;
-        $path = $file->storeAs($folder, $storedName, 'local');
+        $disk = $this->storage->activeDisk();
+        $path = $file->storeAs($folder, $storedName, $disk);
 
         return [
             'original_name' => $file->getClientOriginalName(),
             'stored_name'   => $storedName,
-            'disk'          => 'local',
+            'disk'          => $disk,
             'path'          => $path,
             'mime_type'     => $file->getMimeType() ?? 'application/octet-stream',
             'file_size'     => $file->getSize(),

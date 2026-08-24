@@ -37,6 +37,9 @@ class ImportController extends Controller
     {
         $preview = $this->importService->preview($request->file('file'));
 
+        // Stays local whatever the configured storage provider is: this is a
+        // scratch copy read back moments later by the confirm step, not a
+        // stored document, and pushing it to a CDN would only add a round trip.
         session(['import_file_tmp' => $request->file('file')->store('import_tmp', 'local')]);
 
         return response()->json($preview);

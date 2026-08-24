@@ -8,6 +8,7 @@ use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Str;
 
 /**
  * Broadcast a new chat message on the conversation channel (both participants +
@@ -46,6 +47,17 @@ class MessageSent implements ShouldBroadcastNow
             'sender_name'     => $this->message->sender->name,
             'body'            => $this->message->body,
             'created_at'      => $this->message->created_at->toIso8601String(),
+            // A quote of an earlier message, carried so the reply renders with
+            // its context on arrival instead of only after a reload. `mine` is
+            // deliberately absent: one event reaches both participants, so who
+            // "you" are is resolved on the client.
+            'reply_to'        => $this->message->replyTo ? [
+                'id'          => $this->message->replyTo->id,
+                'sender_id'   => $this->message->replyTo->sender_id,
+                'sender_name' => $this->message->replyTo->sender->name ?? '—',
+                'preview'     => Str::limit($this->message->replyTo->previewLine(), 120),
+                'deleted'     => $this->message->replyTo->isDeleted(),
+            ] : null,
             // Carried on the event so an attachment renders the moment it
             // arrives, rather than only after the thread is reloaded.
             'attachment'      => $this->message->hasAttachment() ? [

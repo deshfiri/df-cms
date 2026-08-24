@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class Document extends Model
 {
     protected $fillable = [
-        'client_id', 'document_type', 'title', 'file_path',
+        'client_id', 'document_type', 'title', 'file_path', 'disk',
         'original_name', 'mime_type', 'file_size', 'uploaded_by',
     ];
 

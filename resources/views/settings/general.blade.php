@@ -3,17 +3,16 @@
 
 @section('content')
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
-    <h4 class="page-title mb-0"><i class="bi bi-gear me-2"></i>General Settings</h4>
-    <div class="d-flex gap-2 flex-wrap">
-        <a href="{{ route('settings.google') }}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-camera-video me-1"></i>Google Meet Integration
-        </a>
-        <a href="{{ route('settings.meta') }}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-meta me-1"></i>Meta Marketing Integration
-        </a>
+    <div>
+        <h4 class="page-title mb-0"><i class="bi bi-sliders me-2"></i>General</h4>
+        <small style="color:var(--text3)">Name, logo and colours for the whole workspace.</small>
     </div>
 </div>
 
+<div class="set-layout">
+@include('settings.partials.nav', ['active' => 'general'])
+
+<div>
 <form method="POST" action="{{ route('settings.update') }}" enctype="multipart/form-data">
 @csrf
 <div class="row g-4">
@@ -22,10 +21,10 @@
     <div class="col-lg-7">
 
         {{-- App Name --}}
-        <div class="card border-0 shadow-sm mb-4">
+        <div class="card section-card mb-4">
             <div class="card-header py-3">
                 <h6 class="fw-bold mb-0">Application Name</h6>
-                <small class="text-muted">Shown in the browser tab and sidebar when no logo is set.</small>
+                <small style="color:var(--text3)">Shown in the browser tab and sidebar when no logo is set.</small>
             </div>
             <div class="card-body">
                 <input type="text" name="app_name" id="inputAppName"
@@ -36,10 +35,10 @@
         </div>
 
         {{-- Theme Color --}}
-        <div class="card border-0 shadow-sm mb-4">
+        <div class="card section-card mb-4">
             <div class="card-header py-3">
                 <h6 class="fw-bold mb-0">Theme Color</h6>
-                <small class="text-muted">Controls the sidebar, buttons, links, and accent colors across the app.</small>
+                <small style="color:var(--text3)">Controls the sidebar, buttons, links, and accent colors across the app.</small>
             </div>
             <div class="card-body">
                 {{-- Presets --}}
@@ -92,27 +91,27 @@
                            value="{{ old('theme_color', $themeColor) }}"
                            class="form-control form-control-sm font-monospace"
                            style="width:100px" maxlength="7" placeholder="#1F3C88">
-                    <span class="text-muted small">hex code</span>
+                    <span class="small" style="color:var(--text3)">hex code</span>
                 </div>
-                @error('theme_color')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
+                @error('theme_color')<div class="small mt-1" style="color:var(--c-red)">{{ $message }}</div>@enderror
             </div>
         </div>
 
         {{-- Logo --}}
-        <div class="card border-0 shadow-sm mb-4">
+        <div class="card section-card mb-4">
             <div class="card-header py-3">
                 <h6 class="fw-bold mb-0">Logo</h6>
-                <small class="text-muted">PNG / JPG / SVG / WebP · Max 512 KB · When set, only the logo is shown (no text).</small>
+                <small style="color:var(--text3)">PNG / JPG / SVG / WebP · Max 512 KB · When set, only the logo is shown (no text).</small>
             </div>
             <div class="card-body">
                 @if($appLogo)
-                <div class="mb-3 p-3 border rounded d-flex align-items-center gap-3">
+                <div class="mb-3 p-3 d-flex align-items-center gap-3" style="border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface2)">
                     <img src="{{ asset($appLogo) }}" alt="Current Logo" style="max-height:52px;max-width:160px;object-fit:contain">
                     <div>
-                        <div class="small text-muted mb-1">Current logo</div>
+                        <div class="small mb-1" style="color:var(--text3)">Current logo</div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" name="remove_logo" value="1" id="removeLogo">
-                            <label class="form-check-label small text-danger" for="removeLogo">Remove logo</label>
+                            <label class="form-check-label small" style="color:var(--c-red)" for="removeLogo">Remove logo</label>
                         </div>
                     </div>
                 </div>
@@ -123,27 +122,27 @@
                 @error('logo')<div class="invalid-feedback">{{ $message }}</div>@enderror
                 <div id="logoPreviewWrap" class="mt-2 d-none">
                     <img id="logoPreview" src="" alt="Preview"
-                         style="max-height:52px;max-width:180px;object-fit:contain;border:1px solid #dee2e6;padding:6px;border-radius:6px">
+                         style="max-height:52px;max-width:180px;object-fit:contain;border:1px solid var(--border);padding:6px;border-radius:6px">
                 </div>
             </div>
         </div>
 
         {{-- Favicon --}}
-        <div class="card border-0 shadow-sm mb-4">
+        <div class="card section-card mb-4">
             <div class="card-header py-3">
                 <h6 class="fw-bold mb-0">Favicon</h6>
-                <small class="text-muted">ICO / PNG / SVG / WebP / JPG · Max 256 KB · A square image works best — 32×32 or larger.</small>
+                <small style="color:var(--text3)">ICO / PNG / SVG / WebP / JPG · Max 256 KB · A square image works best — 32×32 or larger.</small>
             </div>
             <div class="card-body">
                 @if($appFavicon)
-                <div class="mb-3 p-3 border rounded d-flex align-items-center gap-3">
+                <div class="mb-3 p-3 d-flex align-items-center gap-3" style="border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface2)">
                     <img src="{{ asset($appFavicon) }}" alt="Current favicon"
                          style="width:32px;height:32px;object-fit:contain">
                     <div>
-                        <div class="small text-muted mb-1">Current favicon</div>
+                        <div class="small mb-1" style="color:var(--text3)">Current favicon</div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" name="remove_favicon" value="1" id="removeFavicon">
-                            <label class="form-check-label small text-danger" for="removeFavicon">Remove favicon</label>
+                            <label class="form-check-label small" style="color:var(--c-red)" for="removeFavicon">Remove favicon</label>
                         </div>
                     </div>
                 </div>
@@ -154,10 +153,10 @@
                 @error('favicon')<div class="invalid-feedback">{{ $message }}</div>@enderror
                 <div id="faviconPreviewWrap" class="mt-2 d-none">
                     <img id="faviconPreview" src="" alt="Preview"
-                         style="width:32px;height:32px;object-fit:contain;border:1px solid #dee2e6;padding:3px;border-radius:6px">
+                         style="width:32px;height:32px;object-fit:contain;border:1px solid var(--border);padding:3px;border-radius:6px">
                 </div>
                 @unless($appFavicon)
-                    <div class="small text-muted mt-2">
+                    <div class="small mt-2" style="color:var(--text3)">
                         None set — browsers show their own default icon in the tab.
                     </div>
                 @endunless
@@ -171,10 +170,10 @@
 
     {{-- Right column: live preview --}}
     <div class="col-lg-5">
-        <div class="card border-0 shadow-sm" style="position:sticky;top:72px">
+        <div class="card section-card" style="position:sticky;top:72px">
             <div class="card-header py-3">
                 <h6 class="fw-bold mb-0">Live Preview</h6>
-                <small class="text-muted">Changes apply to the whole page instantly.</small>
+                <small style="color:var(--text3)">Changes apply to the whole page instantly.</small>
             </div>
             <div class="card-body">
                 {{-- Mini sidebar --}}
@@ -212,6 +211,8 @@
 
 </div>
 </form>
+</div>
+</div>
 @endsection
 
 @push('styles')

@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Notifications\TaskAssigned;
 use App\Notifications\TaskReviewed;
 use App\Notifications\TaskSubmitted;
+use App\Services\Storage\StorageSettings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +24,7 @@ class TaskService
     public function __construct(
         private readonly ActivityLogService    $activityLog,
         private readonly WorkloadService       $workload,
+        private readonly StorageSettings       $storage,
     ) {}
 
     public function create(array $data): Task
@@ -225,7 +227,7 @@ class TaskService
     {
         DB::transaction(function () use ($task) {
             foreach ($task->attachments as $attachment) {
-                Storage::disk('local')->delete($attachment->file_path);
+                Storage::disk($attachment->disk ?: 'local')->delete($attachment->file_path);
             }
             $this->activityLog->log('Task', 'Deleted', $task->client_id, ['title' => $task->title]);
             $task->delete();
@@ -254,7 +256,8 @@ class TaskService
     {
         return DB::transaction(function () use ($task, $file) {
             $storedName = Str::uuid() . '.' . $file->getClientOriginalExtension();
-            $path       = $file->storeAs('task-attachments/' . $task->id, $storedName, 'local');
+            $disk       = $this->storage->activeDisk();
+            $path       = $file->storeAs('task-attachments/' . $task->id, $storedName, $disk);
 
             $attachment = TaskAttachment::create([
                 'task_id'       => $task->id,
@@ -262,6 +265,7 @@ class TaskService
                 'original_name' => $file->getClientOriginalName(),
                 'stored_name'   => $storedName,
                 'file_path'     => $path,
+                'disk'          => $disk,
                 'mime_type'     => $file->getMimeType(),
                 'file_size'     => $file->getSize(),
             ]);
@@ -274,7 +278,7 @@ class TaskService
 
     public function deleteAttachment(TaskAttachment $attachment): void
     {
-        Storage::disk('local')->delete($attachment->file_path);
+        Storage::disk($attachment->disk ?: 'local')->delete($attachment->file_path);
         $this->logActivity($attachment->task, 'Attachment Removed', $attachment->original_name);
         $attachment->delete();
     }

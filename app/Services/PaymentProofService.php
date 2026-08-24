@@ -11,6 +11,7 @@ use App\Notifications\PaymentProofSubmitted;
 use App\Notifications\Portal\PaymentVerified;
 use App\Services\Concerns\NotifiesStaff;
 use App\Services\Portal\NotifiesPortalUsers;
+use App\Services\Storage\StorageSettings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +26,7 @@ class PaymentProofService
     public function __construct(
         private readonly ActivityLogService $activityLog,
         private readonly InvoiceService $invoiceService,
+        private readonly StorageSettings $storage,
     ) {}
 
     public function submit(
@@ -39,7 +41,8 @@ class PaymentProofService
     ): PaymentProofSubmission {
         $ext = strtolower($file->getClientOriginalExtension());
         $storedName = Str::uuid() . '.' . $ext;
-        $path = $file->storeAs('portal/payment-proofs/' . $client->id, $storedName, 'local');
+        $disk = $this->storage->activeDisk();
+        $path = $file->storeAs('portal/payment-proofs/' . $client->id, $storedName, $disk);
 
         $proof = PaymentProofSubmission::create([
             'client_id'             => $client->id,
@@ -51,7 +54,7 @@ class PaymentProofService
             'payment_date'          => $paymentDate,
             'original_name'         => $file->getClientOriginalName(),
             'stored_name'           => $storedName,
-            'disk'                  => 'local',
+            'disk'                  => $disk,
             'path'                  => $path,
             'mime_type'             => $file->getMimeType() ?? 'application/octet-stream',
             'file_size'             => $file->getSize(),
