@@ -22,6 +22,11 @@
         <h4 class="page-title mb-0"><i class="bi bi-megaphone me-2"></i>Marketing</h4>
         <small style="color:var(--text3)">Pick a brand to see its advertising performance.</small>
     </div>
+    @if($canManage)
+        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newBrandModal">
+            <i class="bi bi-plus-lg me-1"></i>New Brand
+        </button>
+    @endif
 </div>
 
 <div class="row g-3">
@@ -57,11 +62,113 @@
                 <div class="card-body text-center py-5" style="color:var(--text3)">
                     <i class="bi bi-megaphone" style="font-size:2.4rem"></i>
                     <div class="mt-2" style="font-size:.9rem">
-                        No brands yet. Brands are created on a client's profile, under the Brands tab.
+                        @if($canManage)
+                            No brands yet. Create one for any client to start tracking its advertising.
+                        @else
+                            No brands yet. Brands are created on a client's profile, under the Brands tab.
+                        @endif
                     </div>
+                    @if($canManage)
+                        <button class="btn btn-primary btn-sm mt-3" data-bs-toggle="modal" data-bs-target="#newBrandModal">
+                            <i class="bi bi-plus-lg me-1"></i>New Brand
+                        </button>
+                    @endif
                 </div>
             </div>
         </div>
     @endforelse
 </div>
+
+@if($canManage)
+    {{-- New Brand: the client is chosen here rather than implied by the page,
+         so a brand can be opened on behalf of any client without leaving Marketing. --}}
+    <div class="modal fade" id="newBrandModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content" style="background:var(--surface);border:1px solid var(--border)">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title fw-bold"><i class="bi bi-tags me-1"></i>New Brand</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="newBrandForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold small">Client <span style="color:var(--c-red)">*</span></label>
+                            {{-- No `required` here: Select2 hides the real <select>, and
+                                 native validation on a hidden control blocks submit
+                                 with an unfocusable-element error. Checked in JS instead. --}}
+                            <select id="nbClient" class="form-select">
+                                <option value="">Select a client…</option>
+                                @foreach($clients as $c)
+                                    <option value="{{ $c->id }}">{{ $c->client_name }}@if($c->dfid_number) — {{ $c->dfid_number }}@endif</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold small">Brand Name <span style="color:var(--c-red)">*</span></label>
+                            <input type="text" id="nbName" class="form-control" maxlength="150" placeholder="e.g. Acme Coffee" required>
+                        </div>
+                        <div class="mb-0">
+                            <label class="form-label fw-semibold small">Remarks</label>
+                            <textarea id="nbRemarks" class="form-control" rows="2" maxlength="1000" placeholder="Optional"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer py-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-sm btn-primary" id="nbSubmit">Create Brand</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+@endif
 @endsection
+
+@push('scripts')
+@if($canManage)
+<script>
+    $(function () {
+        var brandBase = '{{ url('marketing/brands') }}';
+
+        $('#nbClient').select2({
+            theme: 'bootstrap-5',
+            width: '100%',
+            dropdownParent: $('#newBrandModal'),
+            placeholder: 'Select a client…',
+        });
+
+        $('#newBrandModal').on('hidden.bs.modal', function () {
+            $('#newBrandForm')[0].reset();
+            $('#nbClient').val('').trigger('change');
+        });
+
+        $('#newBrandForm').on('submit', function (e) {
+            e.preventDefault();
+
+            var clientId = $('#nbClient').val();
+            var name = $('#nbName').val().trim();
+            if (!clientId || !name) {
+                Swal.fire('Missing details', 'Choose a client and give the brand a name.', 'warning');
+                return;
+            }
+
+            var $btn = $('#nbSubmit').prop('disabled', true);
+
+            $.post('{{ url('clients') }}/' + clientId + '/brands', {
+                name: name,
+                remarks: $('#nbRemarks').val().trim(),
+            }).done(function (r) {
+                // Straight to the new brand — connecting a platform is the next step.
+                window.location = brandBase + '/' + r.data.id;
+            }).fail(function (xhr) {
+                var errors = xhr.responseJSON && xhr.responseJSON.errors;
+                var message = errors
+                    ? Object.values(errors)[0][0]
+                    : ((xhr.responseJSON && xhr.responseJSON.message) || 'Could not create the brand.');
+                Swal.fire('Error', message, 'error');
+                $btn.prop('disabled', false);
+            });
+        });
+    });
+</script>
+@endif
+@endpush

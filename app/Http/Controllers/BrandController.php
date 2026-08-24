@@ -22,6 +22,11 @@ class BrandController extends Controller
         return response()->json(['data' => $client->brands()->withCount('adCampaigns')->get()]);
     }
 
+    /**
+     * Brands are created for a client, not by one: anyone with "manage ads"
+     * may open a brand for any client they can reach, from the client's own
+     * profile or from Marketing.
+     */
     public function store(Request $request, Client $client): JsonResponse
     {
         abort_unless($request->user()->hasPermissionTo('manage ads'), 403);

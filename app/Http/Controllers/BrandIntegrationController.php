@@ -32,7 +32,8 @@ class BrandIntegrationController extends Controller
         private readonly MetaAuthService $auth,
         private readonly MetaResourceService $resources,
         private readonly PlatformSyncService $sync,
-    ) {}
+    ) {
+    }
 
     /** Integration overview for a brand. */
     public function index(Brand $brand): JsonResponse
@@ -40,12 +41,12 @@ class BrandIntegrationController extends Controller
         $this->authorize('view', $brand);
 
         $integrations = $brand->integrations()->with('resources')->get()
-            ->map(fn (BrandIntegration $i) => $this->resource($i));
+            ->map(fn(BrandIntegration $i) => $this->resource($i));
 
         return response()->json([
-            'brand'        => ['id' => $brand->id, 'name' => $brand->name, 'is_active' => $brand->is_active],
+            'brand' => ['id' => $brand->id, 'name' => $brand->name, 'is_active' => $brand->is_active],
             'integrations' => $integrations,
-            'meta_ready'   => $this->auth->isConfigured(),
+            'meta_ready' => $this->auth->isConfigured(),
         ]);
     }
 
@@ -118,12 +119,12 @@ class BrandIntegrationController extends Controller
 
         $selected = $integration->resources()->selected()->get()
             ->groupBy('type')
-            ->map(fn ($rows) => $rows->pluck('external_id')->all());
+            ->map(fn($rows) => $rows->pluck('external_id')->all());
 
         return response()->json([
-            'success'   => true,
+            'success' => true,
             'available' => $available,
-            'selected'  => $selected,
+            'selected' => $selected,
         ]);
     }
 
@@ -133,7 +134,7 @@ class BrandIntegrationController extends Controller
         $this->authorize('manageIntegration', $integration);
 
         $data = $request->validate([
-            'selection'   => ['present', 'array'],
+            'selection' => ['present', 'array'],
             'selection.*' => ['array'],
         ]);
 
@@ -146,7 +147,7 @@ class BrandIntegrationController extends Controller
         $this->resources->storeSelection($integration, $available, $data['selection']);
 
         return response()->json([
-            'success'   => true,
+            'success' => true,
             'resources' => $integration->fresh()->resources()->selected()->get(['type', 'external_id', 'name']),
         ]);
     }
@@ -193,17 +194,17 @@ class BrandIntegrationController extends Controller
         $this->authorize('view', $brand);
 
         $logs = $brand->syncLogs()->with('triggeredBy:id,name')->limit(20)->get()
-            ->map(fn (SyncLog $log) => [
-                'id'                => $log->id,
-                'platform'          => $log->platform,
-                'sync_type'         => $log->sync_type,
-                'status'            => $log->status,
-                'started_at'        => $log->started_at->format('d M Y, h:i A'),
-                'started_human'     => $log->started_at->diffForHumans(),
-                'duration_seconds'  => $log->durationSeconds(),
+            ->map(fn(SyncLog $log) => [
+                'id' => $log->id,
+                'platform' => $log->platform,
+                'sync_type' => $log->sync_type,
+                'status' => $log->status,
+                'started_at' => $log->started_at->format('d M Y, h:i A'),
+                'started_human' => $log->started_at->diffForHumans(),
+                'duration_seconds' => $log->durationSeconds(),
                 'records_processed' => $log->records_processed,
-                'error_message'     => $log->error_message,
-                'triggered_by'      => $log->triggeredBy?->name,
+                'error_message' => $log->error_message,
+                'triggered_by' => $log->triggeredBy?->name,
             ]);
 
         return response()->json(['logs' => $logs]);
@@ -216,16 +217,16 @@ class BrandIntegrationController extends Controller
     private function resource(BrandIntegration $integration): array
     {
         return [
-            'id'             => $integration->id,
-            'platform'       => $integration->platform,
-            'status'         => $integration->status,
-            'account_name'   => $integration->metadata['account_name'] ?? null,
-            'connected_at'   => $integration->connected_at?->format('d M Y, h:i A'),
+            'id' => $integration->id,
+            'platform' => $integration->platform,
+            'status' => $integration->status,
+            'account_name' => $integration->metadata['account_name'] ?? null,
+            'connected_at' => $integration->connected_at?->format('d M Y, h:i A'),
             'last_synced_at' => $integration->last_synced_at?->format('d M Y, h:i A'),
             'last_synced_human' => $integration->last_synced_at?->diffForHumans(),
-            'next_sync_at'   => $integration->nextSyncAt()?->format('d M Y, h:i A'),
-            'token_expired'  => $integration->tokenHasExpired(),
-            'last_error'     => $integration->last_error,
+            'next_sync_at' => $integration->nextSyncAt()?->format('d M Y, h:i A'),
+            'token_expired' => $integration->tokenHasExpired(),
+            'last_error' => $integration->last_error,
             'resource_counts' => $integration->resources
                 ->where('is_selected', true)
                 ->groupBy('type')

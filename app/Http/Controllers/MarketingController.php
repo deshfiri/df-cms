@@ -24,16 +24,25 @@ class MarketingController extends Controller
         private readonly MarketingAnalyticsService $analytics,
     ) {}
 
-    /** Landing page: pick a brand. */
+    /** Landing page: pick a brand — or open a new one for any client. */
     public function index(Request $request)
     {
         $this->authorize('viewAny', Client::class);
 
         $brands = $this->visibleBrands($request);
 
+        // A brand belongs to a client, but creating one was only ever reachable
+        // from that client's profile. Anyone who manages ads may open a brand
+        // for any client they can see, so the picker is offered here too.
+        $canManage = $request->user()->can('manage ads');
+
         return view('marketing.index', [
-            'brands'  => $brands,
-            'presets' => MarketingAnalyticsService::presets(),
+            'brands'    => $brands,
+            'presets'   => MarketingAnalyticsService::presets(),
+            'canManage' => $canManage,
+            'clients'   => $canManage
+                ? Client::withoutTrashed()->orderBy('client_name')->get(['id', 'client_name', 'dfid_number'])
+                : collect(),
         ]);
     }
 

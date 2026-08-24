@@ -21,6 +21,7 @@ class BrandTest extends TestCase
         parent::setUp();
         Permission::firstOrCreate(['name' => 'view ads', 'guard_name' => 'web']);
         Permission::firstOrCreate(['name' => 'manage ads', 'guard_name' => 'web']);
+        Permission::firstOrCreate(['name' => 'view clients', 'guard_name' => 'web']);
     }
 
     private function makeClient(string $name = 'Test Client'): Client
@@ -140,6 +141,34 @@ class BrandTest extends TestCase
         $response->assertOk();
         $this->assertSoftDeleted('brands', ['id' => $brand->id]);
         $this->assertDatabaseHas('ad_campaigns', ['id' => $campaign->id, 'brand_id' => null]);
+    }
+
+    public function test_marketing_index_offers_brand_creation_for_any_client(): void
+    {
+        $marketing = $this->makeUser('Marketing');
+        $marketing->givePermissionTo('view clients');
+        $client = $this->makeClient('Picker Client');
+
+        $response = $this->actingAs($marketing)->get(route('marketing.index'));
+
+        $response->assertOk();
+        $response->assertSee('newBrandModal');
+        // The client picker is what makes this "on behalf of" rather than
+        // client-page-only, so the roster must actually reach the page.
+        $response->assertSee('Picker Client');
+    }
+
+    public function test_marketing_index_hides_brand_creation_without_manage_ads(): void
+    {
+        $viewer = $this->makeUser('Viewer');
+        $viewer->givePermissionTo(['view clients', 'view ads']);
+        $this->makeClient('Hidden Client');
+
+        $response = $this->actingAs($viewer)->get(route('marketing.index'));
+
+        $response->assertOk();
+        $response->assertDontSee('newBrandModal');
+        $response->assertDontSee('Hidden Client');
     }
 
     public function test_ads_index_filters_by_brand_id(): void
