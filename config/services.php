@@ -57,6 +57,30 @@ return [
         ))),
     ],
 
+    /*
+    |----------------------------------------------------------------------
+    | Meta WhatsApp Cloud API
+    |----------------------------------------------------------------------
+    |
+    | Deliberately separate from the 'meta' block above. That app authorises ad
+    | account access for the Marketing module; this one authorises WhatsApp
+    | messaging. Sharing credentials would mean a scope change or a secret
+    | rotation for one integration silently altering the other.
+    |
+    | These are env-level fallbacks only — the values an administrator enters in
+    | Settings → WhatsApp always win. Per-number access tokens are stored
+    | encrypted on whatsapp_accounts and never appear here.
+    |
+    */
+    'whatsapp' => [
+        'app_id'               => env('META_WHATSAPP_APP_ID'),
+        'app_secret'           => env('META_WHATSAPP_APP_SECRET'),
+        // Embedded Signup configuration id, from the Meta app's WhatsApp setup.
+        'config_id'            => env('META_WHATSAPP_CONFIG_ID'),
+        'webhook_verify_token' => env('META_WHATSAPP_WEBHOOK_VERIFY_TOKEN'),
+        'api_version'          => env('META_WHATSAPP_API_VERSION', 'v21.0'),
+    ],
+
     'google_calendar' => [
         // Path to a Google Cloud service-account JSON key file. Meeting <-> Calendar
         // sync silently no-ops everywhere until this is set and the file exists.

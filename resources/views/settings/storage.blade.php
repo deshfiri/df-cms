@@ -82,6 +82,12 @@
         'cloudflare' => 'Cloudflare R2',
         'cloudinary' => 'Cloudinary',
     ];
+
+    // Which panel opens on load. A save or a failed validation must bring back
+    // the panel it came from, not the one belonging to the active provider —
+    // otherwise the field errors and the Activate button are hidden behind a
+    // tile the admin has to know to click again.
+    $openPanel = old('provider') ?: (session('panel') ?: $provider);
 @endphp
 
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
@@ -125,6 +131,27 @@
             </div>
         </div>
 
+        @php
+            // Credentials on file for something that is not the one in use. The
+            // single most confusing state this page can be in — "I connected
+            // Cloudinary, so why are files still local?" — so it says so.
+            $savedButIdle = collect([
+                'cloudflare' => $r2Configured,
+                'cloudinary' => $cloudinaryConfigured,
+            ])->filter()->keys()->reject(fn ($p) => $p === $provider)->values();
+        @endphp
+
+        @if($savedButIdle->isNotEmpty())
+            <div class="st-note mb-4" style="border-left:3px solid var(--c-yellow)">
+                <i class="bi bi-exclamation-triangle me-1" style="color:var(--c-yellow)"></i>
+                <strong>{{ $savedButIdle->map(fn ($p) => $providerLabels[$p])->join(' and ') }}
+                {{ $savedButIdle->count() === 1 ? 'has' : 'have' }} credentials saved but
+                {{ $savedButIdle->count() === 1 ? 'is' : 'are' }} not in use.</strong>
+                Uploads still go to {{ $providerLabels[$provider] }}. Saving credentials does not move
+                anything — open the provider below and press <em>Activate</em>.
+            </div>
+        @endif
+
         {{-- Provider chooser --}}
         <div class="st-tiles">
             @php
@@ -148,7 +175,7 @@
             @endphp
 
             @foreach($tiles as $key => $tile)
-                <div class="st-tile {{ $provider === $key ? 'selected' : '' }}" data-panel="{{ $key }}">
+                <div class="st-tile {{ $openPanel === $key ? 'selected' : '' }}" data-panel="{{ $key }}">
                     <div class="st-tile-head">
                         <i class="bi {{ $tile['icon'] }} st-tile-icon"></i>
                         <span class="st-tile-name">{{ $tile['name'] }}</span>
@@ -168,7 +195,7 @@
         </div>
 
         {{-- ── Self-hosted ─────────────────────────────────────────── --}}
-        <div class="st-panel st-config" id="panel-local" style="{{ $provider === 'local' ? '' : 'display:none' }}">
+        <div class="st-panel st-config" id="panel-local" style="{{ $openPanel === 'local' ? '' : 'display:none' }}">
             <div class="st-panel-head">
                 <h6 class="st-panel-title">Self-hosted storage</h6>
                 <span class="st-panel-sub">The default. Nothing to configure.</span>
@@ -194,7 +221,7 @@
         </div>
 
         {{-- ── Cloudflare R2 ───────────────────────────────────────── --}}
-        <div class="st-panel st-config" id="panel-cloudflare" style="{{ $provider === 'cloudflare' ? '' : 'display:none' }}">
+        <div class="st-panel st-config" id="panel-cloudflare" style="{{ $openPanel === 'cloudflare' ? '' : 'display:none' }}">
             {{-- The save form wraps only the fields. Activate and Disconnect are
                  their own forms in the footer, so the Save button reaches back
                  into this one by id rather than nesting forms inside each other. --}}
@@ -282,7 +309,7 @@
         </div>
 
         {{-- ── Cloudinary ──────────────────────────────────────────── --}}
-        <div class="st-panel st-config" id="panel-cloudinary" style="{{ $provider === 'cloudinary' ? '' : 'display:none' }}">
+        <div class="st-panel st-config" id="panel-cloudinary" style="{{ $openPanel === 'cloudinary' ? '' : 'display:none' }}">
             <form method="POST" action="{{ route('settings.storage.update') }}" id="cloudinaryForm">
                 @csrf
                 <input type="hidden" name="provider" value="cloudinary">

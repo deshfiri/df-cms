@@ -25,6 +25,7 @@
             'storage'    => ['label' => 'Storage & CDN',  'icon' => 'bi-hdd-network',  'route' => 'settings.storage', 'hint' => 'Where files are kept'],
         ],
         'Integrations' => [
+            'whatsapp'   => ['label' => 'WhatsApp',       'icon' => 'bi-whatsapp',     'route' => 'settings.whatsapp', 'hint' => 'Customer messaging'],
             'google'     => ['label' => 'Google Meet',    'icon' => 'bi-camera-video', 'route' => 'settings.google',  'hint' => 'Meeting links'],
             'meta'       => ['label' => 'Meta Marketing', 'icon' => 'bi-meta',         'route' => 'settings.meta',    'hint' => 'Ad account sync'],
         ],

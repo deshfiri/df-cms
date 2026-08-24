@@ -24,6 +24,10 @@ use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\MarketingController;
 use App\Http\Controllers\MetaSettingsController;
 use App\Http\Controllers\StorageSettingsController;
+use App\Http\Controllers\WhatsApp\WhatsAppInboxController;
+use App\Http\Controllers\WhatsApp\WhatsAppSettingsController;
+use App\Http\Controllers\WhatsApp\WhatsAppWebhookController;
+use App\Http\Middleware\VerifyWhatsAppWebhookSignature;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DashboardController;
@@ -48,6 +52,30 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', fn () => redirect()->route('login'));
 
 Auth::routes(['register' => false]);
+
+/*
+|--------------------------------------------------------------------------
+| WhatsApp webhook — the only unauthenticated route in the application
+|--------------------------------------------------------------------------
+|
+| Meta posts from its own servers with no session and no CSRF token, so this
+| sits outside the `auth` group and is exempted from CSRF in bootstrap/app.php.
+| Authenticity comes from the X-Hub-Signature-256 header instead: the POST
+| carries VerifyWhatsAppWebhookSignature, and the GET handshake is checked
+| against the stored verify token inside the controller.
+|
+| Throttled because it is public: a flood must not be able to fill the queue.
+|
+*/
+Route::prefix('whatsapp')->group(function () {
+    Route::get('webhook', [WhatsAppWebhookController::class, 'verify'])
+        ->middleware('throttle:60,1')
+        ->name('whatsapp.webhook');
+
+    Route::post('webhook', [WhatsAppWebhookController::class, 'receive'])
+        ->middleware([VerifyWhatsAppWebhookSignature::class, 'throttle:600,1'])
+        ->name('whatsapp.webhook.receive');
+});
 
 Route::middleware(['auth'])->group(function () {
 
@@ -400,6 +428,29 @@ Route::middleware(['auth'])->group(function () {
     Route::get('settings/google/callback', [GoogleIntegrationController::class, 'callback'])->name('settings.google.callback');
     Route::post('settings/google/disconnect', [GoogleIntegrationController::class, 'disconnect'])->name('settings.google.disconnect');
     Route::post('settings/google/test', [GoogleIntegrationController::class, 'test'])->name('settings.google.test');
+
+    /*
+     * WhatsApp — customer messaging.
+     *
+     * Its own namespace, deliberately nowhere near /chat: the internal staff
+     * chat and this share no route, no controller and no table.
+     */
+    Route::prefix('whatsapp')->name('whatsapp.')->group(function () {
+        Route::get('inbox', [WhatsAppInboxController::class, 'index'])->name('inbox');
+        Route::get('conversations', [WhatsAppInboxController::class, 'conversations'])->name('conversations');
+        Route::get('conversations/{conversation}', [WhatsAppInboxController::class, 'show'])->name('conversation');
+        Route::post('conversations/{conversation}/send', [WhatsAppInboxController::class, 'send'])->name('send');
+        Route::post('conversations/{conversation}/assign', [WhatsAppInboxController::class, 'assign'])->name('assign');
+        Route::post('conversations/{conversation}/status', [WhatsAppInboxController::class, 'updateStatus'])->name('status');
+        Route::get('media/{message}', [WhatsAppInboxController::class, 'media'])->name('media');
+    });
+
+    // WhatsApp Meta app credentials (Super Admin only; gated in the controller).
+    // Per-number access tokens live encrypted on whatsapp_accounts, never here.
+    Route::get('settings/whatsapp', [WhatsAppSettingsController::class, 'index'])->name('settings.whatsapp');
+    Route::post('settings/whatsapp', [WhatsAppSettingsController::class, 'update'])->name('settings.whatsapp.update');
+    Route::post('settings/whatsapp/verify-token', [WhatsAppSettingsController::class, 'regenerateVerifyToken'])->name('settings.whatsapp.verify-token');
+    Route::post('settings/whatsapp/disconnect', [WhatsAppSettingsController::class, 'disconnect'])->name('settings.whatsapp.disconnect');
 
     // Storage & CDN — where uploaded files are kept (Super Admin only).
     Route::get('settings/storage', [StorageSettingsController::class, 'index'])->name('settings.storage');

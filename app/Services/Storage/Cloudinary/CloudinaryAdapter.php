@@ -3,6 +3,7 @@
 namespace App\Services\Storage\Cloudinary;
 
 use League\Flysystem\Config;
+use League\Flysystem\DirectoryAttributes;
 use League\Flysystem\FileAttributes;
 use League\Flysystem\FilesystemAdapter;
 use League\Flysystem\UnableToCopyFile;
@@ -156,7 +157,7 @@ class CloudinaryAdapter implements FilesystemAdapter
     }
 
     /**
-     * @return iterable<FileAttributes>
+     * @return iterable<FileAttributes|DirectoryAttributes>
      */
     public function listContents(string $path, bool $deep): iterable
     {
@@ -168,16 +169,24 @@ class CloudinaryAdapter implements FilesystemAdapter
             return;
         }
 
+        // Cloudinary returns a flat list of assets; folders exist only as the
+        // slashes inside their ids. A shallow listing therefore has to derive
+        // its sub-folders here, or a browsable drive would show no folders at
+        // all — only the files at the very top.
+        $directories = [];
+
         foreach ($resources as $resource) {
             $itemPath = $this->client->toPath((string) ($resource['public_id'] ?? ''));
 
-            if ($itemPath === '') {
+            if ($itemPath === '' || !str_starts_with($itemPath, $prefix)) {
                 continue;
             }
 
-            // A shallow listing must not reach into sub-folders, but the Admin
-            // API only knows prefixes — so filter the depth back out here.
-            if (!$deep && str_contains(substr($itemPath, strlen($prefix)), '/')) {
+            $remainder = substr($itemPath, strlen($prefix));
+
+            if (!$deep && str_contains($remainder, '/')) {
+                // Not a file here, but it proves a folder here.
+                $directories[$prefix . strstr($remainder, '/', true)] = true;
                 continue;
             }
 
@@ -187,6 +196,10 @@ class CloudinaryAdapter implements FilesystemAdapter
                 lastModified: isset($resource['created_at']) ? (strtotime($resource['created_at']) ?: null) : null,
                 mimeType: $resource['resource_type'] ?? null,
             );
+        }
+
+        foreach (array_keys($directories) as $directory) {
+            yield new DirectoryAttributes($directory);
         }
     }
 

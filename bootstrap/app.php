@@ -23,6 +23,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // Outermost, so it sees the finished body of every response.
         $middleware->append(CompressResponse::class);
 
+        // Meta posts webhook deliveries from its own servers with no session and
+        // no CSRF token. Authenticity is established by the X-Hub-Signature-256
+        // header instead — see VerifyWhatsAppWebhookSignature, which the route
+        // carries. This is the only CSRF exemption in the application.
+        $middleware->validateCsrfTokens(except: [
+            'whatsapp/webhook',
+        ]);
+
         // Unauthenticated requests to a /portal/* route must bounce to the
         // portal login, never the staff one (and vice versa) — without this,
         // Laravel's default redirectTo() always points at the staff 'login'

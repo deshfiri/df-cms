@@ -2,18 +2,78 @@
 
 namespace App\Services;
 
+use App\Services\Storage\StorageSettings;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
+/**
+ * The shared drive: a browsable folder tree rather than a set of records.
+ *
+ * It follows the storage provider like everything else, with one wrinkle. There
+ * is no per-file database row here to remember where each file went, so the
+ * drive can only ever show one disk at a time. Self-hosted therefore keeps its
+ * own long-standing `file_manager` disk untouched, and a CDN gets a dedicated
+ * prefix — switching provider changes which drive you are looking at, and
+ * `storage:migrate` is what carries the contents across.
+ */
 class FileManagerService
 {
-    private const DISK = 'file_manager';
+    /** Where the drive lives while self-hosted. Unchanged, so nothing moves. */
+    private const LOCAL_DISK = 'file_manager';
+
+    /** Folder the drive occupies on a shared CDN bucket. */
+    private const REMOTE_ROOT = 'file-manager';
+
+    /**
+     * Object stores have no empty directories — a folder exists only while
+     * something is filed under it. This placeholder is what makes "create an
+     * empty folder" survive, and it is filtered back out of every listing.
+     */
+    private const KEEP_FILE = '.keep';
 
     public function __construct(
         private readonly ActivityLogService $activityLog,
+        private readonly StorageSettings $storage,
     ) {}
+
+    /** The disk the drive currently lives on. */
+    public function diskName(): string
+    {
+        $active = $this->storage->activeDisk();
+
+        return $active === 'local' ? self::LOCAL_DISK : $active;
+    }
+
+    /** True when the drive is on an object store rather than this server. */
+    private function isRemote(): bool
+    {
+        return $this->diskName() !== self::LOCAL_DISK;
+    }
+
+    /** A drive-relative path as the underlying disk sees it. */
+    private function full(string $path): string
+    {
+        if (!$this->isRemote()) {
+            return $path;
+        }
+
+        return trim(self::REMOTE_ROOT . '/' . $path, '/');
+    }
+
+    /** The inverse of full(): what the UI should be shown. */
+    private function relative(string $path): string
+    {
+        if (!$this->isRemote()) {
+            return $path;
+        }
+
+        $prefix = self::REMOTE_ROOT . '/';
+
+        return str_starts_with($path, $prefix) ? substr($path, strlen($prefix)) : $path;
+    }
 
     /**
      * Strips any '.', '..', and empty segments so callers can never escape
@@ -34,27 +94,32 @@ class FileManagerService
     {
         $path = $this->sanitizePath($path);
         $disk = $this->disk();
+        $here = $this->full($path);
 
-        if ($path !== '' && !$disk->exists($path)) {
+        // On an object store the root is implicit and exists() answers false for
+        // it, so only a named sub-folder is worth checking.
+        if ($path !== '' && !$disk->exists($here) && !$disk->directoryExists($here)) {
             throw new RuntimeException('Folder not found.');
         }
 
-        $folders = collect($disk->directories($path))
+        $folders = collect($disk->directories($here))
             ->map(fn ($full) => [
                 'name'     => basename($full),
-                'path'     => $full,
+                'path'     => $this->relative($full),
                 'is_dir'   => true,
                 'size'     => null,
                 'modified' => null,
             ]);
 
-        $files = collect($disk->files($path))
+        $files = collect($disk->files($here))
+            // The placeholder that keeps an empty folder alive is plumbing.
+            ->reject(fn ($full) => basename($full) === self::KEEP_FILE)
             ->map(function ($full) use ($disk) {
                 $mime = $disk->mimeType($full) ?: null;
 
                 return [
                     'name'     => basename($full),
-                    'path'     => $full,
+                    'path'     => $this->relative($full),
                     'is_dir'   => false,
                     'size'     => $this->formatSize($disk->size($full)),
                     'modified' => date('d M Y H:i', $disk->lastModified($full)),
@@ -79,13 +144,23 @@ class FileManagerService
         $path = $this->sanitizePath($path);
         $name = $this->sanitizeName($name);
         $target = trim($path . '/' . $name, '/');
+        $full = $this->full($target);
 
         $disk = $this->disk();
-        if ($disk->exists($target)) {
+        if ($disk->exists($full) || $disk->directoryExists($full)) {
             throw new RuntimeException('A file or folder with that name already exists.');
         }
 
-        $disk->makeDirectory($target);
+        if ($this->isRemote()) {
+            // makeDirectory is a no-op where directories are only prefixes, so
+            // the folder would vanish the moment the page reloaded. Carries a
+            // byte of content because some object stores reject a zero-length
+            // upload outright.
+            $disk->put($full . '/' . self::KEEP_FILE, "folder placeholder\n");
+        } else {
+            $disk->makeDirectory($full);
+        }
+
         $this->activityLog->log('File Manager', 'Folder Created', null, null, ['path' => $target], null);
     }
 
@@ -95,7 +170,7 @@ class FileManagerService
         $disk = $this->disk();
 
         $name = $this->uniqueName($disk, $path, $this->sanitizeName($file->getClientOriginalName()));
-        $disk->putFileAs($path, $file, $name);
+        $disk->putFileAs($this->full($path), $file, $name);
 
         $stored = trim($path . '/' . $name, '/');
         $this->activityLog->log('File Manager', 'File Uploaded', null, null, ['path' => $stored], null);
@@ -103,24 +178,42 @@ class FileManagerService
         return $stored;
     }
 
-    public function download(string $path): array
+    /**
+     * Stream a file back to the browser.
+     *
+     * Streamed rather than served from an absolute path: ->path() exists only
+     * on local disks, and the drive may be on R2 or Cloudinary.
+     */
+    public function download(string $path): StreamedResponse
+    {
+        $full = $this->existingFile($path);
+
+        return $this->disk()->download($full, basename($full));
+    }
+
+    public function preview(string $path): StreamedResponse
+    {
+        $full = $this->existingFile($path);
+        $mime = $this->disk()->mimeType($full) ?: 'application/octet-stream';
+
+        return $this->disk()->response($full, basename($full), [
+            'Content-Type'        => $mime,
+            'Content-Disposition' => 'inline; filename="' . basename($full) . '"',
+        ]);
+    }
+
+    /** Resolve a drive path to a real file, or refuse. */
+    private function existingFile(string $path): string
     {
         $path = $this->sanitizePath($path);
+        $full = $this->full($path);
         $disk = $this->disk();
 
-        if ($path === '' || !$disk->exists($path) || $disk->directoryExists($path)) {
+        if ($path === '' || basename($path) === self::KEEP_FILE || !$disk->exists($full) || $disk->directoryExists($full)) {
             throw new RuntimeException('File not found.');
         }
 
-        return [$disk->path($path), basename($path)];
-    }
-
-    public function resolvePreview(string $path): array
-    {
-        [$absolutePath, $name] = $this->download($path);
-        $mime = $this->disk()->mimeType($this->sanitizePath($path)) ?: 'application/octet-stream';
-
-        return [$absolutePath, $name, $mime];
+        return $full;
     }
 
     /**
@@ -132,7 +225,7 @@ class FileManagerService
     {
         $folder = $this->sanitizePath($folder);
         $filename = $this->sanitizeName($filename);
-        $target = trim($folder . '/' . $filename, '/');
+        $target = $this->full(trim($folder . '/' . $filename, '/'));
         $disk = $this->disk();
 
         if ($disk->exists($target)) {
@@ -157,17 +250,20 @@ class FileManagerService
         $path = $this->sanitizePath($path);
         $newName = $this->sanitizeName($newName);
         $disk = $this->disk();
+        $full = $this->full($path);
 
-        if ($path === '' || !$disk->exists($path)) {
+        if ($path === '' || (!$disk->exists($full) && !$disk->directoryExists($full))) {
             throw new RuntimeException('Item not found.');
         }
 
         $target = trim(dirname($path) === '.' ? $newName : dirname($path) . '/' . $newName, '/');
-        if ($disk->exists($target)) {
+        $fullTarget = $this->full($target);
+
+        if ($disk->exists($fullTarget) || $disk->directoryExists($fullTarget)) {
             throw new RuntimeException('A file or folder with that name already exists.');
         }
 
-        $disk->move($path, $target);
+        $disk->move($full, $fullTarget);
         $this->activityLog->log('File Manager', 'Renamed', null, ['path' => $path], ['path' => $target], null);
     }
 
@@ -175,15 +271,16 @@ class FileManagerService
     {
         $path = $this->sanitizePath($path);
         $disk = $this->disk();
+        $full = $this->full($path);
 
-        if ($path === '' || !$disk->exists($path)) {
+        if ($path === '' || (!$disk->exists($full) && !$disk->directoryExists($full))) {
             throw new RuntimeException('Item not found.');
         }
 
-        if ($disk->directoryExists($path)) {
-            $disk->deleteDirectory($path);
+        if ($disk->directoryExists($full)) {
+            $disk->deleteDirectory($full);
         } else {
-            $disk->delete($path);
+            $disk->delete($full);
         }
 
         $this->activityLog->log('File Manager', 'Deleted', null, null, ['path' => $path], null);
@@ -206,7 +303,7 @@ class FileManagerService
         $base = pathinfo($name, PATHINFO_FILENAME);
         $i = 1;
 
-        while ($disk->exists(trim($path . '/' . $candidate, '/'))) {
+        while ($disk->exists($this->full(trim($path . '/' . $candidate, '/')))) {
             $candidate = $ext !== '' ? "{$base} ({$i}).{$ext}" : "{$base} ({$i})";
             $i++;
         }
@@ -245,6 +342,6 @@ class FileManagerService
 
     private function disk(): Filesystem
     {
-        return Storage::disk(self::DISK);
+        return Storage::disk($this->diskName());
     }
 }

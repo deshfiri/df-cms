@@ -365,11 +365,15 @@
                     <i class="bi bi-graph-up-arrow"></i><span class="sb-lbl">Performance</span>
                 </a>
             @endcan
+            {{-- Communication: internal staff chat and customer WhatsApp are two
+                 separate systems that happen to sit next to each other. They share
+                 no route, no table and no unread counter. --}}
+            <div class="sb-section">Communication</div>
             @php $chatUnread = app(\App\Services\ChatService::class)->unreadCountFor(auth()->user()); @endphp
             <a href="{{ route('chat.index') }}"
-                class="sb-link {{ request()->routeIs('chat.index') || request()->routeIs('chat.open') ? 'active' : '' }}" title="Chat"
+                class="sb-link {{ request()->routeIs('chat.index') || request()->routeIs('chat.open') ? 'active' : '' }}" title="Internal Chat"
                 data-bs-toggle="tooltip" data-bs-placement="right">
-                <i class="bi bi-chat-dots"></i><span class="sb-lbl">Chat</span>
+                <i class="bi bi-chat-dots"></i><span class="sb-lbl">Internal Chat</span>
                 <span id="chatUnreadBadge" style="{{ $chatUnread ? 'display:inline-flex' : 'display:none' }};margin-left:auto;background:var(--primary);color:#fff;font-size:.6rem;font-weight:700;border-radius:999px;padding:0 5px;min-width:16px;height:16px;align-items:center;justify-content:center">{{ $chatUnread ?: '' }}</span>
             </a>
             @can('monitor chats')
@@ -379,6 +383,17 @@
                     <i class="bi bi-eye"></i><span class="sb-lbl">Chat Monitor</span>
                 </a>
             @endcan
+            @canany(['view whatsapp', 'view all whatsapp'])
+                @php $waUnread = app(\App\Services\WhatsApp\WhatsAppConversationService::class)->unreadCountFor(auth()->user()); @endphp
+                <a href="{{ route('whatsapp.inbox') }}"
+                    class="sb-link {{ request()->routeIs('whatsapp.*') ? 'active' : '' }}" title="WhatsApp"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-whatsapp"></i><span class="sb-lbl">WhatsApp</span>
+                    {{-- Its own badge. WhatsApp unread is never folded into the
+                         internal chat count (spec §33). --}}
+                    <span id="waBadgeTotal" style="{{ $waUnread ? 'display:inline-flex' : 'display:none' }};margin-left:auto;background:var(--c-green);color:#fff;font-size:.6rem;font-weight:700;border-radius:999px;padding:0 5px;min-width:16px;height:16px;align-items:center;justify-content:center">{{ $waUnread ?: '' }}</span>
+                </a>
+            @endcanany
 
             @unless($isStageUser)
             @canany(['import clients', 'export clients', 'manage-workflow', 'view file-manager'])

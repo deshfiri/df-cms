@@ -175,6 +175,69 @@ class StorageSettingsTest extends TestCase
             ->assertSee('R2');
     }
 
+    /**
+     * The panel a save came from must reopen.
+     *
+     * Otherwise the page returns showing the *active* provider's panel, so an
+     * admin who just saved Cloudinary is looking at the local one — with the
+     * Activate button they still need, and any field errors, both hidden. That
+     * reads as "I connected it and nothing happened".
+     */
+    public function test_saving_reopens_the_panel_it_was_saved_from(): void
+    {
+        $this->actingAs($this->superAdmin())
+            ->post(route('settings.storage.update'), [
+                'provider'   => 'cloudinary',
+                'cloud_name' => 'demo-cloud',
+                'api_key'    => '123',
+                'api_secret' => 'shh',
+            ])
+            ->assertSessionHas('panel', 'cloudinary');
+    }
+
+    public function test_a_validation_failure_returns_the_provider_so_its_panel_reopens(): void
+    {
+        $this->actingAs($this->superAdmin())
+            ->post(route('settings.storage.update'), [
+                'provider'   => 'cloudinary',
+                'cloud_name' => '',   // required
+                'api_key'    => '',   // required
+            ])
+            ->assertSessionHasErrors(['cloud_name', 'api_key'])
+            // old('provider') is what the page reads to reopen the right panel.
+            ->assertSessionHasInput('provider', 'cloudinary');
+    }
+
+    /**
+     * Credentials on file for an idle provider is the confusing state; the page
+     * has to say so rather than leaving it to be discovered.
+     */
+    public function test_the_page_warns_when_a_configured_provider_is_not_in_use(): void
+    {
+        Setting::set(StorageSettings::KEY_CLOUDINARY_CLOUD, 'demo-cloud');
+        Setting::set(StorageSettings::KEY_CLOUDINARY_KEY, '123');
+        Setting::set(StorageSettings::KEY_CLOUDINARY_SECRET, Crypt::encryptString('shh'));
+
+        $this->assertSame('local', $this->settings()->activeDisk());
+
+        $this->actingAs($this->superAdmin())
+            ->get(route('settings.storage'))
+            ->assertOk()
+            ->assertSee('credentials saved but', false)
+            ->assertSee('not in use', false);
+    }
+
+    public function test_no_warning_once_the_configured_provider_is_active(): void
+    {
+        $this->configureR2();
+        Setting::set(StorageSettings::KEY_PROVIDER, StorageSettings::PROVIDER_CLOUDFLARE);
+
+        $this->actingAs($this->superAdmin())
+            ->get(route('settings.storage'))
+            ->assertOk()
+            ->assertDontSee('credentials saved but', false);
+    }
+
     public function test_credentials_are_stored_encrypted_and_never_rendered_back(): void
     {
         $this->actingAs($this->superAdmin())

@@ -189,7 +189,16 @@ Two rules make provider switching safe, and both must be honoured by any new upl
 
 Downloads are always proxied through the app's authorized controllers, so permissions and download logging work identically on every provider. Because of that, **never use `Storage::disk(...)->path()`** — it only exists on local disks. Use `->response()` or `->download()`.
 
-The File Manager keeps its own dedicated `file_manager` local disk: it is a browsable folder tree with no per-file database record, so it has no way to remember which files predate a provider switch.
+The File Manager follows the provider too, but differently: it is a browsable folder tree with no per-file record, so it can only show one disk at a time. Self-hosted keeps its long-standing `file_manager` disk; a CDN gets a `file-manager/` prefix on the shared bucket. Empty folders are held open with a `.keep` placeholder, since object stores have no real directories.
+
+Two commands back this up:
+
+```bash
+php artisan storage:status          # where uploads go, and why — add --test for a live round trip
+php artisan storage:migrate         # copy files from one disk to another and repoint the records
+```
+
+`storage:status` is the first thing to run when someone reports "I connected a provider but files are still local" — the usual answer is that credentials were saved but never activated, which the command states outright.
 
 ### Queue
 

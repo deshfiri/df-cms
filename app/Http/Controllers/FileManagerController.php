@@ -7,7 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use RuntimeException;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FileManagerController extends Controller
 {
@@ -67,35 +67,28 @@ class FileManagerController extends Controller
         return response()->json(['success' => true, 'path' => $path]);
     }
 
-    public function download(Request $request): BinaryFileResponse|JsonResponse
+    public function download(Request $request): StreamedResponse|JsonResponse
     {
         abort_unless(Auth::user()->can('view file-manager'), 403);
         $data = $request->validate(['path' => 'required|string|max:2000']);
 
         try {
-            [$absolutePath, $name] = $this->fileManager->download($data['path']);
+            return $this->fileManager->download($data['path']);
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 404);
         }
-
-        return response()->download($absolutePath, $name);
     }
 
-    public function preview(Request $request): BinaryFileResponse|JsonResponse
+    public function preview(Request $request): StreamedResponse|JsonResponse
     {
         abort_unless(Auth::user()->can('view file-manager'), 403);
         $data = $request->validate(['path' => 'required|string|max:2000']);
 
         try {
-            [$absolutePath, $name, $mime] = $this->fileManager->resolvePreview($data['path']);
+            return $this->fileManager->preview($data['path']);
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 404);
         }
-
-        return response()->file($absolutePath, [
-            'Content-Type'        => $mime,
-            'Content-Disposition' => 'inline; filename="' . $name . '"',
-        ]);
     }
 
     public function rename(Request $request): JsonResponse

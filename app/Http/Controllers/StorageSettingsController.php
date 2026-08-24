@@ -75,7 +75,13 @@ class StorageSettingsController extends Controller
             $this->settings->putCloudinary($data);
         }
 
-        return back()->with('success', ucfirst($provider === StorageSettings::PROVIDER_CLOUDFLARE ? 'Cloudflare R2' : 'Cloudinary') . ' credentials saved. Test the connection before activating it.');
+        // Which panel to reopen. Without it the page comes back showing whatever
+        // provider is *active*, so an admin who just saved Cloudinary is looking
+        // at the local panel — with the Activate button they still need, and any
+        // validation errors, both hidden from them.
+        return back()
+            ->with('panel', $provider)
+            ->with('success', $this->label($provider) . ' credentials saved. Now test the connection, then activate it — saving alone does not move any uploads.');
     }
 
     /**
@@ -96,18 +102,24 @@ class StorageSettingsController extends Controller
         }
 
         if (!$this->settings->isConfigured($provider)) {
-            return back()->withErrors(['storage' => 'Enter and save the credentials for that provider first.']);
+            return back()
+                ->with('panel', $provider)
+                ->withErrors(['storage' => 'Enter and save the credentials for that provider first.']);
         }
 
         $result = $this->probe->run(StorageSettings::DISKS[$provider]);
 
         if (!$result['ok']) {
-            return back()->withErrors(['storage' => 'Not activated — the connection test failed. ' . $result['message']]);
+            return back()
+                ->with('panel', $provider)
+                ->withErrors(['storage' => 'Not activated — the connection test failed. ' . $result['message']]);
         }
 
         $this->settings->putProvider($provider);
 
-        return back()->with('success', 'Connected. New uploads now go to ' . $this->label($provider) . '.');
+        return back()
+            ->with('panel', $provider)
+            ->with('success', 'Connected. New uploads now go to ' . $this->label($provider) . '.');
     }
 
     /** Round-trip test, run from the UI without changing anything. */
@@ -132,7 +144,9 @@ class StorageSettingsController extends Controller
 
         $this->settings->disconnect($provider);
 
-        return back()->with('success', $this->label($provider) . ' disconnected. Files already stored there keep working — only new uploads move.');
+        return back()
+            ->with('panel', $provider)
+            ->with('success', $this->label($provider) . ' disconnected. Files already stored there keep working — only new uploads move.');
     }
 
     // ── Internals ────────────────────────────────────────────────────────

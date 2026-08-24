@@ -9,11 +9,13 @@ use App\Models\Client;
 use App\Models\EmployeeRequest;
 use App\Models\Task;
 use App\Models\User;
+use App\Models\WhatsAppConversation;
 use App\Policies\AdCampaignPolicy;
 use App\Policies\BrandIntegrationPolicy;
 use App\Policies\ClientPolicy;
 use App\Policies\EmployeeRequestPolicy;
 use App\Policies\TaskPolicy;
+use App\Policies\WhatsAppConversationPolicy;
 use App\Services\Contracts\GoogleCalendarServiceInterface;
 use App\Services\GoogleCalendarService;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -38,6 +40,9 @@ class AppServiceProvider extends ServiceProvider
         // Brand-level marketing access: dashboards, integrations, syncing.
         Gate::policy(Brand::class, BrandIntegrationPolicy::class);
         Gate::policy(BrandIntegration::class, BrandIntegrationPolicy::class);
+        // Customer messaging. Entirely separate from the internal chat, which
+        // has no policy and is authorized inside its own controller.
+        Gate::policy(WhatsAppConversation::class, WhatsAppConversationPolicy::class);
 
         // Super Admins bypass all gates. Guarded with an instanceof check because
         // ClientPortalUser (the client-portal auth principal) has no HasRoles trait —

@@ -62,6 +62,20 @@ class Brand extends Model
         return $this->hasMany(SyncLog::class)->latest('started_at');
     }
 
+    // ── WhatsApp ─────────────────────────────────────────────────────────
+    // A brand may hold any number of WhatsApp numbers; the relationship is
+    // hasMany so "one number per brand" is never assumed.
+
+    public function whatsappAccounts()
+    {
+        return $this->hasMany(WhatsAppAccount::class);
+    }
+
+    public function whatsappConversations()
+    {
+        return $this->hasMany(WhatsAppConversation::class);
+    }
+
     public function scopeActive($query)
     {
         return $query->where('is_active', true);

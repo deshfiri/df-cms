@@ -44,6 +44,16 @@ class DatabaseSeeder extends Seeder
             'manage performance',
             'monitor chats',
             'manage workflows',
+            // WhatsApp (customer messaging). Deliberately distinct from
+            // 'monitor chats', which governs the internal staff chat — the two
+            // systems never share a permission.
+            'view whatsapp',
+            'reply whatsapp',
+            'assign whatsapp',
+            'view all whatsapp',
+            'manage whatsapp numbers',
+            'manage whatsapp templates',
+            'manage whatsapp settings',
         ];
 
         foreach ($permissions as $perm) {
@@ -63,14 +73,19 @@ class DatabaseSeeder extends Seeder
             // post; only Manager and Super Admin read. Without it here the
             // permission existed but belonged to nobody, so submitted reviews were
             // visible only through Super Admin's Gate::before bypass.
-            'Manager' => ['view clients', 'manage clients', 'delete clients', 'manage payments', 'view payments', 'manage products', 'manage documents', 'manage-workflow', 'approve-stage', 'import clients', 'export clients', 'view reports', 'view tasks', 'manage tasks', 'manage-meetings', 'manage requests', 'view ads', 'manage ads', 'view performance', 'manage performance', 'view reviews'],
+            // WhatsApp: a Manager runs the inbox (sees every brand, assigns work,
+            // manages numbers and templates) but not the Meta app credentials,
+            // which stay with Super Admin like every other integration secret.
+            'Manager' => ['view clients', 'manage clients', 'delete clients', 'manage payments', 'view payments', 'manage products', 'manage documents', 'manage-workflow', 'approve-stage', 'import clients', 'export clients', 'view reports', 'view tasks', 'manage tasks', 'manage-meetings', 'manage requests', 'view ads', 'manage ads', 'view performance', 'manage performance', 'view reviews', 'view whatsapp', 'reply whatsapp', 'assign whatsapp', 'view all whatsapp', 'manage whatsapp numbers', 'manage whatsapp templates'],
             'Sales' => ['view clients', 'manage clients', 'submit-stage', 'approve-stage', 'view tasks', 'manage tasks', 'manage-meetings'],
             'Document' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks'],
             'Design' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks'],
             'Website' => ['view clients', 'submit-stage', 'approve-stage', 'view tasks'],
             'Product' => ['view clients', 'manage products', 'submit-stage', 'approve-stage', 'view tasks'],
-            'Marketing' => ['view clients', 'manage clients', 'manage products', 'manage documents', 'export clients', 'submit-stage', 'approve-stage', 'view tasks', 'view ads', 'manage ads'],
-            'Support' => ['view clients', 'manage clients', 'submit-stage', 'approve-stage', 'view tasks', 'manage tasks'],
+            'Marketing' => ['view clients', 'manage clients', 'manage products', 'manage documents', 'export clients', 'submit-stage', 'approve-stage', 'view tasks', 'view ads', 'manage ads', 'view whatsapp', 'reply whatsapp'],
+            // Answers customers, but only on threads handed to them — no
+            // 'view all whatsapp', so an unassigned conversation stays invisible.
+            'Support' => ['view clients', 'manage clients', 'submit-stage', 'approve-stage', 'view tasks', 'manage tasks', 'view whatsapp', 'reply whatsapp'],
             'Accounts' => ['view clients', 'manage payments', 'view payments', 'export clients', 'view reports'],
             'Content' => ['view clients', 'manage documents'],
             'Viewer' => ['view clients', 'view payments', 'view reports'],
