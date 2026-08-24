@@ -22,6 +22,7 @@ use App\Http\Controllers\SearchController;
 use App\Http\Controllers\BrandIntegrationController;
 use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\MarketingController;
+use App\Http\Controllers\ChatSettingsController;
 use App\Http\Controllers\MetaSettingsController;
 use App\Http\Controllers\StorageSettingsController;
 use App\Http\Controllers\WhatsApp\WhatsAppInboxController;
@@ -444,6 +445,12 @@ Route::middleware(['auth'])->group(function () {
         Route::post('conversations/{conversation}/status', [WhatsAppInboxController::class, 'updateStatus'])->name('status');
         Route::get('media/{message}', [WhatsAppInboxController::class, 'media'])->name('media');
     });
+
+    // Internal chat settings — attachment retention (Super Admin only).
+    Route::get('settings/chat', [ChatSettingsController::class, 'index'])->name('settings.chat');
+    Route::post('settings/chat', [ChatSettingsController::class, 'update'])->name('settings.chat.update');
+    Route::post('settings/chat/preview', [ChatSettingsController::class, 'preview'])->name('settings.chat.preview');
+    Route::post('settings/chat/run', [ChatSettingsController::class, 'runNow'])->name('settings.chat.run');
 
     // WhatsApp Meta app credentials (Super Admin only; gated in the controller).
     // Per-number access tokens live encrypted on whatsapp_accounts, never here.

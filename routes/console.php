@@ -18,6 +18,11 @@ Schedule::command('performance:snapshot --previous')->monthlyOn(1, '02:00');
 // Daily nudge for overdue workflow items.
 Schedule::command('flow:overdue-reminders')->dailyAt('08:00');
 
+// Chat attachment retention. Safe to schedule everywhere: the command is a
+// no-op until an administrator switches the policy on in Settings → Chat.
+// Runs in the small hours because it deletes files and can touch a lot of them.
+Schedule::command('chat:prune-attachments')->dailyAt('03:30')->withoutOverlapping();
+
 // Settle abandoned audio calls. Runs every minute — a "ringing" row that never
 // resolves blocks both participants from placing any further call.
 Schedule::command('calls:reconcile')->everyMinute()->withoutOverlapping();

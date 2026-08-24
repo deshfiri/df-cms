@@ -56,6 +56,16 @@
     .msg-file-name { font-size: .78rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .msg-file-size { font-size: .64rem; opacity: .75; }
 
+    /* An attachment removed by the retention policy. Deliberately quiet — it is
+       a note about history, not a broken thing to be fixed. */
+    .msg-expired {
+        display: flex; align-items: center; gap: .4rem; margin-top: .25rem;
+        padding: .35rem .5rem; border-radius: 8px;
+        border: 1px dashed currentColor; opacity: .7;
+        font-size: .74rem; font-style: italic;
+    }
+    .msg-expired i { font-size: .9rem; flex-shrink: 0; font-style: normal; }
+
     /* Staged file, before it is sent */
     #attachBar {
         display: flex; align-items: center; gap: .6rem;
@@ -538,6 +548,22 @@ $(function () {
         scrollBottom();
     }
 
+    /**
+     * A file the retention policy removed.
+     *
+     * Rendered rather than omitted: an attachment-only message would otherwise
+     * appear to say nothing at all, and "which file was that?" is exactly what
+     * someone reading old history needs to know.
+     */
+    function expiredAttachmentHtml(e) {
+        if (!e) return '';
+
+        return `<span class="msg-expired" title="Removed on ${esc(e.purged_at)}">
+                    <i class="bi bi-clock-history"></i>
+                    <span>${esc(e.name || 'Attachment')} — no longer available</span>
+                </span>`;
+    }
+
     function attachmentHtml(a) {
         if (!a) return '';
 
@@ -619,7 +645,7 @@ $(function () {
                         <button class="msg-tool react-open" title="React"><i class="bi bi-emoji-smile"></i></button>
                         ${m.can_delete ? '<button class="msg-tool msg-del" title="Delete"><i class="bi bi-trash"></i></button>' : ''}
                     </div>
-                    ${quoteHtml(m.reply_to)}${text}${attachmentHtml(m.attachment)}
+                    ${quoteHtml(m.reply_to)}${text}${attachmentHtml(m.attachment)}${expiredAttachmentHtml(m.attachment_expired)}
                     <div class="msg-meta">${timeOf(m.created_at)}</div>
                     ${reactionsHtml(m.reactions)}
                 </div>`;

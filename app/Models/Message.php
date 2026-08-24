@@ -11,12 +11,16 @@ class Message extends Model
     protected $fillable = [
         'conversation_id', 'sender_id', 'reply_to_id', 'body', 'read_at',
         'attachment_path', 'attachment_disk', 'attachment_name', 'attachment_mime', 'attachment_size',
-        'attachment_duration', 'deleted_at', 'deleted_by',
+        'attachment_duration', 'attachment_purged_at', 'deleted_at', 'deleted_by',
     ];
 
     protected function casts(): array
     {
-        return ['read_at' => 'datetime', 'deleted_at' => 'datetime'];
+        return [
+            'read_at'              => 'datetime',
+            'deleted_at'           => 'datetime',
+            'attachment_purged_at' => 'datetime',
+        ];
     }
 
     /**
@@ -55,6 +59,17 @@ class Message extends Model
     public function hasAttachment(): bool
     {
         return $this->attachment_path !== null;
+    }
+
+    /**
+     * The file was removed by the retention policy.
+     *
+     * The name, size and mime are kept so the thread can still say *what*
+     * expired, rather than leaving a message that appears to say nothing.
+     */
+    public function attachmentWasPurged(): bool
+    {
+        return $this->attachment_purged_at !== null;
     }
 
     /** Images render inline as a thumbnail; everything else becomes a file chip. */
@@ -110,6 +125,10 @@ class Message extends Model
             // in a reply's quote block, both of which are single-line and would
             // otherwise inherit the sender's paragraph breaks as ragged gaps.
             return trim(preg_replace('/\s+/u', ' ', $this->body));
+        }
+
+        if ($this->attachmentWasPurged()) {
+            return '📎 ' . ($this->attachment_name ?: 'Attachment') . ' (no longer available)';
         }
 
         if (!$this->hasAttachment()) {

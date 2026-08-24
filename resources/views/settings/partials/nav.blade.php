@@ -23,6 +23,7 @@
         'Workspace' => [
             'general'    => ['label' => 'General',        'icon' => 'bi-sliders',      'route' => 'settings.index',   'hint' => 'Name, logo, theme'],
             'storage'    => ['label' => 'Storage & CDN',  'icon' => 'bi-hdd-network',  'route' => 'settings.storage', 'hint' => 'Where files are kept'],
+            'chat'       => ['label' => 'Chat',           'icon' => 'bi-chat-dots',    'route' => 'settings.chat',    'hint' => 'Attachment retention'],
         ],
         'Integrations' => [
             'whatsapp'   => ['label' => 'WhatsApp',       'icon' => 'bi-whatsapp',     'route' => 'settings.whatsapp', 'hint' => 'Customer messaging'],

@@ -300,6 +300,13 @@ class ChatController extends Controller
             'can_delete' => !$m->isDeleted() && $m->sender_id === Auth::id(),
             'reactions' => $m->relationLoaded('reactions') ? $m->reactionSummary(Auth::id()) : [],
             'reply_to' => $this->replyResource($m),
+            // The file is gone, but which file it was is not. Without this the
+            // message would render as blank when it had no text of its own.
+            'attachment_expired' => !$redact && $m->attachmentWasPurged() ? [
+                'name'       => $m->attachment_name,
+                'size'       => $m->attachmentSizeForHumans(),
+                'purged_at'  => $m->attachment_purged_at->format('d M Y'),
+            ] : null,
             'attachment' => (!$redact && $m->hasAttachment()) ? [
                 'name'     => $m->attachment_name,
                 'size'     => $m->attachmentSizeForHumans(),
