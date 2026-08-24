@@ -31,6 +31,9 @@
         display: inline-flex; align-items: center; gap: .35rem; margin-top: .2rem;
         font-size: .75rem; text-decoration: none; color: var(--primary);
     }
+    /* Line breaks as they were typed. Scoped to the text, not the bubble, so the
+       surrounding markup's indentation is not rendered along with it. */
+    .mmsg-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
     .mmsg-quote {
         border-left: 2px solid var(--primary); border-radius: 4px;
         background: rgba(var(--primary-rgb), .08);
@@ -148,7 +151,7 @@ $(function () {
         $('#monMsgs').append(
             `<div class="mmsg ${side} ${m.deleted ? 'is-deleted' : ''}">
                 <div class="mmsg-who">${esc(m.sender_name)}${deletedTag}</div>
-                ${quote}${m.body ? esc(m.body) : ''}${attachment}
+                ${quote}${m.body ? `<span class="mmsg-text">${esc(m.body)}</span>` : ''}${attachment}
                 <div class="mmsg-meta">${timeOf(m.created_at)}</div>
                 ${reacts}
             </div>`

@@ -106,7 +106,10 @@ class Message extends Model
         }
 
         if (filled($this->body)) {
-            return $this->body;
+            // Collapsed to one line: this is shown in the conversation list and
+            // in a reply's quote block, both of which are single-line and would
+            // otherwise inherit the sender's paragraph breaks as ragged gaps.
+            return trim(preg_replace('/\s+/u', ' ', $this->body));
         }
 
         if (!$this->hasAttachment()) {

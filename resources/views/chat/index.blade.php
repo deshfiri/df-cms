@@ -25,8 +25,19 @@
     .msg { max-width: 74%; padding: .45rem .7rem; border-radius: 12px; font-size: .84rem; line-height: 1.35; word-wrap: break-word; }
     .msg.them { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; }
     .msg.me { align-self: flex-end; background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
+    /* Keeps the line breaks someone actually typed. Scoped to the text itself,
+       never the bubble, so the surrounding markup's indentation is not rendered. */
+    .msg-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
     .msg-meta { font-size: .62rem; opacity: .7; margin-top: 2px; text-align: right; }
-    .chat-input-row { padding: .6rem .8rem; border-top: 1px solid var(--border); display: flex; gap: .5rem; background: var(--surface); }
+    /* align-items:flex-end so the buttons stay level with the last line as the
+       composer grows, rather than floating in the middle of it. */
+    .chat-input-row { padding: .6rem .8rem; border-top: 1px solid var(--border); display: flex; gap: .5rem; background: var(--surface); align-items: flex-end; }
+    #msgInput {
+        resize: none; overflow-y: auto;
+        min-height: 31px;      /* one line, matching form-control-sm */
+        max-height: 132px;     /* roughly six lines, then it scrolls */
+        line-height: 1.4;
+    }
     .chat-typing { font-size: .7rem; color: var(--text3); height: 14px; padding: 0 1rem; }
     .chat-empty { flex: 1; display: grid; place-items: center; color: var(--text3); text-align: center; }
     .chat-day { align-self: center; font-size: .66rem; color: var(--text3); background: var(--surface2); border-radius: 999px; padding: 1px 10px; margin: .25rem 0; }
@@ -292,7 +303,11 @@
                     style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">
                     <i class="bi bi-paperclip"></i>
                 </button>
-                <input type="text" id="msgInput" class="form-control form-control-sm" placeholder="Type a message…" autocomplete="off" maxlength="5000">
+                {{-- A textarea, not an input: Enter sends, Shift+Enter starts a
+                     new line. It grows with the message and stops at a few lines,
+                     so a long one scrolls rather than swallowing the thread. --}}
+                <textarea id="msgInput" class="form-control form-control-sm" placeholder="Type a message…"
+                          autocomplete="off" maxlength="5000" rows="1"></textarea>
                 <button class="btn btn-sm" id="msgMic" title="Record a voice message"
                     style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">
                     <i class="bi bi-mic-fill"></i>
@@ -481,6 +496,9 @@ $(function () {
         // A pending reply belongs to the thread it was started in.
         cancelReply();
         clearStagedFile();
+        // A half-typed message does not follow you into someone else's thread.
+        $('#msgInput').val('');
+        resetComposerHeight();
         updateThreadPresence();
 
         $.get('/chat/with/' + userId).done(function (r) {
@@ -589,7 +607,11 @@ $(function () {
         }
 
         // An image may be sent with no caption, so the body can be empty.
-        const text = m.body ? esc(m.body) : '';
+        //
+        // Wrapped in its own element rather than dropped straight into the
+        // bubble: pre-wrap has to apply to the message text alone, or the
+        // indentation of the template below would render as whitespace too.
+        const text = m.body ? `<span class="msg-text">${esc(m.body)}</span>` : '';
 
         return `<div class="msg ${mine ? 'me' : 'them'}" data-id="${m.id}">
                     <div class="msg-tools">
@@ -877,6 +899,7 @@ $(function () {
         if (replyTo) form.append('reply_to_id', replyTo.id);
 
         $('#msgInput').val('');
+        resetComposerHeight();
         const sending = pendingFile;
         const quoting = replyTo;
         clearStagedFile();
@@ -897,7 +920,7 @@ $(function () {
             // the attachment, or what it was answering.
             if (sending) stageFile(sending);
             if (quoting) startReply(quoting.id, quoting.who, quoting.preview);
-            if (body) $('#msgInput').val(body);
+            if (body) { $('#msgInput').val(body); autoGrow(); }
             Swal.fire('Error', x.responseJSON?.message || 'Message failed', 'error');
         }).always(function () {
             $('#msgSend').prop('disabled', false);
@@ -1053,8 +1076,36 @@ $(function () {
     $('#msgMic').on('click', startRecording);
     $('#recSend').on('click', function () { stopRecording(false); });
     $('#recCancel').on('click', function () { stopRecording(true); });
+    /**
+     * Grow the composer to fit what is in it.
+     *
+     * Height is reset to auto first: without that, scrollHeight only ever
+     * reports the current (already grown) height, so the box could never shrink
+     * back down after text is deleted.
+     */
+    function autoGrow() {
+        const el = document.getElementById('msgInput');
+        if (!el) return;
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 132) + 'px';
+    }
+
+    function resetComposerHeight() {
+        const el = document.getElementById('msgInput');
+        if (el) el.style.height = '';
+    }
+
+    $('#msgInput').on('input', autoGrow);
+
     $('#msgInput').on('keydown', function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); send(); return; }
+        // Enter sends; Shift+Enter (or Ctrl/Cmd+Enter) starts a new line. The
+        // browser inserts the newline itself, so those cases just fall through.
+        if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            send();
+            return;
+        }
+
         if (activeChannel) { activeChannel.whisper('typing', { id: ME }); }
     });
     $('#chatBack').on('click', function () { $('#chatWrap').removeClass('has-active'); });

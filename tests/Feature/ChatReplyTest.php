@@ -94,6 +94,48 @@ class ChatReplyTest extends TestCase
         ])->assertOk()->assertJsonPath('message.reply_to.mine', true);
     }
 
+    // ── Multiline bodies ─────────────────────────────────────────────────
+
+    public function test_a_multiline_message_keeps_its_line_breaks(): void
+    {
+        $me    = $this->user();
+        $other = $this->user();
+
+        $body = "First line\nSecond line\n\nAfter a blank one";
+
+        $this->actingAs($me)
+            ->postJson(route('chat.send', $other), ['body' => $body])
+            ->assertOk()
+            // Stored and returned exactly as typed.
+            ->assertJsonPath('message.body', $body);
+
+        $this->assertSame($body, Message::latest('id')->firstOrFail()->body);
+    }
+
+    /**
+     * The thread shows the breaks; the conversation list and a reply's quote do
+     * not — both are single-line and would otherwise inherit ragged gaps.
+     */
+    public function test_previews_collapse_a_multiline_body_to_one_line(): void
+    {
+        $me    = $this->user();
+        $other = $this->user();
+
+        $original = $this->sendMessage($other, $me, ['body' => "Line one\n\nLine two"]);
+
+        $this->assertSame('Line one Line two', $original->previewLine());
+
+        $this->actingAs($me)->postJson(route('chat.send', $other), [
+            'body'        => 'answering',
+            'reply_to_id' => $original->id,
+        ])->assertOk()->assertJsonPath('message.reply_to.preview', 'Line one Line two');
+
+        // ...while the conversation list agrees.
+        $this->actingAs($other)->getJson(route('chat.conversations'))
+            ->assertOk()
+            ->assertJsonPath('conversations.0.last_body', 'answering');
+    }
+
     // ── The boundary that matters ────────────────────────────────────────
 
     public function test_a_message_from_another_conversation_cannot_be_quoted(): void
