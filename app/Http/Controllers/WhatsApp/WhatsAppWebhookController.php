@@ -66,15 +66,15 @@ class WhatsAppWebhookController extends Controller
      */
     public function receive(Request $request): JsonResponse
     {
-        $raw  = $request->getContent();
+        $raw = $request->getContent();
         $hash = WhatsAppWebhookEvent::hashFor($raw);
 
         try {
             $event = WhatsAppWebhookEvent::create([
-                'signature_hash'  => $hash,
+                'signature_hash' => $hash,
                 'phone_number_id' => $this->phoneNumberIdFrom($request),
-                'payload'         => $request->all(),
-                'status'          => WhatsAppWebhookEvent::STATUS_RECEIVED,
+                'payload' => $request->all(),
+                'status' => WhatsAppWebhookEvent::STATUS_RECEIVED,
             ]);
         } catch (UniqueConstraintViolationException) {
             // A retry of something already accepted. The unique index is the

@@ -105,6 +105,64 @@ class CloudinaryStorageTest extends TestCase
         $this->assertNull($this->client()->head('nope.pdf'));
     }
 
+    /**
+     * The delivery edge caches 404s.
+     *
+     * Anything that checks a path before writing to it — picking a
+     * non-colliding filename, for instance — teaches the CDN that the path is
+     * missing, and that cached miss outlives the upload that follows. Trusting
+     * it would make a file that was just stored read as lost, which is exactly
+     * what happened to the File Manager. The Admin API is what settles it.
+     */
+    public function test_a_cached_cdn_miss_does_not_make_a_stored_file_look_absent(): void
+    {
+        $this->configure();
+
+        Http::fake([
+            // The edge still remembers the miss from before the upload...
+            'res.cloudinary.com/*' => Http::response('Not found', 404),
+            // ...while the Admin API knows the asset is there.
+            'api.cloudinary.com/*/resources/raw/upload/*' => Http::response([
+                'public_id' => 'a/b.txt',
+                'bytes'     => 512,
+                'secure_url' => 'https://res.cloudinary.com/demo-cloud/raw/upload/v123/a/b.txt',
+            ], 200),
+        ]);
+
+        $this->assertTrue(Storage::disk('cloudinary')->exists('a/b.txt'));
+        $this->assertSame(512, Storage::disk('cloudinary')->size('a/b.txt'));
+    }
+
+    public function test_an_asset_absent_from_both_the_cdn_and_the_admin_api_is_absent(): void
+    {
+        $this->configure();
+
+        Http::fake([
+            'res.cloudinary.com/*' => Http::response('Not found', 404),
+            'api.cloudinary.com/*' => Http::response(['error' => ['message' => 'Resource not found']], 404),
+        ]);
+
+        $this->assertFalse(Storage::disk('cloudinary')->exists('gone.txt'));
+    }
+
+    /** A read falls back to the versioned URL, which carries no cached miss. */
+    public function test_a_read_falls_back_to_the_versioned_url(): void
+    {
+        $this->configure();
+
+        Http::fake([
+            // The unversioned delivery path is the one holding the cached 404.
+            'res.cloudinary.com/demo-cloud/raw/upload/a/b.txt' => Http::response('', 404),
+            'api.cloudinary.com/*' => Http::response([
+                'public_id'  => 'a/b.txt',
+                'secure_url' => 'https://res.cloudinary.com/demo-cloud/raw/upload/v999/a/b.txt',
+            ], 200),
+            'res.cloudinary.com/demo-cloud/raw/upload/v999/a/b.txt' => Http::response('the real bytes', 200),
+        ]);
+
+        $this->assertSame('the real bytes', Storage::disk('cloudinary')->get('a/b.txt'));
+    }
+
     public function test_metadata_comes_from_the_delivery_cdn_headers(): void
     {
         Http::fake(['res.cloudinary.com/*' => Http::response('', 200, [

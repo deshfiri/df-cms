@@ -7,8 +7,12 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @php
         $appName = \App\Models\Setting::get('app_name', 'DFCP COMS');
-        $appLogo = \App\Models\Setting::get('app_logo');
-        $appFavicon = \App\Models\Setting::get('app_favicon');
+        // Resolved through the service, not asset(): branding may live on a CDN,
+        // in which case the stored value is a remote path and the URL returned
+        // is already absolute.
+        $branding = app(\App\Services\Storage\BrandingAssetService::class);
+        $appLogo = $branding->url('app_logo');
+        $appFavicon = $branding->url('app_favicon');
         $themeHex = ltrim(\App\Models\Setting::get('theme_color', '#1F3C88'), '#');
         $themeColor = '#' . $themeHex;
         $tR = hexdec(substr($themeHex, 0, 2));
@@ -40,8 +44,8 @@
     {{-- Uploaded in Settings. The filename carries an upload timestamp, so a
          replacement gets a fresh URL instead of the cached old icon. --}}
     @if($appFavicon)
-        <link rel="icon" href="{{ asset($appFavicon) }}">
-        <link rel="apple-touch-icon" href="{{ asset($appFavicon) }}">
+        <link rel="icon" href="{{ $appFavicon }}">
+        <link rel="apple-touch-icon" href="{{ $appFavicon }}">
     @endif
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -252,7 +256,7 @@
 
         <div class="sb-brand">
             @if($appLogo)
-                <img src="{{ asset($appLogo) }}" alt="{{ $appName }}" class="sb-brand-logo">
+                <img src="{{ $appLogo }}" alt="{{ $appName }}" class="sb-brand-logo">
             @else
                 <div class="sb-brand-icon"><i class="bi bi-shop"></i></div>
                 <div class="sb-brand-text">

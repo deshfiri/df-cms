@@ -106,7 +106,7 @@
             <div class="card-body">
                 @if($appLogo)
                 <div class="mb-3 p-3 d-flex align-items-center gap-3" style="border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface2)">
-                    <img src="{{ asset($appLogo) }}" alt="Current Logo" style="max-height:52px;max-width:160px;object-fit:contain">
+                    <img src="{{ $appLogo }}" alt="Current Logo" style="max-height:52px;max-width:160px;object-fit:contain">
                     <div>
                         <div class="small mb-1" style="color:var(--text3)">Current logo</div>
                         <div class="form-check">
@@ -136,7 +136,7 @@
             <div class="card-body">
                 @if($appFavicon)
                 <div class="mb-3 p-3 d-flex align-items-center gap-3" style="border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface2)">
-                    <img src="{{ asset($appFavicon) }}" alt="Current favicon"
+                    <img src="{{ $appFavicon }}" alt="Current favicon"
                          style="width:32px;height:32px;object-fit:contain">
                     <div>
                         <div class="small mb-1" style="color:var(--text3)">Current favicon</div>
@@ -180,7 +180,7 @@
                 <div id="previewSidebar" class="rounded-3 p-3 mb-3" style="background:linear-gradient(180deg,{{ $sbPreviewTop }},{{ $sbPreviewBottom }});width:180px">
                     <div id="previewBrand" class="d-flex align-items-center gap-2 pb-2 mb-2" style="border-bottom:1px solid rgba(255,255,255,.15)">
                         @if($appLogo)
-                        <img id="previewLogoImg" src="{{ asset($appLogo) }}" alt="Logo" style="max-height:32px;max-width:120px;object-fit:contain">
+                        <img id="previewLogoImg" src="{{ $appLogo }}" alt="Logo" style="max-height:32px;max-width:120px;object-fit:contain">
                         @else
                         <i class="bi bi-shop text-white" style="font-size:1.2rem"></i>
                         <div class="text-white fw-bold text-truncate" id="previewName" style="font-size:.85rem">{{ $appName }}</div>

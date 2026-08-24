@@ -3,6 +3,7 @@
 namespace App\Services\Storage\Cloudinary;
 
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -101,6 +102,32 @@ class CloudinaryClient
     }
 
     /**
+     * Ask the Admin API whether an asset exists.
+     *
+     * The authoritative answer, and the reason it is needed: the delivery CDN
+     * caches a 404. Anything that checks a path *before* writing to it — picking
+     * a non-colliding filename, for instance — teaches the edge that the path is
+     * missing, and that cached 404 outlives the upload that follows. The Admin
+     * API has no such cache.
+     *
+     * Rate limited, so this is only consulted when the CDN says "no".
+     *
+     * @return array<string,mixed>|null  the resource, or null when truly absent
+     */
+    public function resource(string $path): ?array
+    {
+        try {
+            $response = Http::withBasicAuth($this->apiKey, $this->apiSecret)
+                ->timeout(20)
+                ->get(self::API . '/' . $this->cloudName . '/resources/' . self::TYPE . '/upload/' . $this->publicId($path));
+        } catch (ConnectionException) {
+            return null;
+        }
+
+        return $response->successful() ? ($response->json() ?? null) : null;
+    }
+
+    /**
      * Open a read stream on the stored file.
      *
      * @return resource
@@ -109,13 +136,22 @@ class CloudinaryClient
      */
     public function readStream(string $path)
     {
-        try {
-            $response = Http::timeout(120)->withOptions(['stream' => true])->get($this->url($path));
-        } catch (ConnectionException $e) {
-            throw new CloudinaryException('Could not reach Cloudinary: ' . $e->getMessage(), previous: $e);
+        $response = $this->fetch($this->url($path));
+
+        /*
+         * A miss here does not mean the file is absent. The delivery edge caches
+         * 404s, so a path that was checked before it was written keeps reading
+         * as missing from that URL. The Admin API hands back a *versioned* URL
+         * (/v1234567/…), which is a different address and therefore not the one
+         * carrying the cached miss.
+         */
+        if ($response === null || !$response->successful()) {
+            $versioned = $this->resource($path)['secure_url'] ?? null;
+
+            $response = $versioned ? $this->fetch($versioned) : null;
         }
 
-        if (!$response->successful()) {
+        if ($response === null || !$response->successful()) {
             throw new CloudinaryException("Cloudinary has no file at '{$path}'.");
         }
 
@@ -126,6 +162,16 @@ class CloudinaryClient
         }
 
         return $stream;
+    }
+
+    /** A streamed GET that reports failure rather than throwing. */
+    private function fetch(string $url): ?Response
+    {
+        try {
+            return Http::timeout(120)->withOptions(['stream' => true])->get($url);
+        } catch (ConnectionException) {
+            return null;
+        }
     }
 
     /** @throws CloudinaryException */

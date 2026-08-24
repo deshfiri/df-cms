@@ -33,9 +33,23 @@ class CloudinaryAdapter implements FilesystemAdapter
     ) {
     }
 
+    /**
+     * The CDN answers first, the Admin API settles a "no".
+     *
+     * A 200 from the delivery edge is proof enough and costs nothing. A 404 is
+     * not proof: the edge caches misses, so a path that was checked before it
+     * was written keeps reporting missing afterwards. Only the Admin API can
+     * distinguish "never existed" from "the edge remembers it didn't", and a
+     * false negative here is the dangerous answer — it makes a stored file look
+     * lost.
+     */
     public function fileExists(string $path): bool
     {
-        return $this->client->head($path) !== null;
+        if ($this->client->head($path) !== null) {
+            return true;
+        }
+
+        return $this->client->resource($path) !== null;
     }
 
     /**
@@ -235,15 +249,56 @@ class CloudinaryAdapter implements FilesystemAdapter
         return $this->client->url($path);
     }
 
-    /** @return array<string,string> */
+    /**
+     * Metadata, from the CDN where possible and the Admin API otherwise.
+     *
+     * Same reasoning as fileExists(): a freshly written asset can still be a
+     * cached 404 at the edge, and a listing that throws for a file that plainly
+     * exists is worse than one extra API call.
+     *
+     * @return array<string,string>
+     */
     private function headOrFail(string $path, string $metadata): array
     {
-        $headers = $this->client->head($path);
+        if ($headers = $this->client->head($path)) {
+            return $headers;
+        }
 
-        if ($headers === null) {
+        $resource = $this->client->resource($path);
+
+        if ($resource === null) {
             throw UnableToRetrieveMetadata::create($path, $metadata, 'Cloudinary has no asset at this path.');
         }
 
-        return $headers;
+        return [
+            'size'          => (string) ($resource['bytes'] ?? 0),
+            'mime'          => $this->mimeFromResource($resource),
+            'last_modified' => (string) ($resource['created_at'] ?? ''),
+        ];
+    }
+
+    /**
+     * Raw assets carry no mime type of their own, so it is inferred from the
+     * stored name — which is the same name the file was uploaded under.
+     */
+    private function mimeFromResource(array $resource): string
+    {
+        $extension = strtolower(pathinfo((string) ($resource['public_id'] ?? ''), PATHINFO_EXTENSION));
+
+        return match ($extension) {
+            'png'          => 'image/png',
+            'jpg', 'jpeg'  => 'image/jpeg',
+            'webp'         => 'image/webp',
+            'gif'          => 'image/gif',
+            'svg'          => 'image/svg+xml',
+            'pdf'          => 'application/pdf',
+            'mp4'          => 'video/mp4',
+            'mp3'          => 'audio/mpeg',
+            'ogg'          => 'audio/ogg',
+            'txt'          => 'text/plain',
+            'csv'          => 'text/csv',
+            'zip'          => 'application/zip',
+            default        => 'application/octet-stream',
+        };
     }
 }

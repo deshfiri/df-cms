@@ -6,9 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign In — {{ \App\Models\Setting::get('app_name', 'DFCP COMS') }}</title>
 
-    @php $appFavicon = \App\Models\Setting::get('app_favicon'); @endphp
+    @php $appFavicon = app(\App\Services\Storage\BrandingAssetService::class)->url('app_favicon'); @endphp
     @if($appFavicon)
-        <link rel="icon" href="{{ asset($appFavicon) }}">
+        <link rel="icon" href="{{ $appFavicon }}">
     @endif
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

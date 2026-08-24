@@ -34,6 +34,9 @@ class StorageStatusCommand extends Command
         $this->line('  Selected provider   : ' . $provider);
         $this->line('  New uploads go to   : <options=bold>' . $active . '</>');
         $this->line('  File Manager drive  : ' . $fileManager->diskName());
+        // Branding follows different rules to everything else, so it gets its
+        // own line — this is exactly the thing that silently stays local.
+        $this->line('  Logo / favicon      : ' . ($settings->servesPublicUrls() ? $active : 'local (public/)'));
 
         // The single most useful line in this report.
         if ($provider !== StorageSettings::PROVIDER_LOCAL && $active === 'local') {
@@ -60,6 +63,12 @@ class StorageStatusCommand extends Command
         } elseif ($settings->isConfigured(StorageSettings::PROVIDER_CLOUDFLARE) || $settings->isConfigured(StorageSettings::PROVIDER_CLOUDINARY)) {
             $this->newLine();
             $this->warn('  Saving credentials does not move any uploads — a provider must be activated.');
+        }
+
+        if ($settings->usingCdn() && !$settings->servesPublicUrls()) {
+            $this->newLine();
+            $this->warn('  The logo and favicon cannot go to this provider: they are fetched by a');
+            $this->line('  browser before login, and no public delivery URL is configured for it.');
         }
 
         $this->reportUsage();

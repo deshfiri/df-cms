@@ -22,10 +22,10 @@
     @endphp
     <title>@yield('title', 'Dashboard') — {{ $appName }} Client Portal</title>
 
-    @php $appFavicon = \App\Models\Setting::get('app_favicon'); @endphp
+    @php $appFavicon = app(\App\Services\Storage\BrandingAssetService::class)->url('app_favicon'); @endphp
     @if($appFavicon)
-        <link rel="icon" href="{{ asset($appFavicon) }}">
-        <link rel="apple-touch-icon" href="{{ asset($appFavicon) }}">
+        <link rel="icon" href="{{ $appFavicon }}">
+        <link rel="apple-touch-icon" href="{{ $appFavicon }}">
     @endif
 
     <link rel="preconnect" href="https://fonts.googleapis.com">

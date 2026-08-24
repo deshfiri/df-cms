@@ -3,13 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\Setting;
+use App\Services\Storage\BrandingAssetService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
 class SettingController extends Controller
 {
-    public function __construct()
-    {
+    public function __construct(
+        private readonly BrandingAssetService $branding,
+    ) {
         $this->middleware(function ($request, $next) {
             abort_unless(auth()->user()->hasRole('Super Admin'), 403);
             return $next($request);
@@ -19,8 +21,10 @@ class SettingController extends Controller
     public function index()
     {
         $appName    = Setting::get('app_name', 'DFCP COMS');
-        $appLogo    = Setting::get('app_logo');
-        $appFavicon = Setting::get('app_favicon');
+        // Resolved through the service: these may now live on a CDN, in which
+        // case the stored value is a remote path rather than a public/ one.
+        $appLogo    = $this->branding->url('app_logo');
+        $appFavicon = $this->branding->url('app_favicon');
         $themeColor = Setting::get('theme_color', '#1F3C88');
 
         $hex = ltrim($themeColor, '#');
@@ -67,41 +71,24 @@ class SettingController extends Controller
      * The logo and the favicon do exactly the same three things, so they share
      * this rather than keeping two copies that drift apart.
      *
+     * Where the file actually lands is BrandingAssetService's decision: the
+     * active CDN when it can serve a public URL, this server otherwise. These
+     * are the only genuinely public uploads in the application — a browser
+     * fetches them before anyone has logged in — so they cannot go through the
+     * private, proxied path every other upload uses.
+     *
      * @param  string  $field      form field name, also used as the "remove_" flag
-     * @param  string  $settingKey where the public path is stored
-     * @param  string  $directory  public/ subdirectory to write into
+     * @param  string  $settingKey where the path is stored
+     * @param  string  $directory  folder, used under public/ and on the CDN alike
      */
     private function handleBrandImage(Request $request, string $field, string $settingKey, string $directory): void
     {
-        $deleteExisting = function () use ($settingKey) {
-            $old = Setting::get($settingKey);
-
-            if ($old && is_file(public_path($old))) {
-                @unlink(public_path($old));
-            }
-        };
-
         if ($request->hasFile($field)) {
-            $deleteExisting();
-
-            $file = $request->file($field);
-            $dir  = public_path($directory);
-
-            if (!is_dir($dir)) {
-                mkdir($dir, 0755, true);
-            }
-
-            // Timestamped so a replacement gets a new URL and browsers do not
-            // keep showing the previous one from cache.
-            $filename = $field . '_' . time() . '.' . strtolower($file->getClientOriginalExtension() ?: 'png');
-            $file->move($dir, $filename);
-
-            Setting::set($settingKey, $directory . '/' . $filename);
+            $this->branding->store($request->file($field), $settingKey, $directory);
         }
 
         if ($request->boolean('remove_' . $field)) {
-            $deleteExisting();
-            Setting::set($settingKey, null);
+            $this->branding->delete($settingKey);
         }
     }
 }

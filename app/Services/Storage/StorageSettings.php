@@ -93,6 +93,27 @@ class StorageSettings
         return $this->activeDisk() !== 'local';
     }
 
+    /**
+     * Whether the active provider can hand a browser a URL it can actually load.
+     *
+     * Only matters for genuinely public assets — the logo and favicon, which are
+     * fetched before anyone has logged in. Everything else in this application is
+     * private and proxied, so it never needs this.
+     *
+     * Cloudinary's delivery URLs are public by design. R2's are not: without a
+     * configured delivery domain the only address is the S3 endpoint, which
+     * requires a signed request and would render as a broken image.
+     */
+    public function servesPublicUrls(): bool
+    {
+        return match ($this->provider()) {
+            self::PROVIDER_CLOUDINARY => $this->isConfigured(self::PROVIDER_CLOUDINARY),
+            self::PROVIDER_CLOUDFLARE => $this->isConfigured(self::PROVIDER_CLOUDFLARE)
+                && filled($this->r2Config()['url'] ?? null),
+            default => false,
+        };
+    }
+
     // ── Provider configuration ───────────────────────────────────────────
 
     /**

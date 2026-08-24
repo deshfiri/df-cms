@@ -191,10 +191,17 @@ Downloads are always proxied through the app's authorized controllers, so permis
 
 The File Manager follows the provider too, but differently: it is a browsable folder tree with no per-file record, so it can only show one disk at a time. Self-hosted keeps its long-standing `file_manager` disk; a CDN gets a `file-manager/` prefix on the shared bucket. Empty folders are held open with a `.keep` placeholder, since object stores have no real directories.
 
-Two commands back this up:
+**Branding is the one exception.** The logo and favicon are the only genuinely *public* uploads — a browser fetches them on the login page, before any session exists — so they cannot be proxied like everything else. `BrandingAssetService` owns them:
+
+- They go to the active provider **only if it can serve a public URL** (`StorageSettings::servesPublicUrls()`). Cloudinary always can; R2 only with a public delivery URL configured, because a private bucket's S3 endpoint needs a signed request and would render a broken image.
+- Otherwise they stay in `public/` exactly as before. That fallback is deliberate — a working logo beats a CDN-hosted one nobody can load.
+- Render them with `BrandingAssetService::url()`, **never `asset()`**: the stored value may be a remote path.
+
+Three commands back this up:
 
 ```bash
 php artisan storage:status          # where uploads go, and why — add --test for a live round trip
+php artisan storage:connect         # save + test + activate a provider from the CLI
 php artisan storage:migrate         # copy files from one disk to another and repoint the records
 ```
 
