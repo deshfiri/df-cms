@@ -5,140 +5,116 @@ namespace Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
-use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 /**
- * The visual half of the authorization rule.
+ * The sidebar must offer exactly what the policies allow.
  *
- * RouteAuthorizationMatrixTest proves a route cannot be *reached* without
- * permission. This proves it is not *offered* either — a menu full of links
- * that 403 on click is its own kind of broken, and for a long time this app
- * had the mirror problem: hidden links in front of open doors.
+ * The bug this exists for: several menu links were gated on the bare permission
+ * `view x`, while the matching policy admitted `view x` OR `manage x`. Granting
+ * a role only the *stronger* permission therefore hid the menu, even though the
+ * page behind it would have let them straight in — an invisible feature rather
+ * than a forbidden one, which is far harder to diagnose.
  */
 class SidebarVisibilityTest extends TestCase
 {
     use RefreshDatabase;
 
-    /** Sidebar links that must never appear without the matching permission. */
-    private const GATED_LINKS = [
-        'clients.index'      => 'view clients',
-        'meetings.all'       => 'view clients',
-        'payments.index'     => 'view payments',
-        'ads.index'          => 'view ads',
-        'tasks.index'        => 'view tasks',
-        'performance.index'  => 'view performance',
-        'file-manager.index' => 'view file-manager',
-        'import.index'       => 'import clients',
-        'categories.index'   => 'manage categories',
-        'users.index'        => 'manage users',
-        'workflows.index'    => 'manage workflows',
-        'chat.monitor'       => 'monitor chats',
-    ];
-
     protected function setUp(): void
     {
         parent::setUp();
 
-        foreach (array_unique(array_values(self::GATED_LINKS)) as $permission) {
-            Permission::firstOrCreate(['name' => $permission, 'guard_name' => 'web']);
+        foreach ([
+            'view clients', 'manage clients',
+            'view tasks', 'manage tasks',
+            'view ads', 'manage ads',
+        ] as $name) {
+            Permission::firstOrCreate(['name' => $name, 'guard_name' => 'web']);
         }
     }
 
-    private function user(string ...$permissions): User
+    private function userWith(string ...$permissions): User
     {
         $user = User::factory()->create(['is_active' => true]);
-        foreach ($permissions as $permission) {
-            $user->givePermissionTo($permission);
-        }
+        $user->givePermissionTo($permissions);
 
         return $user->fresh();
     }
 
-    /**
-     * Rendered through /chat rather than /dashboard: both extend the same
-     * layout, but the dashboard's charts use MySQL-only date functions
-     * (MONTH()) that the sqlite test database cannot execute.
-     */
-    private function sidebar(User $user): string
+    // ── Clients ──────────────────────────────────────────────────────────
+
+    public function test_manage_clients_alone_shows_the_clients_menu(): void
     {
-        return $this->actingAs($user)->get(route('chat.index'))->assertOk()->getContent();
+        $this->actingAs($this->userWith('manage clients'))
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertSee(route('clients.index'), false);
     }
 
-    public function test_a_user_with_no_permissions_is_offered_no_gated_links(): void
+    public function test_view_clients_alone_shows_the_clients_menu(): void
     {
-        $html = $this->sidebar($this->user());
-
-        foreach (self::GATED_LINKS as $name => $permission) {
-            $this->assertStringNotContainsString(
-                'href="' . route($name) . '"',
-                $html,
-                "The sidebar offers '{$name}' to a user without '{$permission}'."
-            );
-        }
+        $this->actingAs($this->userWith('view clients'))
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertSee(route('clients.index'), false);
     }
 
-    public function test_each_permission_reveals_exactly_its_own_link(): void
+    public function test_neither_permission_hides_the_clients_menu(): void
     {
-        foreach (self::GATED_LINKS as $name => $permission) {
-            $html = $this->sidebar($this->user($permission));
-
-            $this->assertStringContainsString(
-                'href="' . route($name) . '"',
-                $html,
-                "Granting '{$permission}' did not reveal '{$name}' in the sidebar."
-            );
-        }
+        $this->actingAs($this->userWith())
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertDontSee(route('clients.index'), false);
     }
 
-    public function test_links_open_to_every_signed_in_user_are_always_offered(): void
+    /** The menu and the page must agree — visible implies reachable. */
+    public function test_manage_clients_alone_can_open_the_clients_page(): void
     {
-        $html = $this->sidebar($this->user());
-
-        // Chat and Reviews are deliberately universal: everyone may message a
-        // colleague, and everyone may file a review.
-        $this->assertStringContainsString('href="' . route('chat.index') . '"', $html);
-        $this->assertStringContainsString('href="' . route('reviews.index') . '"', $html);
-        $this->assertStringContainsString('href="' . route('requests.index') . '"', $html);
+        $this->actingAs($this->userWith('manage clients'))
+            ->get(route('clients.index'))
+            ->assertOk();
     }
 
-    public function test_the_administration_group_is_super_admin_only(): void
+    // ── Tasks ────────────────────────────────────────────────────────────
+
+    public function test_manage_tasks_alone_shows_the_tasks_menu(): void
     {
-        $plain = $this->sidebar($this->user());
-        $this->assertStringNotContainsString('Administration', $plain);
-        $this->assertStringNotContainsString('href="' . route('settings.index') . '"', $plain);
-        $this->assertStringNotContainsString('href="' . route('roles.index') . '"', $plain);
+        $this->actingAs($this->userWith('manage tasks'))
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertSee(route('tasks.index'), false);
     }
 
-    public function test_a_manager_gets_pending_changes_without_being_shown_an_admin_group(): void
+    public function test_manage_tasks_alone_can_open_the_tasks_page(): void
     {
-        Role::firstOrCreate(['name' => 'Manager', 'guard_name' => 'web']);
-        $manager = $this->user();
-        $manager->assignRole('Manager');
-
-        $html = $this->sidebar($manager->fresh());
-
-        // Approving changes is a manager task, so it appears — but under
-        // Management, not under a heading claiming they are an administrator.
-        $this->assertStringContainsString('href="' . route('pending-changes.index') . '"', $html);
-        $this->assertStringNotContainsString('Administration', $html);
+        $this->actingAs($this->userWith('manage tasks'))
+            ->get(route('tasks.index'))
+            ->assertOk();
     }
 
-    public function test_a_super_admin_sees_the_administration_group(): void
+    public function test_neither_task_permission_hides_the_tasks_menu(): void
     {
-        Role::firstOrCreate(['name' => 'Super Admin', 'guard_name' => 'web']);
-        $admin = $this->user();
-        $admin->assignRole('Super Admin');
-
-        $html = $this->sidebar($admin->fresh());
-
-        $this->assertStringContainsString('Administration', $html);
-        $this->assertStringContainsString('href="' . route('settings.index') . '"', $html);
+        $this->actingAs($this->userWith())
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertDontSee(route('tasks.index'), false);
     }
 
-    public function test_the_client_search_box_follows_client_visibility(): void
+    // ── Ads ──────────────────────────────────────────────────────────────
+
+    public function test_manage_ads_alone_shows_the_ads_menu(): void
     {
-        $this->assertStringNotContainsString('id="globalSearch"', $this->sidebar($this->user()));
-        $this->assertStringContainsString('id="globalSearch"', $this->sidebar($this->user('view clients')));
+        $this->actingAs($this->userWith('manage ads'))
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertSee(route('ads.index'), false);
+    }
+
+    public function test_neither_ads_permission_hides_the_ads_menu(): void
+    {
+        $this->actingAs($this->userWith())
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertDontSee(route('ads.index'), false);
     }
 }

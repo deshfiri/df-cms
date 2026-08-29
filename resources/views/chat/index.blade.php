@@ -177,7 +177,7 @@
         }
 
         /* Keeps the line breaks someone actually typed. Scoped to the text itself,
-                       never the bubble, so the surrounding markup's indentation is not rendered. */
+                               never the bubble, so the surrounding markup's indentation is not rendered. */
         .msg-text {
             display: block;
             white-space: pre-wrap;
@@ -192,7 +192,7 @@
         }
 
         /* align-items:flex-end so the buttons stay level with the last line as the
-                       composer grows, rather than floating in the middle of it. */
+                               composer grows, rather than floating in the middle of it. */
         .chat-input-row {
             padding: .6rem .8rem;
             border-top: 1px solid var(--border);
@@ -296,7 +296,7 @@
         }
 
         /* An attachment removed by the retention policy. Deliberately quiet — it is
-                       a note about history, not a broken thing to be fixed. */
+                               a note about history, not a broken thing to be fixed. */
         .msg-expired {
             display: flex;
             align-items: center;
@@ -471,7 +471,7 @@
             font-size: .74rem;
             line-height: 1.3;
             /* Tinted with the bubble's own colour so it reads as part of it in
-                           both directions, without a second palette for me/them. */
+                                   both directions, without a second palette for me/them. */
             background: rgba(var(--primary-rgb), .09);
             color: inherit;
         }
@@ -958,15 +958,15 @@
                 list.forEach(c => {
                     const online = window.OnlineUsers.has(c.user_id);
                     html += `<div class="chat-item ${c.conversation_id === activeConvId ? 'active' : ''}" data-user="${c.user_id}" data-conv="${c.conversation_id}" data-name="${esc(c.name)}">
-                                <div class="chat-avatar">${esc(initials(c.name))}<span class="chat-dot ${online ? 'online' : ''}" data-user-dot="${c.user_id}"></span></div>
-                                <div class="chat-item-body">
-                                    <div class="chat-item-name"><span>${esc(c.name)}</span><span class="time">${c.last_at || ''}</span></div>
-                                    <div class="d-flex justify-content-between align-items-center gap-2">
-                                        <div class="chat-item-last">${c.last_from_me ? 'You: ' : ''}${esc(c.last_body || '')}</div>
-                                        ${c.unread ? `<span class="chat-unread">${c.unread}</span>` : ''}
-                                    </div>
-                                </div>
-                            </div>`;
+                                        <div class="chat-avatar">${esc(initials(c.name))}<span class="chat-dot ${online ? 'online' : ''}" data-user-dot="${c.user_id}"></span></div>
+                                        <div class="chat-item-body">
+                                            <div class="chat-item-name"><span>${esc(c.name)}</span><span class="time">${c.last_at || ''}</span></div>
+                                            <div class="d-flex justify-content-between align-items-center gap-2">
+                                                <div class="chat-item-last">${c.last_from_me ? 'You: ' : ''}${esc(c.last_body || '')}</div>
+                                                ${c.unread ? `<span class="chat-unread">${c.unread}</span>` : ''}
+                                            </div>
+                                        </div>
+                                    </div>`;
                 });
                 $('#chatList').html(html);
             }
@@ -1006,13 +1006,13 @@
                     const meta = c.duration ? `${esc(c.outcome)} · ${esc(c.duration)}` : esc(c.outcome);
 
                     html += `<div class="call-item" data-user="${c.other_user_id}" data-name="${esc(c.other_name)}" title="${esc(c.started_exact || '')}">
-                                <div class="call-icon ${c.missed ? 'missed' : ''}"><i class="bi ${icon}"></i></div>
-                                <div class="call-body">
-                                    <div class="call-name ${c.missed ? 'missed' : ''}">${esc(c.other_name)}</div>
-                                    <div class="call-meta">${meta}</div>
-                                </div>
-                                <div class="call-time">${esc(c.started_at || '')}</div>
-                            </div>`;
+                                        <div class="call-icon ${c.missed ? 'missed' : ''}"><i class="bi ${icon}"></i></div>
+                                        <div class="call-body">
+                                            <div class="call-name ${c.missed ? 'missed' : ''}">${esc(c.other_name)}</div>
+                                            <div class="call-meta">${meta}</div>
+                                        </div>
+                                        <div class="call-time">${esc(c.started_at || '')}</div>
+                                    </div>`;
                 });
                 $('#callList').html(html);
             }
@@ -1062,9 +1062,9 @@
                         r.users.forEach(u => {
                             const online = window.OnlineUsers.has(u.id);
                             html += `<div class="chat-item" data-user="${u.id}" data-name="${esc(u.name)}">
-                                        <div class="chat-avatar">${esc(initials(u.name))}<span class="chat-dot ${online ? 'online' : ''}" data-user-dot="${u.id}"></span></div>
-                                        <div class="chat-item-body"><div class="chat-item-name"><span>${esc(u.name)}</span></div><div class="chat-item-last">Start a conversation</div></div>
-                                    </div>`;
+                                                <div class="chat-avatar">${esc(initials(u.name))}<span class="chat-dot ${online ? 'online' : ''}" data-user-dot="${u.id}"></span></div>
+                                                <div class="chat-item-body"><div class="chat-item-name"><span>${esc(u.name)}</span></div><div class="chat-item-last">Start a conversation</div></div>
+                                            </div>`;
                         });
                         $('#chatList').html(html);
                     });
@@ -1141,9 +1141,9 @@
                 if (!e) return '';
 
                 return `<span class="msg-expired" title="Removed on ${esc(e.purged_at)}">
-                                    <i class="bi bi-clock-history"></i>
-                                    <span>${esc(e.name || 'Attachment')} — no longer available</span>
-                                </span>`;
+                                            <i class="bi bi-clock-history"></i>
+                                            <span>${esc(e.name || 'Attachment')} — no longer available</span>
+                                        </span>`;
             }
 
             function attachmentHtml(a) {
@@ -1157,18 +1157,18 @@
                 // duration in its header, so the player would otherwise show "Infinity".
                 if (a.is_voice) {
                     return `<div class="msg-voice">
-                                        <audio controls preload="none" src="${esc(a.url)}"></audio>
-                                        <span class="msg-voice-len">${esc(a.duration || '')}</span>
-                                    </div>`;
+                                                <audio controls preload="none" src="${esc(a.url)}"></audio>
+                                                <span class="msg-voice-len">${esc(a.duration || '')}</span>
+                                            </div>`;
                 }
 
                 return `<a href="${esc(a.url)}" class="msg-file">
-                                    <i class="bi bi-file-earmark-arrow-down"></i>
-                                    <span class="min-w-0">
-                                        <span class="msg-file-name d-block">${esc(a.name)}</span>
-                                        <span class="msg-file-size">${esc(a.size)}</span>
-                                    </span>
-                                </a>`;
+                                            <i class="bi bi-file-earmark-arrow-down"></i>
+                                            <span class="min-w-0">
+                                                <span class="msg-file-name d-block">${esc(a.name)}</span>
+                                                <span class="msg-file-size">${esc(a.size)}</span>
+                                            </span>
+                                        </a>`;
             }
 
             const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
@@ -1199,9 +1199,9 @@
                 const who = mine ? 'You' : q.sender_name;
 
                 return `<button type="button" class="msg-quote ${q.deleted ? 'is-deleted' : ''}" data-jump="${q.id}">
-                                    <span class="msg-quote-who">${esc(who)}</span>
-                                    <span class="msg-quote-text">${esc(q.preview || '')}</span>
-                                </button>`;
+                                            <span class="msg-quote-who">${esc(who)}</span>
+                                            <span class="msg-quote-text">${esc(q.preview || '')}</span>
+                                        </button>`;
             }
 
             function messageHtml(m) {
@@ -1209,9 +1209,9 @@
 
                 if (m.deleted) {
                     return `<div class="msg ${mine ? 'me' : 'them'} msg-deleted" data-id="${m.id}">
-                                        <i class="bi bi-slash-circle me-1"></i>This message was deleted
-                                        <div class="msg-meta">${timeOf(m.created_at)}</div>
-                                    </div>`;
+                                                <i class="bi bi-slash-circle me-1"></i>This message was deleted
+                                                <div class="msg-meta">${timeOf(m.created_at)}</div>
+                                            </div>`;
                 }
 
                 // An image may be sent with no caption, so the body can be empty.
@@ -1222,15 +1222,15 @@
                 const text = m.body ? `<span class="msg-text">${esc(m.body)}</span>` : '';
 
                 return `<div class="msg ${mine ? 'me' : 'them'}" data-id="${m.id}">
-                                    <div class="msg-tools">
-                                        <button class="msg-tool msg-reply" title="Reply"><i class="bi bi-reply"></i></button>
-                                        <button class="msg-tool react-open" title="React"><i class="bi bi-emoji-smile"></i></button>
-                                        ${m.can_delete ? '<button class="msg-tool msg-del" title="Delete"><i class="bi bi-trash"></i></button>' : ''}
-                                    </div>
-                                    ${quoteHtml(m.reply_to)}${text}${attachmentHtml(m.attachment)}${expiredAttachmentHtml(m.attachment_expired)}
-                                    <div class="msg-meta">${timeOf(m.created_at)}</div>
-                                    ${reactionsHtml(m.reactions)}
-                                </div>`;
+                                            <div class="msg-tools">
+                                                <button class="msg-tool msg-reply" title="Reply"><i class="bi bi-reply"></i></button>
+                                                <button class="msg-tool react-open" title="React"><i class="bi bi-emoji-smile"></i></button>
+                                                ${m.can_delete ? '<button class="msg-tool msg-del" title="Delete"><i class="bi bi-trash"></i></button>' : ''}
+                                            </div>
+                                            ${quoteHtml(m.reply_to)}${text}${attachmentHtml(m.attachment)}${expiredAttachmentHtml(m.attachment_expired)}
+                                            <div class="msg-meta">${timeOf(m.created_at)}</div>
+                                            ${reactionsHtml(m.reactions)}
+                                        </div>`;
             }
 
             // ── Reply ────────────────────────────────────────────────────────

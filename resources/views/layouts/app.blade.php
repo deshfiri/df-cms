@@ -280,7 +280,11 @@
                 <i class="bi {{ $isStageUser ? 'bi-clipboard-check' : 'bi-speedometer2' }}"></i><span class="sb-lbl">{{ $isStageUser ? 'My Work' : 'Dashboard' }}</span>
             </a>
             @unless($isStageUser)
-            @can('view clients')
+            {{-- Gated on the policy, not on a bare permission name. ClientPolicy
+                 admits either 'view clients' or 'manage clients', and checking
+                 only the first hid this menu from anyone granted the stronger
+                 one on its own. --}}
+            @can('viewAny', App\Models\Client::class)
                 <a href="{{ route('clients.index') }}" class="sb-link {{ request()->routeIs('clients.*') ? 'active' : '' }}"
                     title="Clients" data-bs-toggle="tooltip" data-bs-placement="right">
                     <i class="bi bi-people"></i><span class="sb-lbl">Clients</span>
@@ -295,17 +299,19 @@
                 </a>
             @endcan
             @unless($isStageUser)
-            @can('view ads')
+            {{-- Matches AdCampaignPolicy, and the Marketing link further down
+                 which already used @canany for the same pair. --}}
+            @canany(['view ads', 'manage ads'])
                 <a href="{{ route('ads.index') }}"
                     class="sb-link {{ request()->routeIs('ads.*') || request()->routeIs('clients.ads.*') ? 'active' : '' }}"
                     title="Ads" data-bs-toggle="tooltip" data-bs-placement="right">
                     <i class="bi bi-megaphone"></i><span class="sb-lbl">Ads</span>
                 </a>
-            @endcan
+            @endcanany
             @endunless
 
             {{-- The all-meetings list exposes client names, so it follows client visibility. --}}
-            @can('view clients')
+            @can('viewAny', App\Models\Client::class)
                 <a href="{{ route('meetings.all') }}"
                     class="sb-link {{ request()->routeIs('meetings.all') ? 'active' : '' }}" title="All Meetings"
                     data-bs-toggle="tooltip" data-bs-placement="right">
@@ -319,7 +325,10 @@
                     <i class="bi bi-calendar-plus"></i><span class="sb-lbl">Book Meeting</span>
                 </a>
             @endcan
-            @can('view tasks')
+            {{-- Policy, not a bare permission: TaskPolicy admits 'view tasks'
+                 or 'manage tasks', and checking only the first hid this from
+                 anyone granted the stronger one on its own. --}}
+            @can('viewAny', App\Models\Task::class)
                 <a href="{{ route('tasks.index') }}" class="sb-link {{ request()->routeIs('tasks.*') ? 'active' : '' }}"
                     title="Tasks" data-bs-toggle="tooltip" data-bs-placement="right">
                     <i class="bi bi-list-check"></i><span class="sb-lbl">Tasks</span>
@@ -483,7 +492,7 @@
         </button>
 
         {{-- Searches clients, so it follows client visibility like every other client surface. --}}
-        @can('view clients')
+        @can('viewAny', App\Models\Client::class)
             <div class="tb-search">
                 <div class="tb-search-box">
                     <i class="bi bi-search"></i>

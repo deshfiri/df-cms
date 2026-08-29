@@ -5,6 +5,17 @@
 <style>
 .task-comment { border-bottom: 1px solid var(--border); padding: 8px 0; }
 .task-comment:last-child { border-bottom: none; }
+
+/* ── Quick date picks ─────────────────────────────────────────── */
+.when-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.when-chip {
+    border: 1px solid var(--border); background: var(--surface2); color: var(--text2);
+    border-radius: 999px; font-size: var(--fs-xs); padding: 3px 12px; cursor: pointer;
+    transition: background .12s, border-color .12s, color .12s;
+}
+.when-chip:hover { border-color: var(--primary); color: var(--primary); }
+.when-chip.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.when-help { font-size: var(--fs-2xs); color: var(--text3); margin-top: 4px; display: block; }
 </style>
 @endpush
 
@@ -139,6 +150,18 @@
                             @endforeach
                         </select>
                     </div>
+                    <div class="col-12">
+                        {{-- Most tasks are for today or tomorrow. Picking that out
+                             of a date picker twice is the slow way to say something
+                             simple, so the common answers are one click. --}}
+                        <label class="form-label fw-semibold small">When</label>
+                        <div class="when-quick">
+                            <button type="button" class="when-chip" data-when="today">Today</button>
+                            <button type="button" class="when-chip" data-when="tomorrow">Tomorrow</button>
+                            <button type="button" class="when-chip" data-when="week">In a week</button>
+                            <button type="button" class="when-chip" data-when="clear">No dates</button>
+                        </div>
+                    </div>
                     <div class="col-md-4">
                         <label class="form-label fw-semibold small">Start Date</label>
                         <input type="date" id="taskStart" class="form-control form-control-sm">
@@ -146,6 +169,8 @@
                     <div class="col-md-4">
                         <label class="form-label fw-semibold small">Due Date</label>
                         <input type="date" id="taskDue" class="form-control form-control-sm">
+                        {{-- Same-day is normal, so nothing here nudges the date forward. --}}
+                        <span class="when-help" id="dueHint"></span>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label fw-semibold small">Estimated Hours</label>
@@ -272,7 +297,62 @@ function resetTaskModal() {
     $('#taskPriority').val('Medium');
     $('#taskStatus').val('Pending');
     $('#taskType').val('Other');
+    syncWhenChips();
 }
+
+// ── Quick date picks ─────────────────────────────────────────────────────
+// A task for today is the common case, so it should not cost two trips
+// through a date picker. Nothing is defaulted on open — a task with no dates
+// at all stays valid, and guessing one would be worse than leaving it blank.
+
+/** Local date as YYYY-MM-DD. toISOString() would shift by the UTC offset. */
+function isoDate(date) {
+    return date.getFullYear() + '-'
+        + String(date.getMonth() + 1).padStart(2, '0') + '-'
+        + String(date.getDate()).padStart(2, '0');
+}
+
+function addDays(days) {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return isoDate(d);
+}
+
+/** Light up whichever chip matches what the two date fields currently say. */
+function syncWhenChips() {
+    const start = $('#taskStart').val();
+    const due   = $('#taskDue').val();
+    const today = isoDate(new Date());
+
+    let match = '';
+    if (!start && !due)                                match = 'clear';
+    else if (start === today && due === today)         match = 'today';
+    else if (start === today && due === addDays(1))    match = 'tomorrow';
+    else if (start === today && due === addDays(7))    match = 'week';
+
+    $('.when-chip').removeClass('active');
+    if (match) $(`.when-chip[data-when="${match}"]`).addClass('active');
+
+    // Same-day is a normal answer, so this explains rather than warns.
+    $('#dueHint').text(due && due === today ? 'Due today.' : '');
+}
+
+$(document).on('click', '.when-chip', function () {
+    const today = isoDate(new Date());
+
+    switch ($(this).data('when')) {
+        case 'today':    $('#taskStart').val(today); $('#taskDue').val(today); break;
+        case 'tomorrow': $('#taskStart').val(today); $('#taskDue').val(addDays(1)); break;
+        case 'week':     $('#taskStart').val(today); $('#taskDue').val(addDays(7)); break;
+        case 'clear':    $('#taskStart').val(''); $('#taskDue').val(''); break;
+    }
+
+    syncWhenChips();
+});
+
+// Typing a date by hand should update the chips too, so they never disagree
+// with the fields they describe.
+$('#taskStart, #taskDue').on('change', syncWhenChips);
 
 $('#newTaskBtn').on('click', resetTaskModal);
 
@@ -331,6 +411,7 @@ $(document).on('click', '.task-edit', function () {
         $('#taskDue').val(t.due_date ? t.due_date.substring(0, 10) : '');
         $('#taskEstHours').val(t.estimated_hours);
         $('#taskLabels').val(t.labels.map(l => l.id)).trigger('change');
+        syncWhenChips();
         new bootstrap.Modal('#taskModal').show();
     });
 });

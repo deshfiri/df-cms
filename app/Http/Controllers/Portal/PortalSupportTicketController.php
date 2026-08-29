@@ -18,7 +18,8 @@ class PortalSupportTicketController extends Controller
     public function __construct(
         private readonly SupportTicketPolicy $policy,
         private readonly SupportTicketService $service,
-    ) {}
+    ) {
+    }
 
     public function index()
     {
@@ -34,9 +35,9 @@ class PortalSupportTicketController extends Controller
         $data = $request->validate([
             'category' => ['required', Rule::in(SupportTicket::$categories)],
             'priority' => ['required', Rule::in(SupportTicket::$priorities)],
-            'subject'  => ['required', 'string', 'max:200'],
-            'message'  => ['required', 'string', 'max:5000'],
-            'file'     => ['nullable', 'file', 'max:20480'],
+            'subject' => ['required', 'string', 'max:200'],
+            'message' => ['required', 'string', 'max:5000'],
+            'file' => ['nullable', 'file', 'max:20480'],
         ]);
 
         $ticket = $this->service->create(
@@ -56,7 +57,7 @@ class PortalSupportTicketController extends Controller
     {
         abort_unless($this->policy->view($this->portalUser(), $ticket), 404);
 
-        $ticket->load(['replies' => fn ($q) => $q->clientVisible()->with(['author', 'portalAuthor'])]);
+        $ticket->load(['replies' => fn($q) => $q->clientVisible()->with(['author', 'portalAuthor'])]);
 
         return view('portal.support.show', compact('ticket'));
     }
@@ -67,7 +68,7 @@ class PortalSupportTicketController extends Controller
 
         $data = $request->validate([
             'message' => ['required', 'string', 'max:5000'],
-            'file'    => ['nullable', 'file', 'max:20480'],
+            'file' => ['nullable', 'file', 'max:20480'],
         ]);
 
         $this->service->reply(

@@ -122,10 +122,18 @@ class Task extends Model
         return $this->hasMany(TaskRevision::class)->latest();
     }
 
+    /**
+     * Overdue means the due *date* has passed, not the moment it began.
+     *
+     * due_date is cast to a date, so it is a Carbon at midnight — isPast() on it
+     * is true from 00:00, which flagged a task due today as late the instant the
+     * day started. Compared against today() instead, so this agrees with
+     * scopeOverdue(): a task is late the day *after* it was due.
+     */
     public function getIsOverdueAttribute(): bool
     {
         return $this->due_date
-            && $this->due_date->isPast()
+            && $this->due_date->startOfDay()->lt(today())
             && !in_array($this->status, self::$settledStatuses, true);
     }
 

@@ -287,6 +287,71 @@ class TaskWorkflowTest extends TestCase
         $this->assertSame('Completed', $task->fresh()->status);
     }
 
+    // ── Due dates ────────────────────────────────────────────────────────
+
+    /**
+     * A task due today is not late.
+     *
+     * due_date casts to a Carbon at midnight, so isPast() on it was true from
+     * 00:00 — which flagged same-day work as overdue the moment the day began,
+     * and disagreed with the query scope used everywhere else.
+     */
+    public function test_a_task_due_today_is_not_overdue(): void
+    {
+        $task = $this->task($this->worker(), $this->manager());
+        $task->forceFill(['due_date' => today()])->save();
+
+        $this->assertFalse($task->fresh()->is_overdue);
+
+        // The attribute and the scope must give the same answer.
+        $this->assertSame(0, Task::overdue()->count());
+    }
+
+    public function test_a_task_due_yesterday_is_overdue(): void
+    {
+        $task = $this->task($this->worker(), $this->manager());
+        $task->forceFill(['due_date' => today()->subDay()])->save();
+
+        $this->assertTrue($task->fresh()->is_overdue);
+        $this->assertSame(1, Task::overdue()->count());
+    }
+
+    public function test_a_task_can_start_and_finish_on_the_same_day(): void
+    {
+        $manager = $this->manager();
+
+        $this->actingAs($manager)->postJson(route('tasks.store'), [
+            'title'      => 'Same day job',
+            'priority'   => 'High',
+            'status'     => 'Pending',
+            'type'       => 'Other',
+            'start_date' => today()->toDateString(),
+            'due_date'   => today()->toDateString(),
+        ])->assertOk();
+
+        $task = Task::firstOrFail();
+
+        $this->assertSame(today()->toDateString(), $task->due_date->toDateString());
+        $this->assertFalse($task->is_overdue);
+    }
+
+    public function test_a_task_needs_no_dates_at_all(): void
+    {
+        $manager = $this->manager();
+
+        $this->actingAs($manager)->postJson(route('tasks.store'), [
+            'title'    => 'Whenever',
+            'priority' => 'Low',
+            'status'   => 'Pending',
+            'type'     => 'Other',
+        ])->assertOk();
+
+        $task = Task::firstOrFail();
+
+        $this->assertNull($task->due_date);
+        $this->assertFalse($task->is_overdue);
+    }
+
     // ── The whole round trip ─────────────────────────────────────────────
 
     public function test_the_full_cycle_from_assignment_to_completion(): void
