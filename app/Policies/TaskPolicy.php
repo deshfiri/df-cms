@@ -17,9 +17,28 @@ class TaskPolicy
         return $user->hasAnyPermission(['view tasks', 'manage tasks']);
     }
 
+    /**
+     * A task is between the person who asked for it and the person doing it.
+     *
+     * Mirrors Task::scopeVisibleTo exactly. The two must agree: the scope keeps
+     * other people's work out of listings, this keeps it out of direct access,
+     * and any divergence between them is a hole — a task hidden from the list
+     * but reachable by editing the id in a URL.
+     */
     public function view(User $user, Task $task): bool
     {
-        return $user->hasAnyPermission(['view tasks', 'manage tasks']);
+        if (!$user->hasAnyPermission(['view tasks', 'manage tasks'])) {
+            return false;
+        }
+
+        // Oversight, and what lets a manager clear a stalled review queue.
+        // can() rather than hasPermissionTo(), which throws on a permission
+        // that has never been seeded.
+        if ($user->can('manage tasks')) {
+            return true;
+        }
+
+        return $task->assigned_to === $user->id || $task->created_by === $user->id;
     }
 
     /**

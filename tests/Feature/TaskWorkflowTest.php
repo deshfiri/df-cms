@@ -287,6 +287,100 @@ class TaskWorkflowTest extends TestCase
         $this->assertSame('Completed', $task->fresh()->status);
     }
 
+    // ── Visibility ───────────────────────────────────────────────────────
+
+    /**
+     * A task is between the person who asked for it and the person doing it.
+     * Holding 'view tasks' means you can use the module, not read everyone's
+     * workload.
+     */
+    public function test_a_bystander_cannot_open_someone_elses_task(): void
+    {
+        $task = $this->task($this->worker(), $this->manager());
+
+        $this->actingAs($this->worker())
+            ->getJson(route('tasks.show', $task))
+            ->assertForbidden();
+    }
+
+    public function test_the_assignee_can_open_their_task(): void
+    {
+        $worker = $this->worker();
+
+        $this->actingAs($worker)
+            ->getJson(route('tasks.show', $this->task($worker, $this->manager())))
+            ->assertOk();
+    }
+
+    public function test_the_creator_can_open_a_task_they_delegated(): void
+    {
+        $creator = $this->worker();
+        $task    = $this->task($this->worker(), $creator);
+
+        $this->actingAs($creator)
+            ->getJson(route('tasks.show', $task))
+            ->assertOk();
+    }
+
+    /** Oversight: a manager still sees everything, and can clear a review queue. */
+    public function test_a_manager_can_open_any_task(): void
+    {
+        $task = $this->task($this->worker(), $this->worker());
+
+        $this->actingAs($this->manager())
+            ->getJson(route('tasks.show', $task))
+            ->assertOk();
+    }
+
+    /**
+     * The listing must hide exactly what the policy refuses. A divergence would
+     * mean a task absent from the list but reachable by editing the URL.
+     */
+    public function test_the_list_shows_only_tasks_you_are_party_to(): void
+    {
+        $me      = $this->worker();
+        $manager = $this->manager();
+
+        $mine      = $this->task($me, $manager);              // assigned to me
+        $delegated = $this->task($this->worker(), $me);       // I asked for it
+        $theirs    = $this->task($this->worker(), $manager);  // nothing to do with me
+
+        $response = $this->actingAs($me)
+            // The controller serves the DataTable only to an XHR; without this
+            // header it renders the page instead.
+            ->getJson(route('tasks.index') . '?draw=1&start=0&length=50', ['X-Requested-With' => 'XMLHttpRequest'])
+            ->assertOk();
+
+        $ids = collect($response->json('data'))->pluck('id')->all();
+
+        $this->assertContains($mine->id, $ids);
+        $this->assertContains($delegated->id, $ids);
+        $this->assertNotContains($theirs->id, $ids, "Another person's task leaked into the list.");
+    }
+
+    public function test_a_manager_sees_every_task_in_the_list(): void
+    {
+        $theirs = $this->task($this->worker(), $this->worker());
+
+        $response = $this->actingAs($this->manager())
+            // The controller serves the DataTable only to an XHR; without this
+            // header it renders the page instead.
+            ->getJson(route('tasks.index') . '?draw=1&start=0&length=50', ['X-Requested-With' => 'XMLHttpRequest'])
+            ->assertOk();
+
+        $this->assertContains($theirs->id, collect($response->json('data'))->pluck('id')->all());
+    }
+
+    /** Comments and attachments hang off the same authorization. */
+    public function test_a_bystander_cannot_comment_on_someone_elses_task(): void
+    {
+        $task = $this->task($this->worker(), $this->manager());
+
+        $this->actingAs($this->worker())
+            ->postJson(route('tasks.comments.store', $task), ['comment' => 'nosy'])
+            ->assertForbidden();
+    }
+
     // ── Due dates ────────────────────────────────────────────────────────
 
     /**

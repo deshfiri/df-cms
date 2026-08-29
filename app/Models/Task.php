@@ -137,6 +137,37 @@ class Task extends Model
             && !in_array($this->status, self::$settledStatuses, true);
     }
 
+    /**
+     * Restrict a query to the tasks this user is party to.
+     *
+     * A task is a piece of work between two people — whoever asked for it and
+     * whoever is doing it — not a public record. Holding 'view tasks' means you
+     * can use the module, not that you can read everyone else's workload.
+     *
+     * 'manage tasks' is the deliberate exception: managers need oversight, and
+     * TaskPolicy::review() already lets them clear a review queue so work never
+     * gets stuck behind someone who has left.
+     *
+     * This is the single definition of task visibility. Every listing must go
+     * through it, so authorization happens in SQL rather than after the rows
+     * have been fetched.
+     */
+    public function scopeVisibleTo($query, User $user)
+    {
+        // can(), not hasPermissionTo(): the latter throws when the permission
+        // row does not exist, and this scope runs on the dashboard for every
+        // user — including on an installation where it was never seeded.
+        // can() also covers Super Admin through Gate::before.
+        if ($user->can('manage tasks')) {
+            return $query;
+        }
+
+        return $query->where(function ($q) use ($user) {
+            $q->where('assigned_to', $user->id)
+              ->orWhere('created_by', $user->id);
+        });
+    }
+
     public function scopeStatus($query, string $status)
     {
         return $query->where('status', $status);

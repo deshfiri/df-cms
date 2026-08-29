@@ -418,7 +418,11 @@ class DashboardController extends Controller
             ->whereIn('client_status', ['Running', 'Warning'])
             ->count();
 
-        $followUpsDueToday = Task::whereDate('due_date', today())
+        // Intersected with what this person may actually open, so the tile can
+        // never advertise more follow-ups than the task list will show.
+        $followUpsDueToday = Task::query()
+            ->visibleTo($user)
+            ->whereDate('due_date', today())
             ->whereNotIn('status', ['Completed', 'Cancelled'])
             ->where(function ($q) use ($user, $myClientIds) {
                 $q->where('assigned_to', $user->id)

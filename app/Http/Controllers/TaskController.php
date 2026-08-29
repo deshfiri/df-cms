@@ -37,8 +37,13 @@ class TaskController extends Controller
         $users   = User::where('is_active', true)->orderBy('name')->get(['id', 'name']);
         $labels  = Label::orderBy('name')->get();
 
-        $statusCounts = Task::selectRaw('status, COUNT(*) as cnt')->groupBy('status')->pluck('cnt', 'status');
-        $overdueCount = Task::overdue()->count();
+        // Counted over what this person may actually see, or the tiles would
+        // advertise work they cannot open.
+        $me = $request->user();
+
+        $statusCounts = Task::query()->visibleTo($me)
+            ->selectRaw('status, COUNT(*) as cnt')->groupBy('status')->pluck('cnt', 'status');
+        $overdueCount = Task::query()->visibleTo($me)->overdue()->count();
         $reasonCategories = TaskRevision::$reasonCategories;
 
         // Work this person delegated that has been handed back to them.
@@ -206,7 +211,10 @@ class TaskController extends Controller
 
     private function dataTable(Request $request): JsonResponse
     {
-        $query = Task::query()->with(['client:id,client_name', 'assignedUser:id,name']);
+        // Authorization first, so no filter below can widen the result set.
+        $query = Task::query()
+            ->visibleTo($request->user())
+            ->with(['client:id,client_name', 'assignedUser:id,name']);
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
