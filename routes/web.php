@@ -240,6 +240,9 @@ Route::middleware(['auth'])->group(function () {
     // Tasks (standalone)
     Route::resource('tasks', TaskController::class)->except(['create', 'edit']);
     // Delegated work: the assignee submits, the requester accepts or returns it.
+    // The assignee starting/pausing their own work. Separate from the full
+    // update, which needs 'manage tasks'.
+    Route::post('tasks/{task}/progress', [TaskController::class, 'progress'])->name('tasks.progress');
     Route::post('tasks/{task}/submit', [TaskController::class, 'submit'])->name('tasks.submit');
     Route::post('tasks/{task}/review', [TaskController::class, 'review'])->name('tasks.review');
     Route::post('tasks/{task}/revisions', [TaskController::class, 'storeRevision'])->name('tasks.revisions.store');

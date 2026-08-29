@@ -42,6 +42,24 @@ class TaskPolicy
         return $user->hasPermissionTo('manage tasks');
     }
 
+    /**
+     * The assignee moves their own task between the working statuses.
+     *
+     * Separate from update(), which is the full edit and needs 'manage tasks'.
+     * Someone holding a task must be able to say they have started it without
+     * also being able to retitle it, move its deadline, or hand it to someone
+     * else — so this is its own, much narrower ability.
+     *
+     * The statuses it may move *to* are constrained in Task::$workingStatuses:
+     * an assignee can start, pause and resume, but cannot mark their own work
+     * Completed. That verdict belongs to whoever asked for it.
+     */
+    public function progress(User $user, Task $task): bool
+    {
+        return $task->assigned_to === $user->id
+            && in_array($task->status, Task::$workingStatuses, true);
+    }
+
     /** Only the person holding the task hands it back for review. */
     public function submit(User $user, Task $task): bool
     {

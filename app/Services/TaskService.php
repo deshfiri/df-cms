@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 class TaskService
 {
@@ -111,6 +112,36 @@ class TaskService
         if ($assignee) {
             $assignee->notify(new TaskAssigned($task));
         }
+    }
+
+    /**
+     * The assignee moves their own task between working statuses.
+     *
+     * Only the status changes. Nothing else on the task is touched, which is
+     * what separates this from a full update — starting work should not be a
+     * back door into editing the brief.
+     *
+     * Silently no-ops when the status is already what was asked for, so a
+     * double-click does not litter the activity feed.
+     */
+    public function changeWorkingStatus(Task $task, User $actor, string $status): Task
+    {
+        if (!in_array($status, Task::$workingStatuses, true)) {
+            throw new InvalidArgumentException("'{$status}' is not a status an assignee may set.");
+        }
+
+        if ($task->status === $status) {
+            return $task;
+        }
+
+        $previous = $task->status;
+
+        $task->update(['status' => $status, 'updated_by' => $actor->id]);
+
+        $this->logActivity($task, 'Status Changed', "{$previous} → {$status}");
+        $this->activityLog->log('Task', 'Status Changed', $task->client_id, $previous, $status);
+
+        return $task->fresh(['assignedUser:id,name', 'client:id,client_name', 'labels']);
     }
 
     /**

@@ -27,6 +27,16 @@ class Task extends Model
     public static array $submittableStatuses = ['Pending', 'In Progress', 'On Hold'];
 
     /**
+     * Statuses an assignee may move their own task between while working on it.
+     *
+     * Deliberately excludes 'Completed' and 'Cancelled': finishing is the
+     * reviewer's call, and cancelling is an administrative one. Also excludes
+     * 'Submitted' — that transition goes through submitForReview(), which
+     * timestamps it and notifies the reviewer.
+     */
+    public static array $workingStatuses = ['Pending', 'In Progress', 'On Hold'];
+
+    /**
      * Statuses where the assignee no longer owes any work, so nothing can be
      * overdue on them. 'Submitted' belongs here: the work has been handed in
      * and is waiting on a reviewer — counting it late would blame the assignee

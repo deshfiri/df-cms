@@ -452,6 +452,27 @@ $(document).on('click', '.task-att-delete', function () {
     $.ajax({ url: '/tasks/' + taskId + '/attachments/' + attId, type: 'DELETE' }).done(() => loadTaskDetail(taskId));
 });
 
+// ── Start / pause work (assignee) ────────────────────────────────────────
+// No confirmation: starting your own task is reversible and routine, and a
+// dialog on every one would just be in the way.
+$(document).on('click', '.task-progress', function () {
+    var $btn = $(this).prop('disabled', true);
+
+    $.post('/tasks/' + $btn.data('id') + '/progress', { status: $btn.data('status') })
+        .done(function () {
+            table.ajax.reload(null, false);
+            Swal.fire({
+                toast: true, position: 'bottom-end', icon: 'success',
+                title: $btn.data('status') === 'In Progress' ? 'Marked in progress' : 'Put on hold',
+                showConfirmButton: false, timer: 1600,
+            });
+        })
+        .fail(function (x) {
+            $btn.prop('disabled', false);
+            Swal.fire('Error', x.responseJSON?.message || 'Could not update the status.', 'error');
+        });
+});
+
 // ── Submit for review (assignee) ─────────────────────────────────────────
 $(document).on('click', '.task-submit', function () {
     var id = $(this).data('id');

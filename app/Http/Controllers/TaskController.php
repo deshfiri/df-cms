@@ -93,6 +93,25 @@ class TaskController extends Controller
         return response()->json(['success' => true]);
     }
 
+    /**
+     * The assignee starts, pauses or resumes their own task.
+     *
+     * Narrower than update() on purpose: it accepts a status and nothing else,
+     * so holding a task never becomes a way to edit its brief.
+     */
+    public function progress(Request $request, Task $task): JsonResponse
+    {
+        $this->authorize('progress', $task);
+
+        $data = $request->validate([
+            'status' => ['required', Rule::in(Task::$workingStatuses)],
+        ]);
+
+        $updated = $this->service->changeWorkingStatus($task, $request->user(), $data['status']);
+
+        return response()->json(['success' => true, 'task' => $updated]);
+    }
+
     /** The assignee hands the work back to whoever asked for it. */
     public function submit(Request $request, Task $task): JsonResponse
     {
@@ -222,6 +241,18 @@ class TaskController extends Controller
             ->addColumn('due', fn (Task $t) => $t->due_date?->format('d M Y') ?? '-')
             ->addColumn('actions', function (Task $t) use ($canManage, $me) {
                 $html = '<button class="btn btn-sm px-2 py-1 task-view" data-id="' . $t->id . '" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="View"><i class="bi bi-eye"></i></button> ';
+
+                // Start / pause, for the person actually holding the task. Shown
+                // only where the transition is one the endpoint would accept, so
+                // the buttons never offer something that will be refused.
+                if ($me->can('progress', $t)) {
+                    if ($t->status !== 'In Progress') {
+                        $label = $t->status === 'On Hold' ? 'Resume work' : 'Start work';
+                        $html .= '<button class="btn btn-sm px-2 py-1 task-progress" data-id="' . $t->id . '" data-status="In Progress" style="background:var(--c-green-bg);border:1px solid var(--c-green);color:var(--c-green)" title="' . $label . '"><i class="bi bi-play-fill"></i></button> ';
+                    } else {
+                        $html .= '<button class="btn btn-sm px-2 py-1 task-progress" data-id="' . $t->id . '" data-status="On Hold" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="Put on hold"><i class="bi bi-pause-fill"></i></button> ';
+                    }
+                }
 
                 // The assignee hands it back; the requester rules on it. Both
                 // are policy checks so the buttons match what the endpoints allow.
