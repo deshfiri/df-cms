@@ -818,6 +818,9 @@
     <script>
         window.CURRENT_USER_ID = {{ auth()->id() }};
         window.OnlineUsers = new Set();
+        // Same people as OnlineUsers, keyed by id, with what presence sent ({id, name, role}).
+        window.OnlineRoster = new Map();
+        window.RealtimeReady = {{ $reverbReady ? 'true' : 'false' }};
     @if(! $reverbReady)
         // Reverb is not configured in this environment. Deliberately skip Echo:
         // constructing it with a blank host makes pusher-js fall back to its own
@@ -851,6 +854,10 @@
                 var connection = window.Echo.connector.pusher.connection;
 
                 connection.bind('state_change', function (states) {
+                    // Pages that show presence need to know when it may be stale.
+                    window.RealtimeConnected = states.current === 'connected';
+                    document.dispatchEvent(new CustomEvent('realtime-state', { detail: states.current }));
+
                     var pill = document.getElementById('realtimePill');
                     if (!pill) return;
 
@@ -864,10 +871,23 @@
             })();
 
             // App-wide presence: who is currently online.
+            // `here` fires again after a reconnect, so the roster self-heals.
             window.Echo.join('online')
-                .here(function (users) { window.OnlineUsers = new Set(users.map(u => u.id)); document.dispatchEvent(new CustomEvent('online-changed')); })
-                .joining(function (u) { window.OnlineUsers.add(u.id); document.dispatchEvent(new CustomEvent('online-changed', { detail: u })); })
-                .leaving(function (u) { window.OnlineUsers.delete(u.id); document.dispatchEvent(new CustomEvent('online-changed', { detail: u })); });
+                .here(function (users) {
+                    window.OnlineRoster = new Map(users.map(u => [u.id, u]));
+                    window.OnlineUsers = new Set(users.map(u => u.id));
+                    document.dispatchEvent(new CustomEvent('online-changed'));
+                })
+                .joining(function (u) {
+                    window.OnlineRoster.set(u.id, u);
+                    window.OnlineUsers.add(u.id);
+                    document.dispatchEvent(new CustomEvent('online-changed', { detail: u }));
+                })
+                .leaving(function (u) {
+                    window.OnlineRoster.delete(u.id);
+                    window.OnlineUsers.delete(u.id);
+                    document.dispatchEvent(new CustomEvent('online-changed', { detail: u }));
+                });
 
             // Personal channel: new messages to me → bump the nav unread badge + notify open pages.
             window.Echo.private('App.Models.User.' + window.CURRENT_USER_ID)

@@ -798,16 +798,82 @@
             border-color: #dc3545 !important;
             color: #fff !important;
         }
+
+        /* ── Online now panel ────────────────────────────────────────── */
+        .chat-wrap { position: relative; }
+        .chat-online {
+            width: 240px; flex-shrink: 0; min-height: 0;
+            border-left: 1px solid var(--border); background: var(--surface);
+            display: flex; flex-direction: column;
+        }
+        .chat-online-head { padding: .75rem .9rem; border-bottom: 1px solid var(--border); }
+        .chat-online-count {
+            font-size: .66rem; font-weight: 700; padding: 0 7px; min-width: 20px; text-align: center;
+            border-radius: 999px; background: rgba(34, 197, 94, .15); color: var(--c-green);
+        }
+        .chat-online-close { color: var(--text3); }
+        .chat-online-close:hover { color: var(--text); }
+        .chat-online-notice {
+            font-size: .7rem; color: var(--c-yellow); background: rgba(245, 158, 11, .1);
+            padding: .35rem .9rem; border-bottom: 1px solid var(--border);
+        }
+        .chat-online-list { flex: 1; overflow-y: auto; padding: .3rem 0; }
+        .chat-online-item { display: flex; align-items: center; gap: .55rem; padding: .45rem .9rem; cursor: pointer; }
+        .chat-online-item:hover, .chat-online-item:focus-visible { background: var(--surface2); outline: none; }
+        .chat-online-item.active { background: rgba(var(--primary-rgb), .1); }
+        .chat-online-item .chat-avatar { width: 32px; height: 32px; font-size: .72rem; }
+        .chat-online-item .chat-dot { width: 10px; height: 10px; }
+        .chat-online-name, .chat-online-role { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .chat-online-name { font-size: .8rem; font-weight: 600; color: var(--text); }
+        .chat-online-role { font-size: .68rem; color: var(--text3); }
+        .chat-online-go { font-size: .8rem; color: var(--text3); opacity: 0; transition: opacity .12s; }
+        .chat-online-item:hover .chat-online-go, .chat-online-item:focus-visible .chat-online-go { opacity: 1; color: var(--primary); }
+        .chat-online-empty { text-align: center; padding: 1.6rem 1rem; font-size: .76rem; color: var(--text3); }
+        .chat-online-empty i { font-size: 1.5rem; display: block; margin-bottom: .35rem; }
+        .chat-online-empty .fw-semibold { color: var(--text2); }
+
+        .chat-online-pulse {
+            width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block;
+            animation: chatOnlinePulse 2s infinite;
+        }
+        @keyframes chatOnlinePulse {
+            0%   { box-shadow: 0 0 0 0 rgba(34, 197, 94, .55); }
+            70%  { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+        @media (prefers-reduced-motion: reduce) { .chat-online-pulse { animation: none; } }
+
+        .chat-online-toggle {
+            background: var(--surface); border: 1px solid var(--border); color: var(--text2);
+            display: inline-flex; align-items: center; gap: .4rem;
+        }
+        .chat-online-toggle:hover { color: var(--text); border-color: var(--text3); }
+
+        /* Docked third column on wide screens, collapsible; a slide-over below that. */
+        .chat-wrap.online-collapsed .chat-online { display: none; }
+        @media (max-width: 1199.98px) {
+            .chat-online {
+                position: absolute; top: 0; right: 0; bottom: 0; z-index: 6;
+                width: min(280px, 100%); box-shadow: var(--shadow-lg); display: none;
+            }
+            .chat-wrap.online-open .chat-online { display: flex; }
+        }
     </style>
 @endpush
 
 @section('content')
     <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
         <h4 class="page-title mb-0"><i class="bi bi-chat-dots me-2"></i>Chat</h4>
-        @can('monitor chats')
-            <a href="{{ route('chat.monitor') }}" class="btn btn-sm btn-outline-secondary"><i
-                    class="bi bi-eye me-1"></i>Monitor</a>
-        @endcan
+        <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-sm chat-online-toggle" id="onlineToggle"
+                aria-controls="onlinePanel" aria-expanded="true" title="Show who's online">
+                <span class="chat-online-pulse"></span><span><span id="onlineToggleCount">0</span> online</span>
+            </button>
+            @can('monitor chats')
+                <a href="{{ route('chat.monitor') }}" class="btn btn-sm btn-outline-secondary"><i
+                        class="bi bi-eye me-1"></i>Monitor</a>
+            @endcan
+        </div>
     </div>
 
     <div class="chat-wrap" id="chatWrap">
@@ -924,6 +990,26 @@
                 </div>
             </div>
         </div>
+
+        {{-- Who is signed in right now, from the app-wide `online` presence channel. --}}
+        <aside class="chat-online" id="onlinePanel" aria-label="Online now">
+            <div class="chat-online-head">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="chat-online-pulse"></span>
+                    <span class="fw-bold" style="font-size:.84rem;color:var(--text)">Online now</span>
+                    <span class="chat-online-count" id="onlineCount">0</span>
+                    <button type="button" class="btn btn-sm p-0 ms-auto chat-online-close" id="onlineClose" title="Hide panel">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <input type="text" id="onlineFilter" class="form-control form-control-sm mt-2"
+                    placeholder="Filter by name…" autocomplete="off">
+            </div>
+            <div class="chat-online-notice" id="onlineNotice" hidden>
+                <i class="bi bi-arrow-repeat me-1"></i>Reconnecting — this list may be out of date.
+            </div>
+            <div class="chat-online-list" id="onlineList"></div>
+        </aside>
     </div>
 @endsection
 
@@ -1757,6 +1843,8 @@
                 const online = activeUserId && window.OnlineUsers.has(activeUserId);
                 $('#threadDot').toggleClass('online', !!online);
                 $('#threadStatus').text(online ? 'online' : 'offline');
+                // Keeps the "Online now" highlight on whoever the open thread is with.
+                renderOnlinePanel();
             }
             document.addEventListener('online-changed', function () {
                 $('.chat-dot[data-user-dot]').each(function () {
@@ -1764,6 +1852,94 @@
                 });
                 updateThreadPresence();
             });
+
+            // ── Online now panel ─────────────────────────────────────────────
+            // Docked as a third column on wide screens (hide/show remembered);
+            // a slide-over on narrower ones, opened from the header button.
+            const ONLINE_PREF = 'dfcp_chat_online_panel';
+            const wideScreen = () => window.matchMedia('(min-width: 1200px)').matches;
+
+            try { $('#chatWrap').toggleClass('online-collapsed', localStorage.getItem(ONLINE_PREF) === 'hidden'); } catch (e) {}
+
+            function onlinePanelShown() {
+                return wideScreen() ? !$('#chatWrap').hasClass('online-collapsed') : $('#chatWrap').hasClass('online-open');
+            }
+
+            function setOnlinePanel(show) {
+                if (wideScreen()) {
+                    $('#chatWrap').toggleClass('online-collapsed', !show);
+                    try { localStorage.setItem(ONLINE_PREF, show ? 'shown' : 'hidden'); } catch (e) {}
+                } else {
+                    $('#chatWrap').toggleClass('online-open', show);
+                    if (show) $('#onlineFilter').trigger('focus');
+                }
+                $('#onlineToggle').attr('aria-expanded', show ? 'true' : 'false');
+            }
+            $('#onlineToggle').attr('aria-expanded', onlinePanelShown() ? 'true' : 'false');
+
+            $('#onlineToggle').on('click', () => setOnlinePanel(!onlinePanelShown()));
+            $('#onlineClose').on('click', () => setOnlinePanel(false));
+            $('#onlineFilter').on('input', () => renderOnlinePanel());
+            $(document).on('keydown', function (e) {
+                if (e.key === 'Escape' && $('#chatWrap').hasClass('online-open')) setOnlinePanel(false);
+            });
+
+            $(document).on('click keydown', '.chat-online-item', function (e) {
+                if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                openChat($(this).data('online-user'), $(this).data('name'));
+                if (!wideScreen()) setOnlinePanel(false);
+            });
+
+            function onlineEmpty(icon, title, text) {
+                return '<div class="chat-online-empty"><i class="bi ' + icon + '"></i>'
+                    + '<div class="fw-semibold">' + title + '</div><div>' + text + '</div></div>';
+            }
+
+            function renderOnlinePanel() {
+                const people = Array.from((window.OnlineRoster || new Map()).values())
+                    .filter(u => u.id !== ME)
+                    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+                $('#onlineCount, #onlineToggleCount').text(people.length);
+
+                if (!window.RealtimeReady) {
+                    $('#onlineNotice').prop('hidden', true);
+                    $('#onlineList').html(onlineEmpty('bi-wifi-off', 'Live status is off',
+                        'Realtime isn\'t configured on this server, so nobody can be shown as online.'));
+                    return;
+                }
+                $('#onlineNotice').prop('hidden', window.RealtimeConnected !== false);
+
+                if (!people.length) {
+                    $('#onlineList').html(onlineEmpty('bi-moon-stars', 'Nobody else is online',
+                        'Colleagues appear here the moment they open the app.'));
+                    return;
+                }
+
+                const q = $.trim($('#onlineFilter').val() || '').toLowerCase();
+                const shown = q ? people.filter(u => String(u.name).toLowerCase().includes(q)) : people;
+                if (!shown.length) {
+                    $('#onlineList').html(onlineEmpty('bi-search', 'No match', 'No one online matches “' + esc(q) + '”.'));
+                    return;
+                }
+
+                $('#onlineList').html(shown.map(u =>
+                    '<div class="chat-online-item' + (u.id === activeUserId ? ' active' : '') + '" role="button" tabindex="0"'
+                    + ' data-online-user="' + u.id + '" data-name="' + esc(u.name) + '" title="Chat with ' + esc(u.name) + '">'
+                    +   '<div class="chat-avatar">' + esc(initials(u.name)) + '<span class="chat-dot online"></span></div>'
+                    +   '<div class="min-w-0 flex-grow-1">'
+                    +     '<div class="chat-online-name">' + esc(u.name) + '</div>'
+                    +     (u.role ? '<div class="chat-online-role">' + esc(u.role) + '</div>' : '')
+                    +   '</div>'
+                    +   '<i class="bi bi-chat-dots chat-online-go"></i>'
+                    + '</div>'
+                ).join(''));
+            }
+
+            document.addEventListener('online-changed', renderOnlinePanel);
+            document.addEventListener('realtime-state', renderOnlinePanel);
+            renderOnlinePanel();
 
             // A message arrived on my personal channel (from the layout listener) → refresh the list.
             document.addEventListener('chat-message', function () { loadConversations(); });

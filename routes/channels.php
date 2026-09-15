@@ -22,9 +22,14 @@ Broadcast::channel('conversation.{conversationId}', function (User $user, $conve
     return $conversation->hasParticipant($user->id) || $user->can('monitor chats');
 });
 
-// App-wide presence — drives online indicators.
+// App-wide presence — drives online indicators and the chat page's "Online now"
+// panel. Only what a colleague could already see in the staff directory.
 Broadcast::channel('online', function (User $user) {
-    return ['id' => $user->id, 'name' => $user->name];
+    return [
+        'id'   => $user->id,
+        'name' => $user->name,
+        'role' => $user->getRoleNames()->first(),
+    ];
 });
 
 /*
