@@ -44,6 +44,7 @@ class RouteAuthorizationMatrixTest extends TestCase
         'requests.index'            => 'Every employee files and sees their own requests',
         'reviews.index'             => 'Anyone may post a review; reading others is gated by "view reviews" in the controller and the page',
         'password.confirm'          => 'Part of the authentication flow',
+        'account.edit'              => 'Every staff member manages their own password; acts only on the signed-in user',
     ];
 
     /**

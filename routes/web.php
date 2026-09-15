@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AdCampaignController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
@@ -82,6 +83,14 @@ Route::prefix('whatsapp')->group(function () {
 Route::middleware(['auth'])->group(function () {
 
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+    // My Account — the signed-in user's own password. No user id in the URL:
+    // it can only ever act on the requester. Throttled because it checks the
+    // current password.
+    Route::get('account', [AccountController::class, 'edit'])->name('account.edit');
+    Route::put('account/password', [AccountController::class, 'updatePassword'])
+        ->middleware('throttle:6,1')
+        ->name('account.password');
 
     // Client resource
     Route::resource('clients', ClientController::class);

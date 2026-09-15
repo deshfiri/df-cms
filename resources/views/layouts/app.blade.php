@@ -573,6 +573,8 @@
                     <li>
                         <hr class="dropdown-divider my-1">
                     </li>
+                    <li><a class="dropdown-item" href="{{ route('account.edit') }}"><i
+                                class="bi bi-person-gear me-2"></i>My Account</a></li>
                     <li>
                         <label class="dropdown-item d-flex align-items-center justify-content-between mb-0" style="cursor:pointer" onclick="event.stopPropagation()">
                             <span><i class="bi bi-volume-up me-2"></i>Alert sounds</span>
