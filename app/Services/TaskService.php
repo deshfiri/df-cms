@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
 class TaskService
@@ -286,9 +287,19 @@ class TaskService
     public function uploadAttachment(Task $task, UploadedFile $file): TaskAttachment
     {
         return DB::transaction(function () use ($task, $file) {
-            $storedName = Str::uuid() . '.' . $file->getClientOriginalExtension();
+            $extension  = strtolower($file->getClientOriginalExtension());
+            $storedName = Str::uuid() . ($extension !== '' ? '.' . $extension : '');
             $disk       = $this->storage->activeDisk();
             $path       = $file->storeAs('task-attachments/' . $task->id, $storedName, $disk);
+
+            // storeAs() answers false rather than throwing when the provider
+            // refuses the write. Saving the record anyway left an attachment
+            // that listed fine and could never be downloaded.
+            if (!$path) {
+                throw ValidationException::withMessages([
+                    'file' => 'The file could not be stored. Please try again, or ask an admin to check Settings → Storage & CDN.',
+                ]);
+            }
 
             $attachment = TaskAttachment::create([
                 'task_id'       => $task->id,

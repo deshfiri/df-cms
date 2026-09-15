@@ -3,6 +3,7 @@
 namespace App\Services\Storage\Cloudinary;
 
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
@@ -85,7 +86,7 @@ class CloudinaryClient
     public function head(string $path): ?array
     {
         try {
-            $response = Http::timeout(20)->head($this->url($path));
+            $response = $this->identity(Http::timeout(20))->head($this->url($path));
         } catch (ConnectionException) {
             return null;
         }
@@ -94,8 +95,13 @@ class CloudinaryClient
             return null;
         }
 
+        // '' means "the edge didn't say", never 0. A missing length read as 0
+        // went out as "Content-Length: 0" and the browser saved an empty file.
+        // An encoded answer's length is the compressed size, so it's unusable too.
+        $length = $response->header('Content-Encoding') ? '' : (string) $response->header('Content-Length');
+
         return [
-            'size'          => (string) ($response->header('Content-Length') ?: '0'),
+            'size'          => ctype_digit($length) ? $length : '',
             'mime'          => (string) ($response->header('Content-Type') ?: 'application/octet-stream'),
             'last_modified' => (string) ($response->header('Last-Modified') ?: ''),
         ];
@@ -168,10 +174,25 @@ class CloudinaryClient
     private function fetch(string $url): ?Response
     {
         try {
-            return Http::timeout(120)->withOptions(['stream' => true])->get($url);
+            return $this->identity(Http::timeout(120)->withOptions(['stream' => true]))->get($url);
         } catch (ConnectionException) {
             return null;
         }
+    }
+
+    /**
+     * Ask the CDN for the file's own bytes, uncompressed.
+     *
+     * Downloads are proxied, so whatever arrives here is passed straight to the
+     * browser alongside a Content-Length. If the edge compressed it — or the
+     * HEAD before it measured a compressed copy — the length and the bytes
+     * disagree, and the browser ends up with a truncated or corrupt file.
+     */
+    private function identity(PendingRequest $request): PendingRequest
+    {
+        return $request
+            ->withHeaders(['Accept-Encoding' => 'identity'])
+            ->withOptions(['decode_content' => false]);
     }
 
     /** @throws CloudinaryException */

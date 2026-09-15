@@ -8,12 +8,14 @@ use App\Models\ClientMeeting;
 use App\Models\ClientOwnershipTransfer;
 use App\Models\ClientStageProgress;
 use App\Models\EmployeeRequest;
+use App\Models\FlowTransition;
 use App\Models\ImportLog;
 use App\Models\Payment;
 use App\Models\ProductUpdate;
 use App\Models\Task;
 use App\Models\User;
 use App\Models\WorkflowStage;
+use App\Services\FlowService;
 use App\Services\WorkflowService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -48,6 +50,7 @@ class DashboardController extends Controller
 
     public function __construct(
         private readonly WorkflowService $workflowService,
+        private readonly FlowService $flowService,
     ) {
     }
 
@@ -376,11 +379,14 @@ class DashboardController extends Controller
         ];
     }
 
-    // ── Department-scoped dashboard ─────────────────────────────────
+    // ── Department-scoped dashboard ("My Work" for stage users) ─────
     private function departmentDashboard(User $user)
     {
         $departments = $user->getRoleNames()->intersect(self::DEPARTMENT_ROLES)->values();
+        $weekStart   = now()->startOfWeek();
 
+        // Legacy departmental pipeline. Retired in favour of the flow engine
+        // below, but rows can still exist, so its panel shows only when it has any.
         $pending = ClientStageProgress::with(['client:id,client_name,brand_name,dfid_number,client_status,assigned_to', 'client.assignedUser:id,name', 'stage'])
             ->whereHas('stage', fn($q) => $q->whereIn('department', $departments)->where('status', true))
             ->whereIn('status', [
@@ -392,19 +398,76 @@ class DashboardController extends Controller
             ->filter(fn($progress) => !$this->workflowService->isLocked($progress->client_id, $progress->stage))
             ->values();
 
-        $completedThisWeek = ClientStageProgress::whereHas('stage', fn($q) => $q->whereIn('department', $departments)->where('status', true))
-            ->where('status', ClientStageProgress::STATUS_APPROVED)
-            ->where('completed_at', '>=', now()->startOfWeek())
+        // ── Workflow work (flow engine) ───────────────────────────────
+        // The same queue My Queue shows: open items at the user's stages that
+        // they have claimed, or that nobody has claimed yet.
+        $flowParticipant = $this->flowService->navSummary($user)['participant'];
+        $queue           = $this->flowService->myQueue($user);
+        $flowMine        = $queue->filter(fn($item) => (int) $item->assigned_to === (int) $user->id)->values();
+        $flowAvailable   = $queue->filter(fn($item) => $item->assigned_to === null)->values();
+
+        // Stages this user handed forward (or finished) this week. A send-back
+        // moves work backwards and a cancellation withdraws it — neither is done.
+        $flowDoneThisWeek = FlowTransition::query()
+            ->from('flow_transitions as t')
+            ->leftJoin('flow_stages as fs', 'fs.id', '=', 't.from_stage_id')
+            ->leftJoin('flow_stages as ts', 'ts.id', '=', 't.to_stage_id')
+            ->where('t.moved_by', $user->id)
+            ->whereNotNull('t.from_stage_id')
+            ->where('t.created_at', '>=', $weekStart)
+            ->where(fn($q) => $q->whereNull('t.note')->orWhere('t.note', 'not like', 'Cancelled%'))
+            ->where(fn($q) => $q->whereNull('t.to_stage_id')->orWhereColumn('ts.position', '>', 'fs.position'))
             ->count();
 
-        $myTasks = Task::with('client:id,client_name,dfid_number')
-            ->where('assigned_to', $user->id)
-            ->whereNotIn('status', ['Completed', 'Cancelled'])
+        // ── Tasks ─────────────────────────────────────────────────────
+        // Counts are real counts: the list below is capped, the tile is not.
+        $taskColumns = ['id', 'title', 'client_id', 'assigned_to', 'created_by', 'status', 'priority', 'due_date', 'completion_date', 'submitted_at', 'updated_at'];
+        $mine        = fn() => Task::where('assigned_to', $user->id);
+
+        $openTaskCount = $mine()->whereNotIn('status', Task::$settledStatuses)->count();
+        $myTasks = $mine()->with('client:id,client_name,dfid_number')
+            ->whereNotIn('status', Task::$settledStatuses)
+            ->orderByRaw('due_date IS NULL')
             ->orderBy('due_date')
             ->limit(10)
-            ->get();
+            ->get($taskColumns);
 
-        $overdueTaskCount = Task::where('assigned_to', $user->id)->overdue()->count();
+        $submittedTaskCount = $mine()->where('status', Task::STATUS_SUBMITTED)->count();
+        $submittedTasks = $mine()->with('client:id,client_name,dfid_number')
+            ->where('status', Task::STATUS_SUBMITTED)
+            ->latest('submitted_at')
+            ->limit(10)
+            ->get($taskColumns);
+
+        $completedTaskCount = $mine()->where('status', 'Completed')->count();
+        $completedTasks = $mine()->with('client:id,client_name,dfid_number')
+            ->where('status', 'Completed')
+            ->orderByDesc(DB::raw('COALESCE(completion_date, updated_at)'))
+            ->limit(10)
+            ->get($taskColumns);
+
+        // Handed in to this user by the people they assigned work to.
+        $toReviewCount = Task::where('created_by', $user->id)
+            ->where('assigned_to', '!=', $user->id)
+            ->where('status', Task::STATUS_SUBMITTED)
+            ->count();
+        $toReviewTasks = Task::with(['client:id,client_name,dfid_number', 'assignedUser:id,name'])
+            ->where('created_by', $user->id)
+            ->where('assigned_to', '!=', $user->id)
+            ->where('status', Task::STATUS_SUBMITTED)
+            ->latest('submitted_at')
+            ->limit(10)
+            ->get($taskColumns);
+
+        $tasksDoneThisWeek = $mine()->where('status', 'Completed')
+            ->where(fn($q) => $q->whereDate('completion_date', '>=', $weekStart->toDateString())
+                ->orWhere(fn($q) => $q->whereNull('completion_date')->where('updated_at', '>=', $weekStart)))
+            ->count();
+
+        $overdueTaskCount = $mine()->overdue()->count();
+        $overdueFlowCount = $flowMine->filter(fn($item) => $item->isOverdue())->count();
+
+        $completedThisWeek = $tasksDoneThisWeek + $flowDoneThisWeek;
 
         // ── My assigned clients (client-ownership feature) ────────────
         $myClientIds = Client::where('assigned_to', $user->id)->pluck('id');
@@ -465,8 +528,21 @@ class DashboardController extends Controller
         return view('dashboard-department', [
             'departments' => $departments,
             'pending' => $pending,
+            'flowParticipant' => $flowParticipant,
+            'flowMine' => $flowMine,
+            'flowAvailable' => $flowAvailable,
+            'flowDoneThisWeek' => $flowDoneThisWeek,
+            'overdueFlowCount' => $overdueFlowCount,
             'completedThisWeek' => $completedThisWeek,
+            'tasksDoneThisWeek' => $tasksDoneThisWeek,
             'myTasks' => $myTasks,
+            'openTaskCount' => $openTaskCount,
+            'submittedTasks' => $submittedTasks,
+            'submittedTaskCount' => $submittedTaskCount,
+            'completedTasks' => $completedTasks,
+            'completedTaskCount' => $completedTaskCount,
+            'toReviewTasks' => $toReviewTasks,
+            'toReviewCount' => $toReviewCount,
             'overdueTaskCount' => $overdueTaskCount,
             'myAssignedClientCount' => $myAssignedClientCount,
             'myActiveClientCount' => $myActiveClientCount,

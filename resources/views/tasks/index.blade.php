@@ -220,6 +220,11 @@ var activeStatus = '';
 var overdueOnly  = false;
 var reviewOnly   = false;
 var currentUserId  = {{ auth()->id() }};
+
+/** Anything a user typed — a filename, a comment — goes into the page as text, never markup. */
+function escHtml(s) {
+    return $('<div>').text(s == null ? '' : String(s)).html().replace(/"/g, '&quot;');
+}
 var canManageTasks = @json(auth()->user()->can('manage tasks'));
 var revisionReasons = @json($reasonCategories);
 
@@ -492,10 +497,14 @@ function loadTaskDetail(id) {
 
         let attHtml = t.attachments.length ? '' : '<div class="text-muted small">No attachments.</div>';
         t.attachments.forEach(a => {
+            const size = a.file_size >= 1048576 ? (a.file_size / 1048576).toFixed(1) + ' MB'
+                       : a.file_size >= 1024 ? Math.round(a.file_size / 1024) + ' KB'
+                       : (a.file_size || 0) + ' B';
             attHtml += `<div class="d-flex align-items-center gap-2 p-2 rounded mb-1" style="background:var(--surface2);border:1px solid var(--border)">
                 <i class="bi bi-paperclip"></i>
-                <a href="/tasks/${t.id}/attachments/${a.id}/download" class="flex-fill text-truncate" style="font-size:.78rem">${a.original_name}</a>
-                ${(a.user_id === currentUserId || canManageTasks) ? `<button class="btn btn-sm p-0 task-att-delete" data-task="${t.id}" data-id="${a.id}" style="color:var(--text3)"><i class="bi bi-x-circle"></i></button>` : ''}
+                <a href="/tasks/${t.id}/attachments/${a.id}/download" class="flex-fill text-truncate" style="font-size:.78rem" title="Download ${escHtml(a.original_name)}">${escHtml(a.original_name)}</a>
+                <span style="font-size:.68rem;color:var(--text3);white-space:nowrap">${size}</span>
+                ${(Number(a.user_id) === Number(currentUserId) || canManageTasks) ? `<button class="btn btn-sm p-0 task-att-delete" data-task="${t.id}" data-id="${a.id}" style="color:var(--text3)" title="Remove"><i class="bi bi-x-circle"></i></button>` : ''}
             </div>`;
         });
         $('#taskAttachList').html(attHtml);
@@ -503,8 +512,8 @@ function loadTaskDetail(id) {
         let cmtHtml = t.comments.length ? '' : '<div class="text-muted small">No comments yet.</div>';
         t.comments.forEach(c => {
             cmtHtml += `<div class="task-comment">
-                <div style="font-size:.78rem"><strong>${c.user?.name || 'User'}</strong> <span class="text-muted" style="font-size:.68rem">${c.created_at}</span></div>
-                <div style="font-size:.79rem">${c.comment}</div>
+                <div style="font-size:.78rem"><strong>${escHtml(c.user?.name || 'User')}</strong> <span class="text-muted" style="font-size:.68rem">${escHtml(c.created_at)}</span></div>
+                <div style="font-size:.79rem;white-space:pre-wrap">${escHtml(c.comment)}</div>
             </div>`;
         });
         $('#taskCommentList').html(cmtHtml);
@@ -513,21 +522,43 @@ function loadTaskDetail(id) {
         (t.revisions || []).forEach(rv => {
             revHtml += `<div class="p-2 rounded mb-1" style="background:var(--surface2);border:1px solid var(--border)">
                 <div style="font-size:.76rem">
-                    <span class="spill ${rv.reason_category === 'Employee Mistake' ? 'spill-cancelled' : 'spill-hold'}">${rv.reason_category}</span>
-                    <span class="text-muted" style="font-size:.68rem"> by ${rv.requested_by?.name || 'User'} · ${(rv.created_at || '').substring(0, 10)}</span>
+                    <span class="spill ${rv.reason_category === 'Employee Mistake' ? 'spill-cancelled' : 'spill-hold'}">${escHtml(rv.reason_category)}</span>
+                    <span class="text-muted" style="font-size:.68rem"> by ${escHtml(rv.requested_by?.name || 'User')} · ${escHtml((rv.created_at || '').substring(0, 10))}</span>
                 </div>
-                ${rv.note ? `<div style="font-size:.78rem;margin-top:2px">${rv.note}</div>` : ''}
+                ${rv.note ? `<div style="font-size:.78rem;margin-top:2px">${escHtml(rv.note)}</div>` : ''}
             </div>`;
         });
         $('#taskRevisionList').html(revHtml);
 
+        // Upload: say it's happening, and say so when it fails. Previously a
+        // refused upload vanished silently and looked like it had worked.
         $('#taskFileInput').off('change').on('change', function () {
-            const file = this.files[0];
+            const input = this, file = input.files[0];
             if (!file) return;
+
+            if (file.size > 20 * 1024 * 1024) {
+                Swal.fire('File too large', 'Attachments can be up to 20 MB.', 'warning');
+                input.value = '';
+                return;
+            }
+
             const fd = new FormData();
             fd.append('file', file);
+
+            $(input).prop('disabled', true);
+            $('#taskAttachList').append(`<div id="taskAttachUploading" class="small p-2" style="color:var(--text3)">
+                <span class="spinner-border spinner-border-sm me-1"></span>Uploading ${escHtml(file.name)}…</div>`);
+
             $.ajax({ url: '/tasks/' + t.id + '/attachments', type: 'POST', data: fd, processData: false, contentType: false })
-             .done(() => loadTaskDetail(t.id));
+             .done(() => loadTaskDetail(t.id))
+             .fail(function (x) {
+                 $('#taskAttachUploading').remove();
+                 const errors = x.responseJSON?.errors;
+                 Swal.fire('Upload failed',
+                     errors ? Object.values(errors).flat().join(' ') : (x.responseJSON?.message || 'The file could not be uploaded.'),
+                     'error');
+             })
+             .always(() => $(input).prop('disabled', false).val(''));
         });
     });
 }

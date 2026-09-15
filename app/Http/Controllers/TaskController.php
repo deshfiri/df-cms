@@ -11,6 +11,7 @@ use App\Models\TaskAttachment;
 use App\Models\TaskComment;
 use App\Models\TaskRevision;
 use App\Models\User;
+use App\Services\Storage\StoredFileResponse;
 use App\Services\TaskService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -210,17 +211,23 @@ class TaskController extends Controller
     public function downloadAttachment(Task $task, TaskAttachment $attachment): StreamedResponse
     {
         $this->authorize('view', $task);
-        abort_if($attachment->task_id !== $task->id, 404);
-        $disk = Storage::disk($attachment->disk ?: 'local');
-        abort_unless($disk->exists($attachment->file_path), 404);
+        abort_if((int) $attachment->task_id !== (int) $task->id, 404);
 
-        return $disk->download($attachment->file_path, $attachment->original_name);
+        // Type and size come from the upload record, not a round trip to the
+        // disk — see StoredFileResponse for why that broke CDN downloads.
+        return StoredFileResponse::download(
+            $attachment->disk,
+            (string) $attachment->file_path,
+            (string) $attachment->original_name,
+            $attachment->mime_type,
+            $attachment->file_size,
+        );
     }
 
     public function destroyAttachment(Task $task, TaskAttachment $attachment): JsonResponse
     {
-        abort_if($attachment->task_id !== $task->id, 404);
-        abort_unless($attachment->user_id === auth()->id() || auth()->user()->can('manage tasks'), 403, "Cannot delete another user's attachment.");
+        abort_if((int) $attachment->task_id !== (int) $task->id, 404);
+        abort_unless((int) $attachment->user_id === (int) auth()->id() || auth()->user()->can('manage tasks'), 403, "Cannot delete another user's attachment.");
 
         $this->service->deleteAttachment($attachment);
 

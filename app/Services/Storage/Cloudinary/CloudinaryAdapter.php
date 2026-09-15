@@ -167,6 +167,18 @@ class CloudinaryAdapter implements FilesystemAdapter
     {
         $headers = $this->headOrFail($path, 'fileSize');
 
+        // The edge answered without a usable length. Reporting 0 would make a
+        // real file look empty, so ask the Admin API for the stored byte count.
+        if ($headers['size'] === '') {
+            $bytes = $this->client->resource($path)['bytes'] ?? null;
+
+            if ($bytes === null) {
+                throw UnableToRetrieveMetadata::fileSize($path, 'Cloudinary did not report a size for this asset.');
+            }
+
+            return new FileAttributes($path, fileSize: (int) $bytes);
+        }
+
         return new FileAttributes($path, fileSize: (int) $headers['size']);
     }
 
