@@ -25,8 +25,11 @@
     </div>
     <div class="card-body p-0">
         @forelse($items as $item)
-            <a href="{{ route('flow-items.show', $item) }}" class="h-row d-flex align-items-center gap-3 p-3 text-decoration-none" style="border-bottom:1px solid var(--border)" data-title="{{ Str::lower($item->title) }}">
+            <a href="{{ route('flow-items.show', $item) }}" class="h-row d-flex align-items-center gap-3 p-3 text-decoration-none" style="border-bottom:1px solid var(--border)" data-title="{{ Str::lower($item->title . ' ' . ($item->client->client_name ?? '')) }}">
                 <div class="flex-grow-1 min-w-0">
+                    @if($item->client)
+                        <div style="font-size:.68rem;color:var(--primary);font-weight:600"><i class="bi bi-person-badge me-1"></i>{{ $item->client->client_name }}</div>
+                    @endif
                     <div class="fw-semibold small" style="color:var(--text)">{{ $item->title }}</div>
                     <div style="font-size:.72rem;color:var(--text3)">
                         {{ $item->flow->name ?? '—' }}

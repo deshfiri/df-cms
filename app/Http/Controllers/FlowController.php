@@ -48,8 +48,10 @@ class FlowController extends Controller
     {
         $flow->load(['stages.users:id,name']);
         $users = User::where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        // Same rule as the queue's start form, so both offer the same clients.
+        $clients = FlowItemController::clientOptions(request()->user());
 
-        return view('flows.show', compact('flow', 'users'));
+        return view('flows.show', compact('flow', 'users', 'clients'));
     }
 
     public function update(Request $request, Flow $flow): JsonResponse
@@ -155,7 +157,7 @@ class FlowController extends Controller
         $flows = Flow::orderBy('name')->get(['id', 'name']);
         $flowId = $request->input('flow');
 
-        $items = FlowItem::with(['flow:id,name', 'currentStage:id,name,position', 'creator:id,name', 'assignee:id,name'])
+        $items = FlowItem::with(['client:id,client_name', 'flow:id,name', 'currentStage:id,name,position', 'creator:id,name', 'assignee:id,name'])
             ->withCount('transitions')
             ->when($flowId, fn ($q) => $q->where('flow_id', $flowId))
             ->latest()

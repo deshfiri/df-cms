@@ -129,11 +129,18 @@ class FlowService
     }
 
     /**
-     * Send an item back to the previous stage with a required reason. Only the
-     * current-stage assignee (or an admin) may do it; the previous stage's users
+     * Send an item back to an earlier stage with a required reason. Only the
+     * current-stage assignee (or an admin) may do it; the receiving stage's users
      * are notified they have rework.
+     *
+     * By default it goes back one stage. $toStageId lets it skip further back —
+     * a problem found at Review is often a Brief problem, and bouncing it one
+     * stage at a time makes every stage in between pass it along untouched.
+     *
+     * Deliberately backwards only. Forward still moves one stage at a time, so no
+     * stage's approval can be skipped by jumping ahead.
      */
-    public function sendBack(FlowItem $item, User $user, string $reason, mixed $assignTo = null): FlowItem
+    public function sendBack(FlowItem $item, User $user, string $reason, mixed $assignTo = null, mixed $toStageId = null): FlowItem
     {
         if ($item->status !== FlowItem::STATUS_OPEN) {
             throw new FlowException('This item is not open.');
@@ -150,7 +157,10 @@ class FlowService
                 : 'This item is being handled by someone else.');
         }
 
-        $previous = $this->previousStage($current);
+        $previous = ($toStageId === null || $toStageId === '')
+            ? $this->previousStage($current)
+            : $this->earlierStage($current, (int) $toStageId);
+
         if (!$previous) {
             throw new FlowException('This is the first stage — there is nowhere to send it back to.');
         }
@@ -184,7 +194,7 @@ class FlowService
 
         $weight = ['Urgent' => 0, 'High' => 1, 'Normal' => 2, 'Low' => 3];
 
-        return FlowItem::with(['flow:id,name', 'currentStage:id,name,position', 'assignee:id,name'])
+        return FlowItem::with(['client:id,client_name', 'flow:id,name', 'currentStage:id,name,position', 'assignee:id,name'])
             ->where('status', FlowItem::STATUS_OPEN)
             ->whereIn('current_stage_id', $stageIds)
             // Unclaimed (available to me) or already claimed by me — never items
@@ -387,17 +397,53 @@ class FlowService
     }
 
     /**
-     * What the hand-off dialog needs: the destination stages either side of the
-     * item's current one, and who can receive it there. Consumed as JSON.
+     * A requested send-back destination, checked rather than trusted.
+     *
+     * The id arrives from the browser, so it must belong to this item's own
+     * workflow and sit strictly before the current stage. Anything else — a
+     * stage from another workflow, the current stage, a later one — is refused
+     * outright: accepting a later stage here would turn "send back" into a way
+     * to skip forward past stages that never saw the work.
+     */
+    private function earlierStage(FlowStage $current, int $stageId): FlowStage
+    {
+        $stage = FlowStage::where('flow_id', $current->flow_id)
+            ->where('position', '<', $current->position)
+            ->whereKey($stageId)
+            ->first();
+
+        if (!$stage) {
+            throw new FlowException('Work can only be sent back to an earlier stage of this workflow.');
+        }
+
+        return $stage;
+    }
+
+    /**
+     * What the hand-off dialog needs: the next stage, every earlier stage the
+     * item may be sent back to, and who can receive it at each. Consumed as JSON.
      */
     public function handoffOptions(FlowItem $item): array
     {
         $current = $item->currentStage;
 
+        $earlier = $current
+            ? FlowStage::where('flow_id', $current->flow_id)
+                ->where('position', '<', $current->position)
+                // Nearest first, so the one-step-back default is the first option.
+                ->orderByDesc('position')
+                ->get()
+                ->map(fn (FlowStage $s) => $this->stagePayload($s) + ['position' => $s->position])
+                ->values()
+                ->all()
+            : [];
+
         return [
             'is_final' => $current !== null && $current->nextStage() === null,
             'next'     => $this->stagePayload($current?->nextStage()),
-            'previous' => $current ? $this->stagePayload($this->previousStage($current)) : null,
+            // Kept for anything still reading the single-step shape.
+            'previous' => $earlier[0] ?? null,
+            'earlier'  => $earlier,
         ];
     }
 

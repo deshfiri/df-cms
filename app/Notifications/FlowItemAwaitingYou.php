@@ -28,7 +28,7 @@ class FlowItemAwaitingYou extends Notification
     {
         return [
             'title'   => 'Work awaiting you',
-            'message' => "\"{$this->item->title}\" is at {$this->stage->name}" . ($this->reason ? " — {$this->reason}" : '') . '.',
+            'message' => "{$this->item->titleWithClient()} is at {$this->stage->name}" . ($this->reason ? " — {$this->reason}" : '') . '.',
             'url'     => route('flow-items.show', $this->item),
         ];
     }

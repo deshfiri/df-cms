@@ -32,7 +32,9 @@ class TaskAssigned extends Notification
             'title'     => 'Task assigned to you',
             'message'   => "\"{$this->task->title}\" ({$this->task->priority}){$due}",
             'client_id' => $this->task->client_id,
-            'url'       => route('tasks.show', $this->task),
+            // The list with this task opened — tasks.show is the modal's JSON
+            // endpoint, not a page, and following it showed the raw payload.
+            'url'       => route('tasks.index', ['task' => $this->task->id]),
         ];
     }
 }

@@ -21,7 +21,7 @@ class FlowItemOverdue extends Notification
 
         return [
             'title'   => 'Overdue item',
-            'message' => "\"{$this->item->title}\" at {$this->item->currentStage?->name} is {$days} day(s) overdue.",
+            'message' => "{$this->item->titleWithClient()} at {$this->item->currentStage?->name} is {$days} day(s) overdue.",
             'url'     => route('flow-items.show', $this->item),
         ];
     }

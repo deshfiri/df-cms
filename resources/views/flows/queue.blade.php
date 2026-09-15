@@ -65,10 +65,14 @@
     <div class="card-body p-0" id="qList">
         @forelse($items as $item)
             <div class="q-row d-flex align-items-center gap-3 p-3" style="border-bottom:1px solid var(--border)"
-                data-title="{{ Str::lower($item->title) }}" data-flow="{{ $item->flow_id }}"
+                {{-- Client name folded into the searchable text, so typing a client finds their work. --}}
+                data-title="{{ Str::lower($item->title . ' ' . ($item->client->client_name ?? '')) }}" data-flow="{{ $item->flow_id }}"
                 data-mine="{{ $item->assigned_to === auth()->id() ? 1 : 0 }}" data-overdue="{{ $item->isOverdue() ? 1 : 0 }}">
                 <span class="spill {{ $prioSpill($item->priority) }}" style="font-size:.6rem">{{ $item->priority }}</span>
                 <div class="flex-grow-1 min-w-0">
+                    @if($item->client)
+                        <div style="font-size:.68rem;color:var(--primary);font-weight:600"><i class="bi bi-person-badge me-1"></i>{{ $item->client->client_name }}</div>
+                    @endif
                     <a href="{{ route('flow-items.show', $item) }}" class="fw-semibold small text-decoration-none" style="color:var(--text)">{{ $item->title }}</a>
                     <div style="font-size:.72rem;color:var(--text3)">
                         {{ $item->flow->name ?? '—' }} · {{ $item->currentStage->name ?? '—' }}
@@ -115,6 +119,20 @@
                             @foreach($startable as $f)<option value="{{ $f['id'] }}">{{ $f['name'] }}</option>@endforeach
                         </select>
                     </div>
+                    @if($clients->isNotEmpty())
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold small">Client</label>
+                            <select id="niClient" class="form-select form-select-sm">
+                                <option value="">Internal — no client</option>
+                                @foreach($clients as $c)
+                                    <option value="{{ $c->id }}">{{ $c->client_name }}@if($c->dfid_number) — {{ $c->dfid_number }}@endif</option>
+                                @endforeach
+                            </select>
+                            <div style="font-size:.66rem;color:var(--text3);margin-top:3px">
+                                Linking a client puts this on their profile and counts it toward their progress.
+                            </div>
+                        </div>
+                    @endif
                     <div class="mb-3"><label class="form-label fw-semibold small">Title</label><input type="text" id="niTitle" class="form-control form-control-sm" maxlength="200"></div>
                     <div class="mb-3">
                         <label class="form-label fw-semibold small">Send to <span class="fw-normal" style="color:var(--text3)" id="niStageName"></span></label>
@@ -210,8 +228,14 @@
 
     $('#niFlow').on('change', niRefreshAssignees);
 
+    // Searchable, since the client list can run long.
+    if ($('#niClient').length) {
+        $('#niClient').select2({ theme: 'bootstrap-5', width: '100%', dropdownParent: $('#newItemModal') });
+    }
+
     $('#newItemBtn').on('click', function () {
         $('#niTitle').val(''); $('#niDesc').val(''); $('#niPriority').val('Normal'); $('#niDue').val('');
+        $('#niClient').val('').trigger('change');
         niRefreshAssignees();
         new bootstrap.Modal('#newItemModal').show();
     });
@@ -225,6 +249,7 @@
             due_date: $('#niDue').val() || null,
             description: $('#niDesc').val(),
             assign_to: $('#niAssign').val() || '',
+            client_id: $('#niClient').val() || '',
         })
             .done(() => { bootstrap.Modal.getInstance('#newItemModal').hide(); Swal.fire({ icon: 'success', title: 'Item created', timer: 1000, showConfirmButton: false }).then(() => location.reload()); })
             .fail(fail);

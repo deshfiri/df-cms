@@ -32,10 +32,41 @@
     function body(stage, arrow, verb, noteLabel, notePlaceholder) {
         return '<div style="font-size:.78rem;color:var(--text3);margin-bottom:.7rem;text-align:left">'
              +   arrow + ' <strong style="color:var(--text2)">' + esc(stage.name) + '</strong></div>'
-             + personPicker(stage, verb)
-             + '<label class="form-label fw-semibold small d-block text-start mb-1">' + noteLabel + '</label>'
+             + '<div id="fhPeople">' + personPicker(stage, verb) + '</div>'
+             + noteField(noteLabel, notePlaceholder);
+    }
+
+    function noteField(noteLabel, notePlaceholder) {
+        return '<label class="form-label fw-semibold small d-block text-start mb-1">' + noteLabel + '</label>'
              + '<textarea id="fhNote" class="form-control form-control-sm" rows="3" maxlength="2000" placeholder="'
              +   notePlaceholder + '"></textarea>';
+    }
+
+    /**
+     * Send-back body: a choice of every earlier stage, nearest first.
+     *
+     * With only one earlier stage there is nothing to choose, so it reads exactly
+     * as it always did. The person picker below re-renders when the stage
+     * changes — the people who can fix a Brief are not the people on Design.
+     */
+    function backBody(earlier) {
+        if (earlier.length === 1) {
+            return body(earlier[0], '<i class="bi bi-arrow-left"></i> Back to', 'Who should fix it?',
+                'Reason <span style="color:#dc3545">*</span>', 'Why is it going back? (required)');
+        }
+
+        let html = '<label class="form-label fw-semibold small d-block text-start mb-1">Send back to</label>'
+                 + '<select id="fhStage" class="form-select form-select-sm mb-3">';
+
+        earlier.forEach(function (s, i) {
+            html += '<option value="' + s.id + '">' + esc(s.name)
+                 +  (i === 0 ? ' — previous stage' : ' — ' + (i + 1) + ' stages back')
+                 +  '</option>';
+        });
+
+        return html + '</select>'
+             + '<div id="fhPeople">' + personPicker(earlier[0], 'Who should fix it?') + '</div>'
+             + noteField('Reason <span style="color:#dc3545">*</span>', 'Why is it going back? (required)');
     }
 
     function post(url, payload) {
@@ -54,7 +85,8 @@
      */
     window.flowHandoff = function (itemId, mode) {
         return $.get('/flow-items/' + itemId + '/handoff').then(function (data) {
-            const stage = mode === 'advance' ? data.next : data.previous;
+            const earlier = data.earlier || (data.previous ? [data.previous] : []);
+            const stage = mode === 'advance' ? data.next : earlier[0];
 
             // Last stage: forwarding finishes the item, so there is nobody to pick.
             if (mode === 'advance' && !stage) {
@@ -79,27 +111,39 @@
             const back = mode === 'back';
 
             return Swal.fire({
-                title: back ? 'Send back a stage?' : 'Send to next stage',
+                title: back ? 'Send back?' : 'Send to next stage',
                 html: back
-                    ? body(stage, '<i class="bi bi-arrow-left"></i> Back to', 'Who should fix it?', 'Reason <span style="color:#dc3545">*</span>', 'Why is it going back? (required)')
+                    ? backBody(earlier)
                     : body(stage, '<i class="bi bi-arrow-right"></i> Next stage:', 'Send to', 'Note <span style="color:var(--text3)">(optional)</span>', 'Anything the next person should know…'),
                 showCancelButton: true,
                 focusConfirm: false,
                 confirmButtonText: back ? 'Send back' : 'Send forward',
                 confirmButtonColor: back ? '#dc3545' : undefined,
+                didOpen: function () {
+                    // Swap the people list to match the chosen stage.
+                    $('#fhStage').on('change', function () {
+                        const chosen = earlier.find(s => String(s.id) === String($(this).val()));
+                        if (chosen) $('#fhPeople').html(personPicker(chosen, 'Who should fix it?'));
+                    });
+                },
                 preConfirm: function () {
                     const note = ($('#fhNote').val() || '').trim();
                     if (back && !note) {
                         Swal.showValidationMessage('A reason is required when sending work back.');
                         return false;
                     }
-                    return { assign_to: $('#fhUser').val() || '', note: note };
+                    return {
+                        assign_to: $('#fhUser').val() || '',
+                        note: note,
+                        // Absent when there was only one earlier stage to go to.
+                        to_stage_id: $('#fhStage').val() || '',
+                    };
                 },
             }).then(function (res) {
                 if (!res.isConfirmed) return false;
 
                 return back
-                    ? post('/flow-items/' + itemId + '/send-back', { reason: res.value.note, assign_to: res.value.assign_to })
+                    ? post('/flow-items/' + itemId + '/send-back', { reason: res.value.note, assign_to: res.value.assign_to, to_stage_id: res.value.to_stage_id })
                     : post('/flow-items/' + itemId + '/advance', { note: res.value.note, assign_to: res.value.assign_to });
             });
         }).catch(function () {

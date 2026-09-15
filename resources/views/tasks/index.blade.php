@@ -225,6 +225,9 @@ var revisionReasons = @json($reasonCategories);
 
 function syncPills() {
     $('.fpill').removeClass('active');
+    // Checked first: the review pill used to lose its highlight here, because
+    // this cleared every pill and then lit "All" instead.
+    if (reviewOnly) { $('#pillReview').addClass('active'); return; }
     if (overdueOnly) { $('#pillOverdue').addClass('active'); return; }
     if (!activeStatus) { $('#pillAll').addClass('active'); return; }
     $('.fpill[data-status="' + activeStatus + '"]').addClass('active');
@@ -234,6 +237,7 @@ syncPills();
 $('.fpill[data-status]').on('click', function () {
     activeStatus = $(this).data('status');
     overdueOnly = false;
+    reviewOnly = false;
     syncPills();
     window.tTable.ajax.reload();
 });
@@ -251,10 +255,35 @@ $('#pillReview').on('click', function () {
     reviewOnly = !reviewOnly;
     overdueOnly = false;
     activeStatus = '';
-    $(this).toggleClass('active', reviewOnly);
     syncPills();
     window.tTable.ajax.reload();
 });
+
+// ── Arriving from a link ─────────────────────────────────────────────────
+// Notifications link here as /tasks?task=12 (open that task) or
+// /tasks?review=1 (show my review queue). Read once, before the table's first
+// load, so the list starts in the right state rather than flashing and reloading.
+(function applyQueryString() {
+    var params = new URLSearchParams(window.location.search);
+
+    if (params.get('review') === '1') {
+        reviewOnly = true;
+        syncPills();
+    }
+
+    var taskId = parseInt(params.get('task'), 10);
+    if (taskId) {
+        $(function () {
+            new bootstrap.Modal('#taskDetailModal').show();
+            loadTaskDetail(taskId);
+        });
+    }
+
+    // Tidy the address bar, so a refresh does not reopen the modal.
+    if (params.has('task') || params.has('review')) {
+        history.replaceState(null, '', window.location.pathname);
+    }
+})();
 $('#filterClient, #filterAssigned').on('change', function () { window.tTable.ajax.reload(); });
 
 $(function () {
@@ -541,7 +570,7 @@ $(document).on('click', '.task-progress', function () {
 
     $.post('/tasks/' + $btn.data('id') + '/progress', { status: $btn.data('status') })
         .done(function () {
-            table.ajax.reload(null, false);
+            window.tTable.ajax.reload(null, false);
             Swal.fire({
                 toast: true, position: 'bottom-end', icon: 'success',
                 title: $btn.data('status') === 'In Progress' ? 'Marked in progress' : 'Put on hold',

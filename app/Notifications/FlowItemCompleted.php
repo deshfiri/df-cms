@@ -19,7 +19,7 @@ class FlowItemCompleted extends Notification
     {
         return [
             'title'   => 'Item completed',
-            'message' => "\"{$this->item->title}\" finished the {$this->item->flow?->name} workflow.",
+            'message' => "{$this->item->titleWithClient()} finished the {$this->item->flow?->name} workflow.",
             'url'     => route('flow-items.show', $this->item),
         ];
     }

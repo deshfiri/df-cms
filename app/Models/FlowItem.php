@@ -28,6 +28,18 @@ class FlowItem extends Model
         return $this->belongsTo(Flow::class);
     }
 
+    /**
+     * The quoted title with the client it is for, as notifications phrase it.
+     *
+     * A bell entry reading "Logo design is at Review" does not say whose logo;
+     * with several clients in flight at once, that is the first thing anyone
+     * needs to know before they open it.
+     */
+    public function titleWithClient(): string
+    {
+        return '"' . $this->title . '"' . ($this->client ? ' for ' . $this->client->client_name : '');
+    }
+
     /** The client this workflow is running for, if any. */
     public function client(): BelongsTo
     {

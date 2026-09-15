@@ -43,7 +43,16 @@
                     @forelse($items as $item)
                         @php $total = $stageTotals[$item->flow_id] ?? 0; @endphp
                         <tr>
-                            <td class="ps-3"><a href="{{ route('flow-items.show', $item) }}" class="fw-semibold text-decoration-none" style="color:var(--text)">{{ $item->title }}</a></td>
+                            <td class="ps-3">
+                                <a href="{{ route('flow-items.show', $item) }}" class="fw-semibold text-decoration-none" style="color:var(--text)">{{ $item->title }}</a>
+                                <div style="font-size:.68rem;color:{{ $item->client ? 'var(--primary)' : 'var(--text3)' }}">
+                                    @if($item->client)
+                                        <i class="bi bi-person-badge me-1"></i>{{ $item->client->client_name }}
+                                    @else
+                                        Internal
+                                    @endif
+                                </div>
+                            </td>
                             <td><span class="spill {{ $prioSpill($item->priority) }}" style="font-size:.58rem">{{ $item->priority }}</span></td>
                             <td><span style="color:var(--text2)">{{ $item->flow->name ?? '—' }}</span></td>
                             <td>

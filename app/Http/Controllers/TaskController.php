@@ -13,6 +13,7 @@ use App\Models\TaskRevision;
 use App\Models\User;
 use App\Services\TaskService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Storage;
@@ -63,9 +64,26 @@ class TaskController extends Controller
         return response()->json(['success' => true, 'task' => $task]);
     }
 
-    public function show(Task $task): JsonResponse
+    /**
+     * One task — as JSON for the page's detail modal, or as a redirect for a
+     * browser.
+     *
+     * There is no standalone task page: the list opens tasks in a modal. So a
+     * person arriving here by following a link (a notification, a bookmark) was
+     * handed the raw JSON payload. They are now sent to the list with the task
+     * opened. Handled here rather than only in the notification classes because
+     * notifications already sent have this URL stored in the database.
+     *
+     * Authorized first either way, so a redirect never confirms that a task you
+     * may not see exists.
+     */
+    public function show(Request $request, Task $task): JsonResponse|RedirectResponse
     {
         $this->authorize('view', $task);
+
+        if (!$request->ajax() && !$request->expectsJson()) {
+            return redirect()->route('tasks.index', ['task' => $task->id]);
+        }
 
         $task->load([
             'client:id,client_name,dfid_number',

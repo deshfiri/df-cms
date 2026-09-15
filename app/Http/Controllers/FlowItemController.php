@@ -38,7 +38,26 @@ class FlowItemController extends Controller
         return view('flows.queue', [
             'items'     => $this->flow->myQueue($user),
             'startable' => $this->startableFlows($user),
+            'clients'   => self::clientOptions($user),
         ]);
+    }
+
+    /**
+     * Clients a workflow may be started for.
+     *
+     * Empty for someone who cannot see clients — store() refuses a client they
+     * cannot view anyway, so offering the list would only invite a 403. Public
+     * and static so FlowController's start form uses the identical rule.
+     */
+    public static function clientOptions(\App\Models\User $user)
+    {
+        if (!$user->can('viewAny', \App\Models\Client::class)) {
+            return collect();
+        }
+
+        return \App\Models\Client::withoutTrashed()
+            ->orderBy('client_name')
+            ->get(['id', 'client_name', 'dfid_number']);
     }
 
     /**
@@ -98,7 +117,7 @@ class FlowItemController extends Controller
     {
         $me = $request->user()->id;
 
-        $items = FlowItem::with(['flow:id,name', 'currentStage:id,name'])
+        $items = FlowItem::with(['client:id,client_name', 'flow:id,name', 'currentStage:id,name'])
             ->where(function ($q) use ($me) {
                 $q->where('created_by', $me)
                     ->orWhereHas('transitions', fn ($t) => $t->where('moved_by', $me));
@@ -146,6 +165,7 @@ class FlowItemController extends Controller
         abort_unless($this->flow->canView($request->user(), $item), 403);
 
         $item->load([
+            'client:id,client_name,dfid_number',
             'flow:id,name',
             'flow.stages:id,flow_id,name,position',
             'flow.stages.users:id,name',
@@ -352,10 +372,13 @@ class FlowItemController extends Controller
         $data = $request->validate([
             'reason'    => ['required', 'string', 'max:2000'],
             'assign_to' => ['nullable', 'integer', 'exists:users,id'],
+            // Optional: any earlier stage. The service checks it belongs to this
+            // item's workflow and really is earlier — the id is never trusted.
+            'to_stage_id' => ['nullable', 'integer'],
         ]);
 
         try {
-            $this->flow->sendBack($item, $request->user(), $data['reason'], $data['assign_to'] ?? null);
+            $this->flow->sendBack($item, $request->user(), $data['reason'], $data['assign_to'] ?? null, $data['to_stage_id'] ?? null);
         } catch (FlowException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         }

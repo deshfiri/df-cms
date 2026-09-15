@@ -25,7 +25,7 @@ class FlowItemNewComment extends Notification
     {
         return [
             'title'   => "New comment · {$this->author->name}",
-            'message' => "\"{$this->item->title}\": " . Str::limit($this->body, 90),
+            'message' => "{$this->item->titleWithClient()}: " . Str::limit($this->body, 90),
             'url'     => route('flow-items.show', $this->item),
         ];
     }

@@ -95,6 +95,20 @@
         <div class="modal-content">
             <div class="modal-header py-2 px-3"><h6 class="modal-title fw-bold">Start Item — {{ $flow->name }}</h6><button class="btn-close btn-sm" data-bs-dismiss="modal"></button></div>
             <div class="modal-body px-3 py-3">
+                @if($clients->isNotEmpty())
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">Client</label>
+                        <select id="itemClient" class="form-select form-select-sm">
+                            <option value="">Internal — no client</option>
+                            @foreach($clients as $c)
+                                <option value="{{ $c->id }}">{{ $c->client_name }}@if($c->dfid_number) — {{ $c->dfid_number }}@endif</option>
+                            @endforeach
+                        </select>
+                        <div style="font-size:.66rem;color:var(--text3);margin-top:3px">
+                            Linking a client puts this on their profile and counts it toward their progress.
+                        </div>
+                    </div>
+                @endif
                 <div class="mb-3"><label class="form-label fw-semibold small">Title</label><input type="text" id="itemTitle" class="form-control form-control-sm" maxlength="200"></div>
                 <div class="row g-2 mb-3">
                     <div class="col-6"><label class="form-label fw-semibold small">Priority</label>
@@ -178,12 +192,25 @@
             Swal.fire('Add a stage first', 'A workflow needs at least one stage before you can start items.', 'info'); return;
         @endif
         $('#itemTitle').val(''); $('#itemDesc').val('');
+        $('#itemClient').val('').trigger('change');
         new bootstrap.Modal('#startModal').show();
     });
+
+    // Searchable, since the client list can run long.
+    if ($('#itemClient').length) {
+        $('#itemClient').select2({ theme: 'bootstrap-5', width: '100%', dropdownParent: $('#startModal') });
+    }
+
     $('#startSave').on('click', function () {
         const title = $.trim($('#itemTitle').val());
         if (!title) return;
-        $.post('/flow-items', { flow_id: FLOW, title, priority: $('#itemPriority').val(), due_date: $('#itemDue').val() || null, description: $('#itemDesc').val() })
+        $.post('/flow-items', {
+            flow_id: FLOW, title,
+            priority: $('#itemPriority').val(),
+            due_date: $('#itemDue').val() || null,
+            description: $('#itemDesc').val(),
+            client_id: $('#itemClient').val() || '',
+        })
             .done(function () { bootstrap.Modal.getInstance('#startModal').hide(); Swal.fire({ icon: 'success', title: 'Item started', timer: 1300, showConfirmButton: false }); })
             .fail(fail);
     });

@@ -55,6 +55,23 @@
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
             <div class="min-w-0">
+                {{-- Who the work is for comes first: without it a title like
+                     "Logo design" says nothing about whose logo. --}}
+                <div class="mb-1" style="font-size:.78rem">
+                    @if($item->client)
+                        <i class="bi bi-person-badge me-1" style="color:var(--primary)"></i>
+                        @can('view', $item->client)
+                            <a href="{{ route('clients.show', $item->client) }}" class="fw-semibold text-decoration-none" style="color:var(--primary)">{{ $item->client->client_name }}</a>
+                        @else
+                            <span class="fw-semibold" style="color:var(--text2)">{{ $item->client->client_name }}</span>
+                        @endcan
+                        @if($item->client->dfid_number)
+                            <span style="color:var(--text3)">· {{ $item->client->dfid_number }}</span>
+                        @endif
+                    @else
+                        <span style="color:var(--text3)"><i class="bi bi-building me-1"></i>Internal — not linked to a client</span>
+                    @endif
+                </div>
                 <h5 class="fw-bold mb-1" style="color:var(--text)">{{ $item->title }}</h5>
                 <div style="font-size:.75rem;color:var(--text3)">
                     {{ $item->flow->name ?? '—' }} ·
