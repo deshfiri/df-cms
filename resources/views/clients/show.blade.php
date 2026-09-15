@@ -177,20 +177,54 @@
 
         {{-- ── PAYMENTS TAB ── --}}
         <div class="tab-pane fade" id="tab-payments">
-            <div class="card section-card">
-                <div class="card-header py-3 d-flex align-items-center justify-content-between">
-                    <h6 class="fw-bold mb-0">Payment History</h6>
-                    @can('update', $client)
-                        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addPaymentModal">
-                            <i class="bi bi-plus-lg me-1"></i>Add Payment
-                        </button>
-                    @endcan
+            @php $canMoney = auth()->user()->can('manage payments') || auth()->user()->can('update', $client); @endphp
+
+            {{-- Where the money stands, per category --}}
+            <div class="card section-card mb-3">
+                <div class="card-header py-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
+                    <div>
+                        <h6 class="fw-bold mb-0">Payments</h6>
+                        <small style="color:var(--text3)">What this client is billed for, and what they've paid against it.</small>
+                    </div>
+                    @if($canMoney)
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-light border" id="newChargeBtn">
+                                <i class="bi bi-receipt me-1"></i>New Charge
+                            </button>
+                            <button class="btn btn-sm btn-primary" id="recordPaymentBtn">
+                                <i class="bi bi-plus-lg me-1"></i>Record Payment
+                            </button>
+                        </div>
+                    @endif
                 </div>
-                <div id="paymentSummary" class="px-3 pb-2"></div>
+                <div class="card-body">
+                    <div id="payTotals" class="pay-totals"></div>
+                    <div id="payCategories" class="pay-cats"></div>
+                </div>
+            </div>
+
+            <div class="card section-card mb-3">
+                <div class="card-header py-3">
+                    <h6 class="fw-bold mb-0">Charges</h6>
+                    <small style="color:var(--text3)">Each is paid down by the payments recorded against it.</small>
+                </div>
+                <div class="card-body p-0">
+                    <div id="chargeList">
+                        <div class="d-flex justify-content-center py-4">
+                            <div class="spinner-border spinner-border-sm" style="color:var(--primary)"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card section-card">
+                <div class="card-header py-3">
+                    <h6 class="fw-bold mb-0">Payment History</h6>
+                </div>
                 <div class="card-body p-0">
                     <div id="paymentList">
-                        <div class="d-flex justify-content-center py-5">
-                            <div class="spinner-border text-primary spinner-border-sm"></div>
+                        <div class="d-flex justify-content-center py-4">
+                            <div class="spinner-border spinner-border-sm" style="color:var(--primary)"></div>
                         </div>
                     </div>
                 </div>
@@ -397,54 +431,58 @@
         </div>
     </div>
 
-    {{-- Add Payment Modal --}}
-    <div class="modal fade" id="addPaymentModal" tabindex="-1">
+    {{-- Record Payment Modal — shared markup with the Payments page --}}
+    @include('payments.partials.record-modal', ['modalId' => 'addPaymentModal', 'withClientPicker' => false])
+
+    {{-- New / Edit Charge Modal --}}
+    <div class="modal fade" id="chargeModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header py-3">
-                    <h6 class="modal-title fw-bold">Add Payment</h6>
+                    <h6 class="modal-title fw-bold" id="chargeModalTitle">New Charge</h6>
                     <button class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
+                    <input type="hidden" id="chargeId">
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <label class="form-label fw-semibold small">Status <span class="text-danger">*</span></label>
-                            <select id="payStatus" class="form-select">
-                                @foreach(\App\Models\Payment::$statuses as $s)
+                            <label class="form-label fw-semibold small">Category <span style="color:#dc3545">*</span></label>
+                            <select id="chargeCategory" class="form-select"></select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold small">Total amount <span style="color:#dc3545">*</span></label>
+                            <div class="input-group">
+                                <span class="input-group-text">৳</span>
+                                <input type="number" id="chargeTotal" class="form-control" min="0.01" step="0.01" placeholder="20000">
+                            </div>
+                            <span id="chargeTotalHint" class="d-block mt-1" style="font-size:.72rem;color:var(--text3)"></span>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label fw-semibold small">Title</label>
+                            <input type="text" id="chargeTitle" class="form-control" maxlength="200" placeholder="e.g. Facebook ads — October campaign">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold small">Due date</label>
+                            <input type="date" id="chargeDue" class="form-control">
+                        </div>
+                        <div class="col-md-6" id="chargeStatusWrap" hidden>
+                            <label class="form-label fw-semibold small">Status</label>
+                            <select id="chargeStatus" class="form-select">
+                                <option value="">Automatic — follows payments</option>
+                                @foreach(\App\Models\Invoice::$terminalStatuses as $s)
                                     <option value="{{ $s }}">{{ $s }}</option>
                                 @endforeach
                             </select>
                         </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold small">Amount</label>
-                            <input type="number" id="payAmount" class="form-control" placeholder="0.00" step="0.01">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold small">Payment Date</label>
-                            <input type="date" id="payDate" class="form-control" value="{{ date('Y-m-d') }}">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold small">Method</label>
-                            <select id="payMethod" class="form-select">
-                                <option value="">Select...</option>
-                                @foreach(\App\Models\Payment::$methods as $m)
-                                    <option value="{{ $m }}">{{ $m }}</option>
-                                @endforeach
-                            </select>
-                        </div>
                         <div class="col-12">
-                            <label class="form-label fw-semibold small">Transaction Number</label>
-                            <input type="text" id="payTxn" class="form-control" placeholder="Ref / Transaction ID">
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label fw-semibold small">Remarks</label>
-                            <textarea id="payRemarks" class="form-control" rows="2"></textarea>
+                            <label class="form-label fw-semibold small">Notes</label>
+                            <textarea id="chargeDescription" class="form-control" rows="2" maxlength="2000" placeholder="Visible to the client on their portal invoice"></textarea>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer py-2">
                     <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
-                    <button id="savePayment" class="btn btn-sm btn-primary"><i class="bi bi-check me-1"></i>Save</button>
+                    <button id="saveCharge" class="btn btn-sm btn-primary"><i class="bi bi-check me-1"></i>Save</button>
                 </div>
             </div>
         </div>
@@ -874,6 +912,38 @@
             flex: 1;
             padding-top: 2px;
         }
+
+        /* Payments tab — totals, per-category cards, charge and history tables. */
+        .pay-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .6rem; }
+        .pay-tile { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: .6rem .8rem; }
+        .pay-tile-k { font-size: .64rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text3); font-weight: 600; }
+        .pay-tile-v { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.3; }
+        .pay-tile-s { font-size: .7rem; color: var(--text3); }
+
+        .pay-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .6rem; margin-top: .8rem; }
+        .pay-cats:empty { display: none; }
+        .pay-cat-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: .65rem .8rem; }
+        .pay-cat-name { font-weight: 600; font-size: .85rem; color: var(--text); }
+        .pay-cat-due { font-size: .72rem; font-weight: 600; color: var(--c-red); white-space: nowrap; }
+        .pay-cat-line { font-size: .74rem; color: var(--text2); margin-top: .35rem; font-variant-numeric: tabular-nums; }
+        .pay-cat-line strong { color: var(--text); }
+
+        .pay-bar { height: 6px; border-radius: 6px; background: var(--border); overflow: hidden; margin-top: .45rem; }
+        .pay-bar > span { display: block; height: 100%; background: var(--c-green); border-radius: 6px; }
+        .pay-table td .pay-bar { margin-top: 0; }
+
+        .pay-cat {
+            display: inline-block; padding: 1px 7px; border-radius: 20px; font-size: .64rem; font-weight: 600;
+            background: rgba(var(--primary-rgb), .1); color: var(--primary); white-space: nowrap;
+        }
+        .pay-cat-none { background: var(--surface2); color: var(--text3); }
+
+        .pay-table { font-size: .82rem; }
+        .pay-table th { font-size: .66rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text3); font-weight: 700; background: var(--surface2); white-space: nowrap; }
+        .pay-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .pay-icon-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text2); padding: 1px 7px; border-radius: 6px; font-size: .78rem; }
+        .pay-icon-btn:hover { color: var(--text); }
+        .pay-icon-danger { background: rgba(239,68,68,.08); border-color: rgba(239,68,68,.2); color: #dc2626; }
     </style>
 @endpush
 
@@ -1176,58 +1246,243 @@
         });
 
         // ── Payments ───────────────────────────────────────────────────────────────
+        // Charges per category ("Social Media Ads, ৳20,000"), what's been paid
+        // against each, and the full history underneath.
+        var canManageMoney = {{ Js::from(auth()->user()->can('manage payments') || auth()->user()->can('update', $client)) }};
+        var payState = { charges: [], categories: [] };
+        var chargeSpill = {
+            'Paid': 'spill-completed', 'Partially Paid': 'spill-warning', 'Unpaid': 'spill-hold',
+            'Overdue': 'spill-cancelled', 'Cancelled': 'spill-cancelled', 'Refunded': 'spill-hold', 'Non-Refundable': 'spill-hold'
+        };
+        var paymentSpill = { Paid: 'spill-completed', Partial: 'spill-warning', Unpaid: 'spill-hold' };
+
+        var clientPayment = window.RecordPayment({
+            modal: '#addPaymentModal',
+            categories: [],
+            clientId: () => clientId,
+            storeUrl: () => baseUrl + '/payments',
+            chargesUrl: () => baseUrl + '/invoices',
+            onSaved: loadPayments,
+        });
+
+        function fmtDate(d) {
+            return d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+        }
+
         function loadPayments() {
             $.get(baseUrl + '/payments').done(function (r) {
-                const data = r.payments;
-                const s = r.summary;
-                // Summary bar
-                $('#paymentSummary').html(`<div class="d-flex gap-3 small text-muted py-2">
-                <span><i class="bi bi-cash text-success me-1"></i>Paid: <strong>৳${parseFloat(s.total_paid || 0).toFixed(2)}</strong></span>
-                <span><i class="bi bi-hourglass text-warning me-1"></i>Partial: <strong>৳${parseFloat(s.total_partial || 0).toFixed(2)}</strong></span>
-                <span><i class="bi bi-receipt me-1"></i>${s.count} payment(s)</span>
-            </div>`);
+                payState.charges = r.charges || [];
+                payState.categories = r.categories || [];
+                clientPayment.setCategories(payState.categories);
 
-                if (!data.length) {
-                    $('#paymentList').html('<p class="text-muted text-center py-4 small">No payments recorded.</p>');
-                    return;
-                }
-                let html = '<div class="table-responsive"><table class="table table-sm align-middle mb-0" style="font-size:.83rem"><thead><tr><th>Status</th><th>Amount</th><th>Date</th><th>Method</th><th>Txn #</th><th>By</th><th></th></tr></thead><tbody>';
-                const statusClr = { Paid: 'success', Partial: 'warning', Unpaid: 'danger' };
-                data.forEach(p => {
-                    html += `<tr>
-                    <td><span class="badge bg-${statusClr[p.status] || 'secondary'}">${p.status}</span></td>
-                    <td>${p.amount ? '৳' + parseFloat(p.amount).toFixed(2) : '—'}</td>
-                    <td>${p.payment_date ? new Date(p.payment_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
-                    <td>${p.payment_method || '—'}</td>
-                    <td>${p.transaction_number || '—'}</td>
-                    <td>${p.created_by?.name || '—'}</td>
-                    <td>${canUpdateClient ? '<button class="btn btn-xs btn-outline-danger delete-payment" data-id="' + p.id + '"><i class="bi bi-trash"></i></button>' : ''}</td>
-                </tr>`;
-                });
-                html += '</tbody></table></div>';
-                $('#paymentList').html(html);
+                renderPayTotals(r.summary || {});
+                renderPayCategories((r.summary && r.summary.by_category) || []);
+                renderChargeList(payState.charges);
+                renderPaymentHistory(r.payments || []);
+            }).fail(function (x) {
+                const msg = x.status === 403 ? 'You do not have access to this client\'s payments.' : 'Could not load payments.';
+                $('#payTotals').html('<div class="small c-red"><i class="bi bi-exclamation-circle me-1"></i>' + msg + '</div>');
+                $('#payCategories,#chargeList,#paymentList').empty();
             });
         }
 
-        $('#savePayment').on('click', function () {
-            $.post(baseUrl + '/payments', {
-                status: $('#payStatus').val(),
-                amount: $('#payAmount').val(),
-                payment_date: $('#payDate').val(),
-                payment_method: $('#payMethod').val(),
-                transaction_number: $('#payTxn').val(),
-                remarks: $('#payRemarks').val()
-            }).done(function () {
-                bootstrap.Modal.getInstance('#addPaymentModal').hide();
-                loadPayments();
-                Swal.fire({ icon: 'success', title: 'Saved', timer: 1200, showConfirmButton: false });
+        function renderPayTotals(s) {
+            const tile = (label, value, color, sub) =>
+                '<div class="pay-tile"><div class="pay-tile-k">' + label + '</div>'
+                + '<div class="pay-tile-v" style="color:' + color + '">' + value + '</div>'
+                + (sub ? '<div class="pay-tile-s">' + sub + '</div>' : '') + '</div>';
+
+            let html = tile('Billed', rpMoney(s.total_billed), 'var(--text)', 'across all charges')
+                + tile('Received', rpMoney(s.total_paid), 'var(--c-green)', (s.count || 0) + ' payment' + (s.count === 1 ? '' : 's'))
+                + tile('Outstanding', rpMoney(s.total_outstanding), s.total_outstanding > 0 ? 'var(--c-red)' : 'var(--text3)',
+                       s.open_charges ? s.open_charges + ' open charge' + (s.open_charges === 1 ? '' : 's') : 'nothing owed');
+            if (parseFloat(s.total_partial) > 0) {
+                html += tile('Marked partial', rpMoney(s.total_partial), 'var(--c-yellow)', 'standalone payments');
+            }
+            $('#payTotals').html(html);
+        }
+
+        function renderPayCategories(rows) {
+            if (!rows.length) { $('#payCategories').empty(); return; }
+
+            let html = '';
+            rows.forEach(function (c) {
+                const settled = c.billed > 0 && c.due <= 0;
+                const pct = c.percent === null ? 0 : c.percent;
+                html += '<div class="pay-cat-card">'
+                    + '<div class="d-flex align-items-start justify-content-between gap-2">'
+                    +   '<div class="pay-cat-name">' + esc(c.name) + '</div>'
+                    +   (settled ? '<span class="spill spill-completed" style="font-size:.62rem">Settled</span>'
+                                 : (c.due > 0 ? '<span class="pay-cat-due">' + rpMoney(c.due) + ' due</span>' : ''))
+                    + '</div>'
+                    + '<div class="pay-bar"><span style="width:' + pct + '%"></span></div>'
+                    + '<div class="pay-cat-line">'
+                    +   (c.billed > 0
+                            ? '<strong>' + rpMoney(c.received) + '</strong> of ' + rpMoney(c.billed) + ' paid'
+                            : '<strong>' + rpMoney(c.received) + '</strong> received · no charge')
+                    + '</div>'
+                    + (canManageMoney && c.due > 0 && c.id
+                        ? '<button class="rp-link pay-cat-pay" data-category="' + c.id + '"><i class="bi bi-plus-circle me-1"></i>Record payment</button>'
+                        : '')
+                    + '</div>';
             });
+            $('#payCategories').html(html);
+        }
+
+        function renderChargeList(charges) {
+            if (!charges.length) {
+                $('#chargeList').html('<div class="text-center py-4 px-3" style="font-size:.82rem;color:var(--text3)">'
+                    + '<i class="bi bi-receipt d-block mb-2" style="font-size:1.6rem"></i>'
+                    + 'No charges yet. ' + (canManageMoney ? 'Use <strong>New Charge</strong> to bill this client for a category — e.g. Social Media Ads, ৳20,000.' : '')
+                    + '</div>');
+                return;
+            }
+
+            let html = '<div class="table-responsive"><table class="table table-sm align-middle mb-0 pay-table"><thead><tr>'
+                + '<th class="ps-3">Charge</th><th class="text-end">Total</th><th class="text-end">Paid</th><th class="text-end">Due</th>'
+                + '<th style="min-width:90px"></th><th>Status</th><th>Due date</th><th class="text-end pe-3"></th></tr></thead><tbody>';
+
+            charges.forEach(function (c) {
+                const pct = c.total_payable > 0 ? Math.min(100, Math.round(c.paid_amount / c.total_payable * 100)) : 0;
+                let actions = '';
+                if (canManageMoney) {
+                    if (c.is_open) actions += '<button class="btn btn-sm btn-primary py-0 px-2 charge-pay" data-id="' + c.id + '" title="Record a payment against this charge"><i class="bi bi-plus-lg"></i> Pay</button> ';
+                    actions += '<button class="pay-icon-btn charge-edit" data-id="' + c.id + '" title="Edit"><i class="bi bi-pencil"></i></button> ';
+                    if (c.paid_amount <= 0) actions += '<button class="pay-icon-btn pay-icon-danger charge-delete" data-id="' + c.id + '" title="Delete"><i class="bi bi-trash"></i></button>';
+                }
+
+                html += '<tr' + (c.is_terminal ? ' style="opacity:.6"' : '') + '>'
+                    + '<td class="ps-3">'
+                    +   (c.category ? '<span class="pay-cat">' + esc(c.category.name) + '</span> ' : '<span class="pay-cat pay-cat-none">Uncategorised</span> ')
+                    +   '<div style="font-weight:600;color:var(--text)">' + esc(c.title || c.invoice_number) + '</div>'
+                    +   (c.title ? '<div style="font-size:.7rem;color:var(--text3)">' + esc(c.invoice_number) + '</div>' : '')
+                    + '</td>'
+                    + '<td class="text-end pay-num">' + rpMoney(c.total_payable) + '</td>'
+                    + '<td class="text-end pay-num" style="color:var(--c-green)">' + rpMoney(c.paid_amount) + '</td>'
+                    + '<td class="text-end pay-num" style="color:' + (c.due_amount > 0 && !c.is_terminal ? 'var(--c-red)' : 'var(--text3)') + '">' + rpMoney(c.due_amount) + '</td>'
+                    + '<td><div class="pay-bar" title="' + pct + '% paid"><span style="width:' + pct + '%"></span></div></td>'
+                    + '<td><span class="spill ' + (chargeSpill[c.status] || 'spill-hold') + '">' + esc(c.status) + '</span>'
+                    +   (c.is_overdue ? ' <span class="spill spill-cancelled" style="font-size:.6rem">Overdue</span>' : '') + '</td>'
+                    + '<td style="font-size:.78rem;color:var(--text2);white-space:nowrap">' + fmtDate(c.due_date) + '</td>'
+                    + '<td class="text-end pe-3" style="white-space:nowrap">' + actions + '</td>'
+                    + '</tr>';
+            });
+
+            $('#chargeList').html(html + '</tbody></table></div>');
+        }
+
+        function renderPaymentHistory(data) {
+            if (!data.length) {
+                $('#paymentList').html('<p class="text-center py-4 small mb-0" style="color:var(--text3)">No payments recorded.</p>');
+                return;
+            }
+
+            let html = '<div class="table-responsive"><table class="table table-sm align-middle mb-0 pay-table"><thead><tr>'
+                + '<th class="ps-3">Date</th><th>Category</th><th>Against</th><th class="text-end">Amount</th><th>Status</th>'
+                + '<th>Method</th><th>Txn #</th><th>By</th><th class="pe-3"></th></tr></thead><tbody>';
+
+            data.forEach(function (p) {
+                html += '<tr>'
+                    + '<td class="ps-3" style="white-space:nowrap">' + fmtDate(p.payment_date) + '</td>'
+                    + '<td>' + (p.category ? '<span class="pay-cat">' + esc(p.category.name) + '</span>' : '<span style="color:var(--text3)">—</span>') + '</td>'
+                    + '<td style="font-size:.78rem">' + (p.invoice ? esc(p.invoice.invoice_number) : '<span style="color:var(--text3)">—</span>') + '</td>'
+                    + '<td class="text-end pay-num">' + (p.amount !== null ? rpMoney(p.amount) : '—') + '</td>'
+                    + '<td><span class="spill ' + (paymentSpill[p.status] || 'spill-hold') + '">' + esc(p.status) + '</span></td>'
+                    + '<td>' + (esc(p.payment_method) || '—') + '</td>'
+                    + '<td>' + (esc(p.transaction_number) || '—') + '</td>'
+                    + '<td>' + (esc(p.created_by && p.created_by.name) || '—') + '</td>'
+                    + '<td class="pe-3 text-end">' + (canManageMoney ? '<button class="pay-icon-btn pay-icon-danger delete-payment" data-id="' + p.id + '" title="Delete"><i class="bi bi-trash"></i></button>' : '') + '</td>'
+                    + '</tr>';
+            });
+
+            $('#paymentList').html(html + '</tbody></table></div>');
+        }
+
+        $('#recordPaymentBtn').on('click', () => clientPayment.open());
+        $(document).on('click', '.pay-cat-pay', function () {
+            clientPayment.open({ categoryId: $(this).data('category') });
+        });
+        $(document).on('click', '.charge-pay', function () {
+            const charge = payState.charges.find(c => c.id === $(this).data('id'));
+            if (charge) clientPayment.open({ categoryId: charge.category ? charge.category.id : null, chargeId: charge.id });
         });
 
         $(document).on('click', '.delete-payment', function () {
             const id = $(this).data('id');
-            Swal.fire({ title: 'Delete payment?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545' })
-                .then(r => { if (r.isConfirmed) $.ajax({ url: baseUrl + '/payments/' + id, type: 'DELETE' }).done(loadPayments); });
+            Swal.fire({ title: 'Delete payment?', text: 'If it was paid against a charge, that charge\'s balance goes back up.', icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545' })
+                .then(r => {
+                    if (r.isConfirmed) $.ajax({ url: baseUrl + '/payments/' + id, type: 'DELETE' })
+                        .done(loadPayments)
+                        .fail(x => Swal.fire({ icon: 'error', title: 'Could not delete', html: rpErrorText(x) }));
+                });
+        });
+
+        // ── Charges ──
+        function openChargeModal(charge) {
+            const cats = payState.categories.slice();
+            // A charge keeps its category even after that category is archived.
+            if (charge && charge.category && !cats.some(c => c.id === charge.category.id)) cats.push(charge.category);
+
+            $('#chargeCategory').html('<option value="">Select category…</option>'
+                + cats.map(c => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join(''));
+            $('#chargeId').val(charge ? charge.id : '');
+            $('#chargeModalTitle').text(charge ? 'Edit ' + charge.invoice_number : 'New Charge');
+            $('#chargeCategory').val(charge && charge.category ? String(charge.category.id) : '');
+            $('#chargeTotal').val(charge ? charge.total_payable : '');
+            $('#chargeTitle').val(charge ? (charge.title || '') : '');
+            $('#chargeDue').val(charge ? (charge.due_date || '') : '');
+            $('#chargeDescription').val(charge ? (charge.description || '') : '');
+            $('#chargeStatusWrap').prop('hidden', !charge);
+            $('#chargeStatus').val(charge && charge.is_terminal ? charge.status : '');
+            $('#chargeTotalHint').text(charge && charge.paid_amount > 0
+                ? rpMoney(charge.paid_amount) + ' already received — the total can\'t go below that.' : '');
+
+            bootstrap.Modal.getOrCreateInstance('#chargeModal').show();
+        }
+
+        $('#newChargeBtn').on('click', () => openChargeModal(null));
+        $(document).on('click', '.charge-edit', function () {
+            openChargeModal(payState.charges.find(c => c.id === $(this).data('id')));
+        });
+
+        $('#saveCharge').on('click', function () {
+            const id = $('#chargeId').val();
+            if (!$('#chargeCategory').val()) { Swal.fire('Pick a category', 'Every charge is filed under a category.', 'warning'); return; }
+
+            const payload = {
+                payment_category_id: $('#chargeCategory').val(),
+                total_payable: $('#chargeTotal').val(),
+                title: $('#chargeTitle').val(),
+                due_date: $('#chargeDue').val(),
+                description: $('#chargeDescription').val(),
+            };
+            if (id) {
+                const charge = payState.charges.find(c => String(c.id) === String(id));
+                const status = $('#chargeStatus').val();
+                if (status) payload.status = status;
+                // Back to "Automatic" from Cancelled etc.: reopen and let payments decide.
+                else if (charge && charge.is_terminal) payload.status = 'Unpaid';
+            }
+
+            const btn = $(this).prop('disabled', true);
+            $.ajax({ url: baseUrl + '/invoices' + (id ? '/' + id : ''), type: id ? 'PUT' : 'POST', data: payload })
+                .done(function () {
+                    bootstrap.Modal.getOrCreateInstance('#chargeModal').hide();
+                    loadPayments();
+                    Swal.fire({ icon: 'success', title: id ? 'Charge updated' : 'Charge added', timer: 1200, showConfirmButton: false });
+                })
+                .fail(x => Swal.fire({ icon: 'error', title: 'Could not save', html: rpErrorText(x) }))
+                .always(() => btn.prop('disabled', false));
+        });
+
+        $(document).on('click', '.charge-delete', function () {
+            const id = $(this).data('id');
+            Swal.fire({ title: 'Delete this charge?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545' })
+                .then(r => {
+                    if (r.isConfirmed) $.ajax({ url: baseUrl + '/invoices/' + id, type: 'DELETE' })
+                        .done(loadPayments)
+                        .fail(x => Swal.fire({ icon: 'error', title: 'Could not delete', html: rpErrorText(x) }));
+                });
         });
 
         // ── Ad Campaigns ─────────────────────────────────────────────────────────────

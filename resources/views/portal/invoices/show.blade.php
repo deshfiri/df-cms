@@ -3,7 +3,14 @@
 
 @section('content')
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h5 class="mb-0">Invoice {{ $invoice->invoice_number }}</h5>
+    <div>
+        <h5 class="mb-0">Invoice {{ $invoice->invoice_number }}</h5>
+        @if($invoice->category || $invoice->title)
+            <div style="font-size:.8rem;color:var(--text2)">
+                {{ $invoice->category?->name }}{{ $invoice->category && $invoice->title ? ' — ' : '' }}{{ $invoice->title }}
+            </div>
+        @endif
+    </div>
     <div class="d-flex gap-2">
         @if($invoice->due_amount > 0)
         <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#proofModal"><i class="bi bi-upload me-1"></i>Submit Payment Proof</button>

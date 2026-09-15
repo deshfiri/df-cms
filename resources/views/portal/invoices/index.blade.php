@@ -31,7 +31,12 @@
             @endphp
             <tr>
                 <td>{{ $invoice->invoice_number }}</td>
-                <td>{{ $invoice->title ?? '—' }}</td>
+                <td>
+                    @if($invoice->category)
+                        <span style="display:inline-block;padding:1px 7px;border-radius:20px;font-size:.66rem;font-weight:600;background:rgba(var(--primary-rgb),.1);color:var(--primary)">{{ $invoice->category->name }}</span>
+                    @endif
+                    {{ $invoice->title ?? ($invoice->category ? '' : '—') }}
+                </td>
                 <td>৳{{ number_format($invoice->total_payable, 2) }}</td>
                 <td>৳{{ number_format($invoice->paid_amount, 2) }}</td>
                 <td>৳{{ number_format($invoice->due_amount, 2) }}</td>

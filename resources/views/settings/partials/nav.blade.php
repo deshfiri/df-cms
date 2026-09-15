@@ -30,19 +30,29 @@
             'google'     => ['label' => 'Google Meet',    'icon' => 'bi-camera-video', 'route' => 'settings.google',  'hint' => 'Meeting links'],
             'meta'       => ['label' => 'Meta Marketing', 'icon' => 'bi-meta',         'route' => 'settings.meta',    'hint' => 'Ad account sync'],
         ],
+        'Finance' => [
+            'payment-categories' => ['label' => 'Payment Categories', 'icon' => 'bi-wallet2', 'route' => 'payment-categories.index', 'hint' => 'What clients are billed for', 'can' => 'manage payments'],
+        ],
         'Access' => [
             'users'      => ['label' => 'Users',          'icon' => 'bi-people',       'route' => 'users.index',      'hint' => 'Staff accounts'],
             'roles'      => ['label' => 'Roles',          'icon' => 'bi-shield-lock',  'route' => 'roles.index',      'hint' => 'Permissions'],
             'categories' => ['label' => 'Categories',     'icon' => 'bi-tags',         'route' => 'categories.index', 'hint' => 'Client categories'],
         ],
     ];
+
+    // Drop what this person can't open, then any group left empty, so nobody
+    // sees a heading with nothing under it.
+    $groups = array_filter(array_map(
+        fn (array $items) => array_filter($items, fn (array $item) => Route::has($item['route'])
+            && (empty($item['can']) || auth()->user()?->can($item['can']))),
+        $groups,
+    ));
 @endphp
 
 <nav class="set-nav">
     @foreach($groups as $groupLabel => $items)
         <div class="set-nav-group">{{ $groupLabel }}</div>
         @foreach($items as $key => $item)
-            @continue(!Route::has($item['route']))
             <a href="{{ route($item['route']) }}" class="set-nav-item {{ ($active ?? '') === $key ? 'active' : '' }}">
                 <i class="bi {{ $item['icon'] }}"></i>
                 <span class="set-nav-text">

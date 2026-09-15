@@ -82,6 +82,7 @@ class PaymentProofService
             $payment = Payment::create([
                 'client_id'          => $proof->client_id,
                 'invoice_id'         => $proof->invoice_id,
+                'payment_category_id' => $proof->invoice?->payment_category_id,
                 'amount'             => $proof->amount_claimed,
                 'payment_date'       => $proof->payment_date ?? now(),
                 'payment_method'     => $proof->payment_method,

@@ -22,7 +22,7 @@ class PortalInvoiceController extends Controller
     {
         $client = $this->portalUser()->client;
 
-        $invoices = Invoice::where('client_id', $client->id)->latest()->get();
+        $invoices = Invoice::where('client_id', $client->id)->with('category:id,name')->withPaidTotal()->latest()->get();
         $payments = $client->payments()->with('invoice')->get();
 
         return view('portal.invoices.index', compact('invoices', 'payments'));

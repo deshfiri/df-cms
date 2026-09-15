@@ -38,6 +38,7 @@ use App\Http\Controllers\ExportController;
 use App\Http\Controllers\FileManagerController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\NoteController;
+use App\Http\Controllers\PaymentCategoryController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PendingChangeController;
 use App\Http\Controllers\PermissionController;
@@ -262,6 +263,12 @@ Route::middleware(['auth'])->group(function () {
     Route::get('payments', [PaymentController::class, 'all'])->name('payments.index');
     Route::post('payments', [PaymentController::class, 'storeAny'])->name('payments.store');
     Route::delete('payments/{payment}', [PaymentController::class, 'destroyAny'])->name('payments.destroy');
+
+    // What a client can be billed for — Social Media Ads, Website, … ("manage payments").
+    Route::get('settings/payment-categories', [PaymentCategoryController::class, 'index'])->name('payment-categories.index');
+    Route::post('settings/payment-categories', [PaymentCategoryController::class, 'store'])->name('payment-categories.store');
+    Route::put('settings/payment-categories/{paymentCategory}', [PaymentCategoryController::class, 'update'])->name('payment-categories.update');
+    Route::delete('settings/payment-categories/{paymentCategory}', [PaymentCategoryController::class, 'destroy'])->name('payment-categories.destroy');
 
     // ── Marketing: brands, platform integrations, synced ad data ─────────
     // Gated per brand inside the controllers (BrandIntegrationPolicy), so a

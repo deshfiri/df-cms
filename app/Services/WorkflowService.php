@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Exceptions\WorkflowStageException;
 use App\Models\Client;
 use App\Models\ClientStageProgress;
+use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\User;
 use App\Models\WorkflowStage;
@@ -77,7 +78,16 @@ class WorkflowService
      */
     public function getPaymentBlockReason(int $clientId, WorkflowStage $stage): ?string
     {
-        $paymentStatus = Payment::where('client_id', $clientId)->latest()->value('status');
+        $latest        = Payment::where('client_id', $clientId)->latest()->first(['status', 'invoice_id']);
+        $paymentStatus = $latest?->status;
+
+        // A payment against a charge is always stored as Paid — it is money
+        // received. Whether it settled anything is the charge's call: ৳10,000
+        // towards a ৳20,000 charge is still a partial payment for this gate.
+        if ($paymentStatus === 'Paid' && $latest->invoice_id
+            && Invoice::whereKey($latest->invoice_id)->value('status') === Invoice::STATUS_PARTIALLY_PAID) {
+            $paymentStatus = 'Partial';
+        }
 
         if (empty($paymentStatus) || $paymentStatus === 'Unpaid') {
             return 'This client has no payment on record — the workflow cannot proceed until at least a partial payment is made.';

@@ -1,39 +1,95 @@
 @extends('layouts.app')
 @section('title', 'Payments')
 
+@push('styles')
+<style>
+    .pp-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: .6rem; }
+    .pp-cat { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: .6rem .8rem; cursor: pointer; transition: border-color .12s; }
+    .pp-cat:hover, .pp-cat.active { border-color: var(--primary); }
+    .pp-cat-name { font-weight: 600; font-size: .84rem; color: var(--text); }
+    .pp-cat-line { font-size: .72rem; color: var(--text2); font-variant-numeric: tabular-nums; margin-top: .3rem; }
+    .pp-bar { height: 5px; border-radius: 5px; background: var(--border); overflow: hidden; margin-top: .4rem; }
+    .pp-bar > span { display: block; height: 100%; background: var(--c-green); }
+    .pay-cat { display: inline-block; padding: 1px 7px; border-radius: 20px; font-size: .66rem; font-weight: 600; background: rgba(var(--primary-rgb), .1); color: var(--primary); white-space: nowrap; }
+</style>
+@endpush
+
 @section('content')
 
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
     <div>
         <h4 class="page-title mb-0"><i class="bi bi-cash-coin me-2"></i>Payments</h4>
+        <small style="color:var(--text3)">Money received across every client, by category.</small>
     </div>
     @can('manage payments')
-    <button class="btn btn-sm btn-primary" id="newPaymentBtn" data-bs-toggle="modal" data-bs-target="#paymentModal">
-        <i class="bi bi-plus-lg me-1"></i>Record Payment
-    </button>
+    <div class="d-flex gap-2">
+        <a href="{{ route('payment-categories.index') }}" class="btn btn-sm btn-light border">
+            <i class="bi bi-wallet2 me-1"></i>Categories
+        </a>
+        <button class="btn btn-sm btn-primary" id="newPaymentBtn">
+            <i class="bi bi-plus-lg me-1"></i>Record Payment
+        </button>
+    </div>
     @endcan
 </div>
 
 <div class="row g-3 mb-3">
-    <div class="col-6 col-md-4">
+    <div class="col-6 col-md-3">
         <div class="card text-center py-3">
             <div class="fw-bold fs-4 mb-0 c-green">৳{{ number_format($totals['paid'], 0) }}</div>
-            <div style="font-size:.69rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">Total Paid</div>
+            <div style="font-size:.69rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">Total Received</div>
         </div>
     </div>
-    <div class="col-6 col-md-4">
+    <div class="col-6 col-md-3">
+        <div class="card text-center py-3">
+            <div class="fw-bold fs-4 mb-0 c-red">৳{{ number_format($totals['outstanding'], 0) }}</div>
+            <div style="font-size:.69rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">Outstanding · {{ $totals['open_charges'] }} open {{ Str::plural('charge', $totals['open_charges']) }}</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
         <div class="card text-center py-3">
             <div class="fw-bold fs-4 mb-0 c-yellow">৳{{ number_format($totals['partial'], 0) }}</div>
-            <div style="font-size:.69rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">Total Partial</div>
+            <div style="font-size:.69rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">Marked Partial</div>
         </div>
     </div>
-    <div class="col-6 col-md-4">
+    <div class="col-6 col-md-3">
         <div class="card text-center py-3">
-            <div class="fw-bold fs-4 mb-0 c-red">{{ $totals['unpaid_count'] }}</div>
-            <div style="font-size:.69rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">Unpaid Invoices</div>
+            <div class="fw-bold fs-4 mb-0" style="color:var(--text2)">{{ $totals['unpaid_count'] }}</div>
+            <div style="font-size:.69rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">Marked Unpaid</div>
         </div>
     </div>
 </div>
+
+@if(count($byCategory))
+<div class="card section-card mb-3">
+    <div class="card-header py-2 d-flex align-items-center justify-content-between">
+        <h6 class="fw-bold mb-0" style="font-size:.85rem">By category</h6>
+        <small style="color:var(--text3)">Click one to filter the list</small>
+    </div>
+    <div class="card-body">
+        <div class="pp-cats">
+            @foreach($byCategory as $row)
+                @php $pct = $row['billed'] > 0 ? min(100, (int) round($row['received'] / $row['billed'] * 100)) : 0; @endphp
+                <div class="pp-cat" data-category="{{ $row['id'] }}">
+                    <div class="d-flex justify-content-between gap-2">
+                        <span class="pp-cat-name">{{ $row['name'] }}</span>
+                        @if($row['due'] > 0)
+                            <span style="font-size:.7rem;font-weight:600;color:var(--c-red);white-space:nowrap">৳{{ number_format($row['due'], 0) }} due</span>
+                        @endif
+                    </div>
+                    @if($row['billed'] > 0)
+                        <div class="pp-bar"><span style="width:{{ $pct }}%"></span></div>
+                    @endif
+                    <div class="pp-cat-line">
+                        <strong style="color:var(--text)">৳{{ number_format($row['received'], 0) }}</strong> received
+                        @if($row['billed'] > 0) of ৳{{ number_format($row['billed'], 0) }} billed @endif
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+</div>
+@endif
 
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
     <button class="fpill" data-status="" id="pillAll">All</button>
@@ -44,13 +100,24 @@
     </button>
     @endforeach
 
-    <div class="ms-auto" style="width:240px">
-        <select id="filterClient" class="form-select form-select-sm">
-            <option value="">All Clients</option>
-            @foreach($clients as $c)
-            <option value="{{ $c->id }}">{{ $c->client_name }} ({{ $c->dfid_number }})</option>
-            @endforeach
-        </select>
+    <div class="ms-auto d-flex gap-2 flex-wrap">
+        <div style="width:200px">
+            <select id="filterCategory" class="form-select form-select-sm">
+                <option value="">All Categories</option>
+                @foreach($categories as $c)
+                <option value="{{ $c->id }}">{{ $c->name }}{{ $c->is_active ? '' : ' (inactive)' }}</option>
+                @endforeach
+                <option value="none">Uncategorised</option>
+            </select>
+        </div>
+        <div style="width:240px">
+            <select id="filterClient" class="form-select form-select-sm">
+                <option value="">All Clients</option>
+                @foreach($clients as $c)
+                <option value="{{ $c->id }}">{{ $c->client_name }} ({{ $c->dfid_number }})</option>
+                @endforeach
+            </select>
+        </div>
     </div>
 </div>
 
@@ -62,6 +129,8 @@
                     <tr>
                         <th>#</th>
                         <th>Client</th>
+                        <th>Category</th>
+                        <th>Against</th>
                         <th>Status</th>
                         <th>Amount</th>
                         <th>Date</th>
@@ -76,67 +145,9 @@
     </div>
 </div>
 
-{{-- Record Payment Modal --}}
-<div class="modal fade" id="paymentModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header py-3">
-                <h6 class="modal-title fw-bold"><i class="bi bi-plus-lg me-2"></i>Record Payment</h6>
-                <button class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="row g-3">
-                    <div class="col-12">
-                        <label class="form-label fw-semibold small">Client <span class="text-danger">*</span></label>
-                        <select id="payClient" class="form-select">
-                            <option value="">Select client...</option>
-                            @foreach($clients as $c)
-                            <option value="{{ $c->id }}">{{ $c->client_name }} ({{ $c->dfid_number }})</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold small">Status <span class="text-danger">*</span></label>
-                        <select id="payStatus" class="form-select">
-                            @foreach(\App\Models\Payment::$statuses as $s)
-                            <option value="{{ $s }}">{{ $s }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold small">Amount</label>
-                        <input type="number" id="payAmount" class="form-control" placeholder="0.00" step="0.01">
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold small">Payment Date</label>
-                        <input type="date" id="payDate" class="form-control" value="{{ date('Y-m-d') }}">
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold small">Method</label>
-                        <select id="payMethod" class="form-select">
-                            <option value="">Select...</option>
-                            @foreach(\App\Models\Payment::$methods as $m)
-                            <option value="{{ $m }}">{{ $m }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label fw-semibold small">Transaction Number</label>
-                        <input type="text" id="payTxn" class="form-control" placeholder="Ref / Transaction ID">
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label fw-semibold small">Remarks</label>
-                        <textarea id="payRemarks" class="form-control" rows="2"></textarea>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer py-2">
-                <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
-                <button id="savePaymentBtn" class="btn btn-sm btn-primary"><i class="bi bi-check me-1"></i>Save</button>
-            </div>
-        </div>
-    </div>
-</div>
+@can('manage payments')
+    @include('payments.partials.record-modal', ['modalId' => 'paymentModal', 'withClientPicker' => true, 'clients' => $clients])
+@endcan
 @endsection
 
 @push('scripts')
@@ -156,26 +167,37 @@ $('.fpill').on('click', function () {
     window.pTable.ajax.reload();
 });
 
-$('#filterClient').on('change', function () { window.pTable.ajax.reload(); });
+$('#filterClient, #filterCategory').on('change', function () {
+    $('.pp-cat').removeClass('active')
+        .filter('[data-category="' + $('#filterCategory').val() + '"]').addClass('active');
+    window.pTable.ajax.reload();
+});
+
+$(document).on('click', '.pp-cat', function () {
+    const id = String($(this).data('category'));
+    $('#filterCategory').val($('#filterCategory').val() === id ? '' : id).trigger('change');
+});
 
 $(function () {
     $('#filterClient').select2({ theme: 'bootstrap-5', width: '100%' });
-    $('#payClient').select2({ theme: 'bootstrap-5', width: '100%', dropdownParent: $('#paymentModal') });
 
     window.pTable = $('#paymentsTable').DataTable({
         processing: true,
         serverSide: true,
-        order: [[4, 'desc']],
+        order: [[6, 'desc']],
         ajax: {
             url: '{{ route("payments.index") }}',
             data: function (d) {
-                d.status    = activeStatus;
-                d.client_id = $('#filterClient').val();
+                d.status      = activeStatus;
+                d.client_id   = $('#filterClient').val();
+                d.category_id = $('#filterCategory').val();
             }
         },
         columns: [
             { data: 'DT_RowIndex', orderable: false, searchable: false },
             { data: 'client', orderable: false },
+            { data: 'category_name', orderable: false, searchable: false },
+            { data: 'charge', orderable: false, searchable: false },
             { data: 'status_badge', orderable: false },
             { data: 'amount_fmt', orderable: false },
             { data: 'date_fmt' },
@@ -185,42 +207,32 @@ $(function () {
             { data: 'actions', orderable: false, searchable: false, className: 'text-end pe-3' },
         ]
     });
-});
 
-$('#newPaymentBtn').on('click', function () {
-    $('#payClient').val('').trigger('change');
-    $('#payStatus').val('Paid');
-    $('#payAmount,#payTxn,#payRemarks').val('');
-    $('#payDate').val('{{ date("Y-m-d") }}');
-    $('#payMethod').val('');
-});
+    @can('manage payments')
+    const $client = $('#paymentModal [data-rp="client"]');
+    $client.select2({ theme: 'bootstrap-5', width: '100%', dropdownParent: $('#paymentModal') });
 
-$('#savePaymentBtn').on('click', function () {
-    var clientId = $('#payClient').val();
-    if (!clientId) {
-        Swal.fire('Missing client', 'Please select a client.', 'warning');
-        return;
-    }
-    $.post('{{ route("payments.store") }}', {
-        client_id: clientId,
-        status: $('#payStatus').val(),
-        amount: $('#payAmount').val(),
-        payment_date: $('#payDate').val(),
-        payment_method: $('#payMethod').val(),
-        transaction_number: $('#payTxn').val(),
-        remarks: $('#payRemarks').val()
-    }).done(function () {
-        bootstrap.Modal.getInstance('#paymentModal').hide();
-        window.pTable.ajax.reload();
-        Swal.fire({ icon: 'success', title: 'Saved', timer: 1200, showConfirmButton: false });
-    }).fail(function (r) {
-        Swal.fire('Error', r.responseJSON?.message || 'Could not save payment.', 'error');
+    const recorder = window.RecordPayment({
+        modal: '#paymentModal',
+        categories: {{ Js::from($categories->where('is_active', true)->values()->map(fn ($c) => ['id' => $c->id, 'name' => $c->name])) }},
+        clientId: () => $client.val() || null,
+        storeUrl: () => '{{ route("payments.store") }}',
+        chargesUrl: id => '{{ url('clients') }}/' + id + '/invoices',
+        sendClient: true,
+        onSaved: () => window.pTable.ajax.reload(),
     });
+
+    $('#newPaymentBtn').on('click', function () {
+        // Start from whichever client the list is filtered to, if any.
+        $client.val($('#filterClient').val() || '').trigger('change.select2');
+        recorder.open({ categoryId: /^\d+$/.test($('#filterCategory').val()) ? $('#filterCategory').val() : null });
+    });
+    @endcan
 });
 
 $(document).on('click', '.payment-delete', function () {
     var id = $(this).data('id');
-    Swal.fire({ title: 'Delete payment?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545' })
+    Swal.fire({ title: 'Delete payment?', text: 'If it was paid against a charge, that charge\'s balance goes back up.', icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545' })
     .then(function (r) {
         if (r.isConfirmed) {
             $.ajax({ url: '/payments/' + id, type: 'DELETE' }).done(function () {

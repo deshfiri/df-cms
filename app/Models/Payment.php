@@ -10,7 +10,7 @@ class Payment extends Model
     use InvalidatesPerformanceBoard;
 
     protected $fillable = [
-        'client_id', 'invoice_id', 'amount', 'payment_date', 'payment_method',
+        'client_id', 'invoice_id', 'payment_category_id', 'amount', 'payment_date', 'payment_method',
         'transaction_number', 'status', 'remarks', 'created_by',
     ];
 
@@ -38,5 +38,10 @@ class Payment extends Model
     public function invoice()
     {
         return $this->belongsTo(Invoice::class);
+    }
+
+    public function category()
+    {
+        return $this->belongsTo(PaymentCategory::class, 'payment_category_id');
     }
 }
