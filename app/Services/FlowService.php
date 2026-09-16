@@ -361,7 +361,9 @@ class FlowService
     /** Whether the user is allowed to see an item at all (assignee anywhere on the flow, creator, or admin). */
     public function canView(User $user, FlowItem $item): bool
     {
-        if ($user->can('manage workflows') || $item->created_by === $user->id) {
+        // "view workflows" is the read-only watcher seat used by the tracker;
+        // it opens items but changes nothing (every action checks canAct).
+        if ($user->canAny(['manage workflows', 'view workflows']) || $item->created_by === $user->id) {
             return true;
         }
 

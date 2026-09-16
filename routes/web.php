@@ -372,6 +372,17 @@ Route::middleware(['auth'])->group(function () {
         Route::post('with/{user}', [ChatController::class, 'send'])->name('send');
         Route::post('{conversation}/read', [ChatController::class, 'read'])->name('read');
 
+        // Group chats. Creating one needs "create chat groups"; everything else
+        // is checked against the group itself — members read and write, the
+        // owner and admins rename and change who is in it.
+        Route::post('groups', [ChatController::class, 'storeGroup'])->name('groups.store');
+        Route::get('groups/{conversation}', [ChatController::class, 'showGroup'])->name('groups.show');
+        Route::put('groups/{conversation}', [ChatController::class, 'updateGroup'])->name('groups.update');
+        Route::post('groups/{conversation}/messages', [ChatController::class, 'sendGroup'])->name('groups.send');
+        Route::post('groups/{conversation}/members', [ChatController::class, 'addGroupMembers'])->name('groups.members.add');
+        Route::delete('groups/{conversation}/members/{user}', [ChatController::class, 'removeGroupMember'])->name('groups.members.remove');
+        Route::post('groups/{conversation}/leave', [ChatController::class, 'leaveGroup'])->name('groups.leave');
+
         Route::delete('messages/{message}', [ChatController::class, 'destroyMessage'])->name('messages.destroy');
         Route::post('messages/{message}/react', [ChatController::class, 'react'])->name('messages.react');
     });
@@ -399,11 +410,19 @@ Route::middleware(['auth'])->group(function () {
     });
 
     // ── Generic workflow engine ──────────────────────────────────────────
+    /*
+     * Tracker: every workflow item in one page, with the detail of any one of
+     * them. Open to "view workflows" as well as "manage workflows" — watching
+     * where work stands is not the same as being able to change a workflow.
+     * Registered before the {flow} route so "items" is never read as a flow id.
+     */
+    Route::get('workflows/items', [FlowController::class, 'items'])->name('workflows.items');
+    Route::get('workflows/items/{item}/details', [FlowController::class, 'itemDetails'])->name('workflows.items.details');
+
     // Admin: build & track workflows (gated by 'manage workflows').
     Route::middleware('can:manage workflows')->prefix('workflows')->name('workflows.')->group(function () {
         Route::get('/', [FlowController::class, 'index'])->name('index');
         Route::post('/', [FlowController::class, 'store'])->name('store');
-        Route::get('items', [FlowController::class, 'items'])->name('items'); // before {flow}
         Route::get('{flow}', [FlowController::class, 'show'])->name('show');
         Route::put('{flow}', [FlowController::class, 'update'])->name('update');
         Route::delete('{flow}', [FlowController::class, 'destroy'])->name('destroy');

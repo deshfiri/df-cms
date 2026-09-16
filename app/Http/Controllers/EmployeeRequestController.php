@@ -18,16 +18,21 @@ class EmployeeRequestController extends Controller
     ) {
     }
 
-    public function index(Request $request) //first kick
+    public function index(Request $request)
     {
+        // The page and its table feed alike: a role without a requests
+        // permission gets neither.
+        $this->authorize('viewAny', EmployeeRequest::class);
+
         if ($request->ajax()) {
             return $this->dataTable($request);
         }
 
-        $clients = Client::withoutTrashed()->orderBy('client_name')->get(['id', 'client_name', 'dfid_number']);
+        $clients   = Client::withoutTrashed()->orderBy('client_name')->get(['id', 'client_name', 'dfid_number']);
         $canManage = $request->user()->can('manage requests');
+        $canCreate = $request->user()->can('create', EmployeeRequest::class);
 
-        return view('requests.index', compact('clients', 'canManage'));
+        return view('requests.index', compact('clients', 'canManage', 'canCreate'));
     }
 
     public function store(StoreEmployeeRequestRequest $request): JsonResponse

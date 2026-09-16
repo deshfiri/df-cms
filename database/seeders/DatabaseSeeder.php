@@ -44,6 +44,15 @@ class DatabaseSeeder extends Seeder
             'manage performance',
             'monitor chats',
             'manage workflows',
+            // Read-only seat on the workflow tracker: see where every item
+            // stands without being able to build or change a workflow.
+            'view workflows',
+            // Staff requests: open the page and follow your own / file one.
+            // 'manage requests' (above) still sees everyone's and responds.
+            'view requests',
+            'create requests',
+            // Start a group conversation in the internal chat.
+            'create chat groups',
             // WhatsApp (customer messaging). Deliberately distinct from
             // 'monitor chats', which governs the internal staff chat — the two
             // systems never share a permission.
@@ -76,7 +85,7 @@ class DatabaseSeeder extends Seeder
             // WhatsApp: a Manager runs the inbox (sees every brand, assigns work,
             // manages numbers and templates) but not the Meta app credentials,
             // which stay with Super Admin like every other integration secret.
-            'Manager' => ['view clients', 'manage clients', 'delete clients', 'manage payments', 'view payments', 'manage products', 'manage documents', 'manage-workflow', 'approve-stage', 'import clients', 'export clients', 'view reports', 'view tasks', 'manage tasks', 'manage-meetings', 'manage requests', 'view ads', 'manage ads', 'view performance', 'manage performance', 'view reviews', 'view whatsapp', 'reply whatsapp', 'assign whatsapp', 'view all whatsapp', 'manage whatsapp numbers', 'manage whatsapp templates'],
+            'Manager' => ['view clients', 'manage clients', 'delete clients', 'manage payments', 'view payments', 'manage products', 'manage documents', 'manage-workflow', 'approve-stage', 'import clients', 'export clients', 'view reports', 'view tasks', 'manage tasks', 'manage-meetings', 'manage requests', 'view ads', 'manage ads', 'view performance', 'manage performance', 'view reviews', 'view whatsapp', 'reply whatsapp', 'assign whatsapp', 'view all whatsapp', 'manage whatsapp numbers', 'manage whatsapp templates', 'view workflows'],
             'Sales' => ['view clients', 'manage clients', 'submit-stage', 'approve-stage', 'view tasks', 'manage tasks', 'manage-meetings'],
             'Document' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks'],
             'Design' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks'],
@@ -90,6 +99,15 @@ class DatabaseSeeder extends Seeder
             'Content' => ['view clients', 'manage documents'],
             'Viewer' => ['view clients', 'view payments', 'view reports'],
         ];
+
+        // Every role could file and follow requests before these permissions
+        // existed; that stays the default. Take it away per role in Settings → Roles.
+        foreach (array_keys($roles) as $roleName) {
+            if ($roleName !== 'Super Admin') {
+                $roles[$roleName] = array_values(array_unique(array_merge($roles[$roleName], ['view requests', 'create requests'])));
+            }
+        }
+        $roles['Manager'][] = 'create chat groups';
 
         foreach ($roles as $roleName => $rolePerms) {
             $role = Role::firstOrCreate(['name' => $roleName, 'guard_name' => 'web']);

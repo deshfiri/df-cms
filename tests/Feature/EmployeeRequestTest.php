@@ -19,22 +19,85 @@ class EmployeeRequestTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Permission::firstOrCreate(['name' => 'manage requests', 'guard_name' => 'web']);
+
+        foreach (['manage requests', 'view requests', 'create requests'] as $name) {
+            Permission::firstOrCreate(['name' => $name, 'guard_name' => 'web']);
+        }
     }
 
+    /** Roles in these tests hold the request seats a seeded install gives them. */
     private function makeUser(?string $role = null): User
     {
         $user = User::factory()->create();
         if ($role) {
             Role::firstOrCreate(['name' => $role, 'guard_name' => 'web']);
             $user->assignRole($role);
-            if ($role === 'Manager') {
-                $user->givePermissionTo('manage requests');
-            }
+            $user->givePermissionTo($role === 'Manager' ? ['manage requests'] : ['view requests', 'create requests']);
         }
 
         return $user;
     }
+
+    // ── Who may use requests at all ──────────────────────────────────────
+
+    public function test_a_role_without_request_permissions_cannot_see_or_file_them(): void
+    {
+        $nobody = User::factory()->create();
+
+        $this->actingAs($nobody)->get(route('requests.index'))->assertForbidden();
+        $this->actingAs($nobody)->getJson(route('requests.index'), ['X-Requested-With' => 'XMLHttpRequest'])->assertForbidden();
+        $this->actingAs($nobody)
+            ->postJson(route('requests.store'), ['subject' => 'Laptop', 'message' => 'Please'])
+            ->assertForbidden();
+
+        $this->assertSame(0, EmployeeRequest::count());
+    }
+
+    public function test_view_only_lets_you_follow_requests_but_not_file_one(): void
+    {
+        $watcher = User::factory()->create();
+        $watcher->givePermissionTo('view requests');
+
+        $this->actingAs($watcher)->get(route('requests.index'))
+            ->assertOk()
+            ->assertDontSee('data-bs-target="#newRequestModal"', false);
+
+        $this->actingAs($watcher)
+            ->postJson(route('requests.store'), ['subject' => 'Laptop', 'message' => 'Please'])
+            ->assertForbidden();
+    }
+
+    public function test_create_lets_you_file_and_offers_the_button(): void
+    {
+        $filer = $this->makeUser('Sales');
+
+        $this->actingAs($filer)->get(route('requests.index'))
+            ->assertOk()
+            ->assertSee('data-bs-target="#newRequestModal"', false);
+    }
+
+    public function test_the_sidebar_only_offers_requests_to_those_who_may_use_them(): void
+    {
+        $this->actingAs(User::factory()->create())
+            ->get(route('dashboard'))
+            ->assertDontSee(route('requests.index'), false);
+
+        $this->actingAs($this->makeUser('Accounts'))
+            ->get(route('dashboard'))
+            ->assertSee(route('requests.index'), false);
+    }
+
+    public function test_withdrawing_your_own_request_needs_the_right_to_make_one(): void
+    {
+        $employee = $this->makeUser('Sales');
+        $pending  = EmployeeRequest::create(['subject' => 'Still open', 'message' => 'msg', 'requested_by' => $employee->id]);
+
+        $employee->revokePermissionTo('create requests');
+
+        $this->actingAs($employee->fresh())->deleteJson(route('requests.destroy', $pending))->assertForbidden();
+    }
+
+    // ── Filing and responding ────────────────────────────────────────────
 
     public function test_any_authenticated_user_can_submit_a_request(): void
     {

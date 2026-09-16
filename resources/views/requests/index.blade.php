@@ -7,9 +7,11 @@
         <h4 class="page-title mb-0">Requests</h4>
         <div style="font-size:.7rem;color:var(--text3);margin-top:2px">Ask Super Admin / Manager for anything you need</div>
     </div>
-    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newRequestModal">
-        <i class="bi bi-plus-lg me-1"></i>New Request
-    </button>
+    @if($canCreate)
+        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newRequestModal">
+            <i class="bi bi-plus-lg me-1"></i>New Request
+        </button>
+    @endif
 </div>
 
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">

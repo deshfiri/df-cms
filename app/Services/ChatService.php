@@ -73,16 +73,116 @@ class ChatService
         // Reverb server is unreachable the message is still saved and delivered
         // on next load, we just skip the realtime push.
         $message->setRelation('sender', $sender);
+        $message->setRelation('conversation', $conversation);
         // The quote travels with the event so it renders on arrival rather than
         // only after the recipient reloads the thread.
         $message->loadMissing('replyTo.sender:id,name');
         try {
-            broadcast(new MessageSent($message, $conversation->otherParticipantId($sender->id)));
+            broadcast(new MessageSent($message, $conversation->recipientIdsFor($sender->id)));
         } catch (\Throwable $e) {
             report($e);
         }
 
+        // Sending is reading: your own message must never count as unread for you.
+        if ($conversation->isGroup()) {
+            $this->markRead($conversation, $sender);
+        }
+
         return $message;
+    }
+
+    // ── Groups ───────────────────────────────────────────────────────────
+
+    /**
+     * Start a group. The creator owns it; everyone chosen joins as a member.
+     *
+     * @param  array<int,int>  $memberIds
+     */
+    public function createGroup(User $creator, string $name, array $memberIds): Conversation
+    {
+        return DB::transaction(function () use ($creator, $name, $memberIds) {
+            $group = Conversation::create([
+                'type'       => Conversation::TYPE_GROUP,
+                'name'       => $name,
+                'created_by' => $creator->id,
+            ]);
+
+            $group->members()->attach($creator->id, ['role' => Conversation::ROLE_OWNER]);
+            $this->attachMembers($group, $memberIds);
+
+            return $group->load('members');
+        });
+    }
+
+    /** @param  array<int,int>  $userIds */
+    public function addMembers(Conversation $group, array $userIds): Conversation
+    {
+        $this->attachMembers($group, $userIds);
+
+        return $group->load('members');
+    }
+
+    public function removeMember(Conversation $group, User $member): Conversation
+    {
+        $group->members()->detach($member->id);
+
+        return $group->load('members');
+    }
+
+    public function renameGroup(Conversation $group, string $name): Conversation
+    {
+        $group->update(['name' => $name]);
+
+        return $group;
+    }
+
+    /**
+     * Leave a group. An owner walking out hands the group to whoever has been
+     * in it longest, so a group is never left with nobody able to manage it.
+     */
+    public function leaveGroup(Conversation $group, User $user): void
+    {
+        DB::transaction(function () use ($group, $user) {
+            $wasOwner = $group->roleOf($user) === Conversation::ROLE_OWNER;
+
+            $group->members()->detach($user->id);
+
+            if ($wasOwner) {
+                $heir = DB::table('conversation_user')
+                    ->where('conversation_id', $group->id)
+                    ->orderByRaw("CASE role WHEN 'admin' THEN 0 ELSE 1 END")
+                    ->orderBy('id')
+                    ->value('user_id');
+
+                if ($heir) {
+                    $group->members()->updateExistingPivot($heir, ['role' => Conversation::ROLE_OWNER]);
+                }
+            }
+        });
+    }
+
+    /**
+     * New members start "caught up": everything already said is history, not a
+     * flood of unread messages the moment they are added.
+     *
+     * @param  array<int,int>  $userIds
+     */
+    private function attachMembers(Conversation $group, array $userIds): void
+    {
+        $existing = $group->members()->pluck('users.id')->all();
+        $caughtUp = $group->messages()->max('id');
+
+        $new = User::whereIn('id', $userIds)
+            ->where('is_active', true)
+            ->whereNotIn('id', $existing)
+            ->pluck('id');
+
+        foreach ($new as $id) {
+            $group->members()->attach($id, [
+                'role'                 => Conversation::ROLE_MEMBER,
+                'last_read_message_id' => $caughtUp,
+            ]);
+        }
     }
 
     /**
@@ -173,9 +273,25 @@ class ChatService
         }
     }
 
-    /** Mark the other participant's messages in a conversation as read for $user. */
+    /**
+     * Mark a conversation read for $user.
+     *
+     * Direct: stamp the other person's messages, which is what drives read
+     * receipts. Group: move this member's own marker to the newest message —
+     * stamping the messages would mark them read for every member at once.
+     */
     public function markRead(Conversation $conversation, User $user): void
     {
+        if ($conversation->isGroup()) {
+            $latest = $conversation->messages()->max('id');
+
+            if ($latest) {
+                $conversation->members()->updateExistingPivot($user->id, ['last_read_message_id' => $latest]);
+            }
+
+            return;
+        }
+
         $conversation->messages()
             ->where('sender_id', '!=', $user->id)
             ->whereNull('read_at')
@@ -185,9 +301,36 @@ class ChatService
     /** Total unread messages addressed to $user across all conversations. */
     public function unreadCountFor(User $user): int
     {
-        return Message::whereHas('conversation', fn ($q) => $q->forUser($user->id))
+        $direct = Message::whereHas('conversation', fn ($q) => $q
+                ->where('type', Conversation::TYPE_DIRECT)
+                ->where(fn ($p) => $p->where('user_one_id', $user->id)->orWhere('user_two_id', $user->id)))
             ->where('sender_id', '!=', $user->id)
             ->whereNull('read_at')
             ->count();
+
+        return $direct + array_sum($this->groupUnread($user));
+    }
+
+    /**
+     * Unread count per group for one member: others' messages past their marker.
+     *
+     * @param  array<int,int>|null  $conversationIds  limit to these groups
+     * @return array<int,int>  conversation id => unread
+     */
+    public function groupUnread(User $user, ?array $conversationIds = null): array
+    {
+        return DB::table('messages')
+            ->join('conversation_user as cu', function ($join) use ($user) {
+                $join->on('cu.conversation_id', '=', 'messages.conversation_id')
+                    ->where('cu.user_id', '=', $user->id);
+            })
+            ->when($conversationIds !== null, fn ($q) => $q->whereIn('messages.conversation_id', $conversationIds ?: [0]))
+            ->where('messages.sender_id', '!=', $user->id)
+            ->whereRaw('messages.id > COALESCE(cu.last_read_message_id, 0)')
+            ->groupBy('messages.conversation_id')
+            ->selectRaw('messages.conversation_id, COUNT(*) as unread')
+            ->pluck('unread', 'messages.conversation_id')
+            ->map(fn ($n) => (int) $n)
+            ->all();
     }
 }

@@ -372,19 +372,28 @@
                     <span id="flowQueueBadge" style="{{ $flowQueueCount ? 'display:inline-flex' : 'display:none' }};margin-left:auto;background:var(--primary);color:#fff;font-size:.6rem;font-weight:700;border-radius:999px;padding:0 5px;min-width:16px;height:16px;align-items:center;justify-content:center">{{ $flowQueueCount ?: '' }}</span>
                 </a>
             @endif
+            @canany(['view workflows', 'manage workflows'])
+                <a href="{{ route('workflows.items') }}"
+                    class="sb-link {{ request()->routeIs('workflows.items') ? 'active' : '' }}" title="Workflow Tracker"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-list-task"></i><span class="sb-lbl">Workflow Tracker</span>
+                </a>
+            @endcanany
             @can('manage workflows')
                 <a href="{{ route('workflows.index') }}"
-                    class="sb-link {{ request()->routeIs('workflows.*') ? 'active' : '' }}" title="Workflows"
+                    class="sb-link {{ request()->routeIs('workflows.index') || request()->routeIs('workflows.show') ? 'active' : '' }}" title="Workflows"
                     data-bs-toggle="tooltip" data-bs-placement="right">
                     <i class="bi bi-diagram-2"></i><span class="sb-lbl">Workflows</span>
                 </a>
             @endcan
             @unless($isStageUser)
+            @canany(['view requests', 'create requests', 'manage requests'])
             <a href="{{ route('requests.index') }}"
                 class="sb-link {{ request()->routeIs('requests.*') ? 'active' : '' }}" title="Requests"
                 data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-inbox"></i><span class="sb-lbl">Requests</span>
             </a>
+            @endcanany
             @endunless
             {{-- Deliberately open — outside the stage-user trim, since department
                  staff are exactly who this is for: anyone may post a review or

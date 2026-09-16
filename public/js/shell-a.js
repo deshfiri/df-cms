@@ -226,13 +226,12 @@
                 }
 
                 return notify({
-                    title: (e.sender_name || 'Someone') + ' sent you a message',
+                    title: e.is_group
+                        ? (e.sender_name || 'Someone') + ' in ' + (e.conversation_name || 'a group')
+                        : (e.sender_name || 'Someone') + ' sent you a message',
                     body: preview,
                     tag: 'chat-' + e.conversation_id,
-                    onClick: function () {
-                        if (window.ChatOpenThread) { window.ChatOpenThread(e.sender_id, e.sender_name); }
-                        else { window.location.href = '/chat?user=' + encodeURIComponent(e.sender_id); }
-                    },
+                    onClick: function () { openChatFor(e); },
                 });
             }
 
@@ -310,6 +309,17 @@
  * the desktop notification, which only fires when the tab is NOT focused —
  * this is what you see while you are actually using the app.
  */
+        /** Open the thread a chat event belongs to: the group, or the 1:1 with its sender. */
+        function openChatFor(e) {
+            if (e.is_group) {
+                if (window.ChatOpenGroup) { window.ChatOpenGroup(e.conversation_id, e.conversation_name); }
+                else { window.location.href = '/chat?group=' + encodeURIComponent(e.conversation_id); }
+                return;
+            }
+            if (window.ChatOpenThread) { window.ChatOpenThread(e.sender_id, e.sender_name); }
+            else { window.location.href = '/chat?user=' + encodeURIComponent(e.sender_id); }
+        }
+
         function showMessageToast(e) {
             if (!window.Swal || !e) return;
 
@@ -324,7 +334,9 @@
                 toast: true,
                 position: 'bottom-end',
                 icon: 'info',
-                title: (e.sender_name || 'Someone') + ' sent you a message',
+                title: e.is_group
+                    ? (e.sender_name || 'Someone') + ' in ' + (e.conversation_name || 'a group')
+                    : (e.sender_name || 'Someone') + ' sent you a message',
                 text: body,
                 showConfirmButton: false,
                 timer: 5000,
@@ -336,11 +348,7 @@
                         Swal.close();
                         // Already on the chat page: switch threads in place
                         // rather than reloading and losing the socket.
-                        if (window.ChatOpenThread) {
-                            window.ChatOpenThread(e.sender_id, e.sender_name);
-                        } else {
-                            window.location.href = '/chat?user=' + encodeURIComponent(e.sender_id);
-                        }
+                        openChatFor(e);
                     });
                 },
             });

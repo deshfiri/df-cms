@@ -799,6 +799,16 @@
             color: #fff !important;
         }
 
+        /* ── Groups ──────────────────────────────────────────────────── */
+        .chat-avatar.is-group { background: rgba(var(--primary-rgb), .14); color: var(--primary); font-size: 1rem; }
+        .msg-sender { font-size: .68rem; font-weight: 700; color: var(--primary); margin-bottom: 1px; }
+        .grp-member { display: flex; align-items: center; gap: .6rem; padding: .4rem 0; border-bottom: 1px solid var(--border); }
+        .grp-member:last-child { border-bottom: 0; }
+        .grp-member .chat-avatar { width: 32px; height: 32px; font-size: .72rem; }
+        .grp-role { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text3); }
+        .grp-remove { background: none; border: 0; color: var(--text3); padding: 0 .25rem; }
+        .grp-remove:hover { color: var(--c-red); }
+
         /* ── Online now panel ────────────────────────────────────────── */
         .chat-wrap { position: relative; }
         .chat-online {
@@ -887,8 +897,16 @@
                         <span class="chat-unread d-none" id="missedBadge"></span>
                     </button>
                 </div>
-                <input type="text" id="chatSearch" class="form-control form-control-sm chat-search"
-                    placeholder="Search people to chat…" autocomplete="off">
+                <div class="d-flex gap-2">
+                    <input type="text" id="chatSearch" class="form-control form-control-sm chat-search"
+                        placeholder="Search people to chat…" autocomplete="off">
+                    @can('create chat groups')
+                        <button type="button" class="btn btn-sm flex-shrink-0" id="newGroupBtn" title="New group"
+                            style="background:var(--surface2);border:1px solid var(--border);color:var(--primary)">
+                            <i class="bi bi-people-fill"></i>
+                        </button>
+                    @endcan
+                </div>
             </div>
             <div class="chat-list" id="chatList">
                 <div class="text-center py-4 small" style="color:var(--text3)">Loading…</div>
@@ -923,6 +941,11 @@
                     <button class="btn btn-sm ms-auto" id="threadCall" title="Start audio call"
                         style="width:34px;height:34px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);color:var(--primary);padding:0">
                         <i class="bi bi-telephone-fill" style="font-size:.85rem"></i>
+                    </button>
+                    {{-- Groups have members instead of a call. --}}
+                    <button class="btn btn-sm ms-auto d-none" id="threadMembers" title="Group info"
+                        style="width:34px;height:34px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);color:var(--primary);padding:0">
+                        <i class="bi bi-people-fill" style="font-size:.85rem"></i>
                     </button>
                 </div>
                 <div class="chat-msgs" id="msgList"></div>
@@ -1011,6 +1034,71 @@
             <div class="chat-online-list" id="onlineList"></div>
         </aside>
     </div>
+
+    @can('create chat groups')
+        {{-- New group --}}
+        <div class="modal fade" id="newGroupModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header py-3">
+                        <h6 class="modal-title fw-bold"><i class="bi bi-people-fill me-2"></i>New group</h6>
+                        <button class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <label class="form-label fw-semibold small">Group name <span style="color:#dc3545">*</span></label>
+                        <input type="text" id="groupName" class="form-control mb-3" maxlength="100" placeholder="e.g. Design Team">
+                        <label class="form-label fw-semibold small">Members <span style="color:#dc3545">*</span></label>
+                        <select id="groupMembers" class="form-select" multiple></select>
+                        <div class="small mt-1" style="color:var(--text3)">You're added automatically as the group's owner.</div>
+                    </div>
+                    <div class="modal-footer py-2">
+                        <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
+                        <button class="btn btn-sm btn-primary" id="groupCreate"><i class="bi bi-check me-1"></i>Create group</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endcan
+
+    {{-- Group info: members, rename, leave --}}
+    <div class="modal fade" id="groupInfoModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header py-3">
+                    <h6 class="modal-title fw-bold text-truncate"><i class="bi bi-people-fill me-2"></i><span id="groupInfoTitle">Group</span></h6>
+                    <button class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="groupRenameRow" class="mb-3 d-none">
+                        <label class="form-label fw-semibold small">Group name</label>
+                        <div class="d-flex gap-2">
+                            <input type="text" id="groupRename" class="form-control form-control-sm" maxlength="100">
+                            <button class="btn btn-sm btn-light border" id="groupRenameSave">Rename</button>
+                        </div>
+                    </div>
+
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="fw-semibold small">Members <span id="groupMemberCount" style="color:var(--text3)"></span></span>
+                    </div>
+                    <div id="groupMemberList" class="mb-3"></div>
+
+                    <div id="groupAddRow" class="d-none">
+                        <label class="form-label fw-semibold small">Add people</label>
+                        <div class="d-flex gap-2 align-items-start">
+                            <div class="flex-grow-1"><select id="groupAddMembers" class="form-select form-select-sm" multiple></select></div>
+                            <button class="btn btn-sm btn-primary" id="groupAddSave">Add</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2 justify-content-between">
+                    <button class="btn btn-sm" id="groupLeave" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#dc2626">
+                        <i class="bi bi-box-arrow-right me-1"></i>Leave group
+                    </button>
+                    <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
 @endsection
 
 @push('scripts')
@@ -1018,6 +1106,9 @@
         $(function () {
             const ME = window.CURRENT_USER_ID;
             let activeUserId = null, activeConvId = null, activeChannel = null, typingTimer = null, searchTimer = null;
+            // Set instead of activeUserId while a group is open; activeGroup holds its members and my role.
+            let activeGroupId = null, activeGroup = null;
+            const MY_NAME = @json(auth()->user()->name);
 
             const esc = s => $('<div>').text(s == null ? '' : s).html();
             const initials = n => (n || '?').split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
@@ -1046,6 +1137,21 @@
                 if (!list.length) { $('#chatList').html('<div class="text-center py-4 small" style="color:var(--text3)">No conversations yet.</div>'); return; }
                 let html = '';
                 list.forEach(c => {
+                    if (c.is_group) {
+                        const who = c.last_from_me ? 'You: ' : (c.last_sender ? esc(c.last_sender) + ': ' : '');
+                        html += `<div class="chat-item ${c.conversation_id === activeConvId ? 'active' : ''}" data-group="${c.conversation_id}" data-conv="${c.conversation_id}" data-name="${esc(c.name)}">
+                                    <div class="chat-avatar is-group"><i class="bi bi-people-fill"></i></div>
+                                    <div class="chat-item-body">
+                                        <div class="chat-item-name"><span>${esc(c.name)}</span><span class="time">${c.last_at || ''}</span></div>
+                                        <div class="d-flex justify-content-between align-items-center gap-2">
+                                            <div class="chat-item-last">${c.last_body ? who + esc(c.last_body) : c.member_count + ' members · say hello'}</div>
+                                            ${c.unread ? `<span class="chat-unread">${c.unread}</span>` : ''}
+                                        </div>
+                                    </div>
+                                </div>`;
+                        return;
+                    }
+
                     const online = window.OnlineUsers.has(c.user_id);
                     html += `<div class="chat-item ${c.conversation_id === activeConvId ? 'active' : ''}" data-user="${c.user_id}" data-conv="${c.conversation_id}" data-name="${esc(c.name)}">
                                             <div class="chat-avatar">${avatarInner(c.name, c.avatar_url)}<span class="chat-dot ${online ? 'online' : ''}" data-user-dot="${c.user_id}"></span></div>
@@ -1163,11 +1269,17 @@
 
             // ── Open a conversation ──────────────────────────────────────────
             $(document).on('click', '.chat-item', function () {
+                if ($(this).data('group')) { openGroup($(this).data('group'), $(this).data('name')); return; }
                 openChat($(this).data('user'), $(this).data('name'));
             });
 
             function openChat(userId, name) {
                 activeUserId = userId;
+                activeGroupId = null;
+                activeGroup = null;
+                $('#threadAvatar').removeClass('is-group');
+                $('#threadCall').removeClass('d-none');
+                $('#threadMembers').addClass('d-none');
                 $('#chatEmpty').addClass('d-none');
                 $('#chatThread').removeClass('d-none');
                 $('#chatWrap').addClass('has-active');
@@ -1207,6 +1319,63 @@
                 if (!userId) return;
                 openChat(parseInt(userId, 10), name || 'Chat');
             };
+
+            // ── Open a group ─────────────────────────────────────────────────
+            function openGroup(convId, name) {
+                activeGroupId = parseInt(convId, 10);
+                activeUserId = null;
+                $('#chatEmpty').addClass('d-none');
+                $('#chatThread').removeClass('d-none');
+                $('#chatWrap').addClass('has-active');
+                $('#threadName').text(name || 'Group');
+                $('#threadAvatar').removeClass('is-group').addClass('is-group').html('<i class="bi bi-people-fill"></i>');
+                $('#threadStatus').text('');
+                $('#threadCall').addClass('d-none');
+                $('#threadMembers').removeClass('d-none');
+                $('#msgList').html('<div class="text-center py-4 small" style="color:var(--text3)">Loading…</div>');
+                $('#typingIndicator').text('');
+                cancelReply();
+                clearStagedFile();
+                $('#msgInput').val('');
+                resetComposerHeight();
+                renderOnlinePanel();
+
+                $.get('/chat/groups/' + activeGroupId).done(function (r) {
+                    if (activeGroupId !== r.conversation_id) return;   // switched away meanwhile
+
+                    activeGroup = r.group;
+                    paintGroupHeader();
+
+                    activeConvId = r.conversation_id;
+                    window.ActiveConversationId = activeConvId;
+                    renderMessages(r.messages);
+                    subscribeConversation(activeConvId);
+                    $('.chat-item').removeClass('active');
+                    $(`.chat-item[data-conv="${activeConvId}"]`).addClass('active').find('.chat-unread').remove();
+                    updateNavBadge(r.unread_total);
+                    $('#msgInput').focus();
+                }).fail(function (x) {
+                    $('#msgList').html('<div class="text-center py-4 small" style="color:var(--text3)">'
+                        + esc(x.responseJSON?.message || 'This group could not be opened.') + '</div>');
+                    loadConversations();
+                });
+            }
+
+            function paintGroupHeader() {
+                if (!activeGroup) return;
+                $('#threadName').text(activeGroup.name);
+                $('#threadStatus').text(activeGroup.members.length + ' members');
+            }
+
+            window.ChatOpenGroup = function (convId, name) {
+                if (!convId) return;
+                openGroup(convId, name || 'Group');
+            };
+
+            (function openGroupFromQueryString() {
+                const requested = new URLSearchParams(window.location.search).get('group');
+                if (requested) openGroup(requested, 'Group');
+            })();
 
             (function openFromQueryString() {
                 var requested = new URLSearchParams(window.location.search).get('user');
@@ -1323,7 +1492,7 @@
                                                     <button class="msg-tool react-open" title="React"><i class="bi bi-emoji-smile"></i></button>
                                                     ${m.can_delete ? '<button class="msg-tool msg-del" title="Delete"><i class="bi bi-trash"></i></button>' : ''}
                                                 </div>
-                                                ${quoteHtml(m.reply_to)}${text}${attachmentHtml(m.attachment)}${expiredAttachmentHtml(m.attachment_expired)}
+                                                ${(activeGroupId && !mine) ? `<div class="msg-sender">${esc(m.sender_name)}</div>` : ''}${quoteHtml(m.reply_to)}${text}${attachmentHtml(m.attachment)}${expiredAttachmentHtml(m.attachment_expired)}
                                                 <div class="msg-meta">${timeOf(m.created_at)}</div>
                                                 ${reactionsHtml(m.reactions)}
                                             </div>`;
@@ -1595,7 +1764,8 @@
             // ── Send ─────────────────────────────────────────────────────────
             function send() {
                 const body = $.trim($('#msgInput').val());
-                if ((!body && !pendingFile) || !activeUserId) return;
+                if ((!body && !pendingFile) || (!activeUserId && !activeGroupId)) return;
+                const sendUrl = activeGroupId ? '/chat/groups/' + activeGroupId + '/messages' : '/chat/with/' + activeUserId;
 
                 const form = new FormData();
                 if (body) form.append('body', body);
@@ -1611,7 +1781,7 @@
                 $('#msgSend').prop('disabled', true);
 
                 $.ajax({
-                    url: '/chat/with/' + activeUserId,
+                    url: sendUrl,
                     type: 'POST',
                     data: form,
                     processData: false,
@@ -1701,7 +1871,9 @@
                     recStream = stream;
                     recChunks = [];
                     recDiscard = false;
-                    recTarget = activeUserId;
+                    recTarget = activeGroupId
+                        ? { url: '/chat/groups/' + activeGroupId + '/messages', group: activeGroupId }
+                        : { url: '/chat/with/' + activeUserId, user: activeUserId };
                     recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
 
                     recorder.ondataavailable = e => { if (e.data && e.data.size) recChunks.push(e.data); };
@@ -1760,17 +1932,20 @@
                 form.append('file', blob, 'voice-message-' + Date.now() + '.' + recExtension(type));
                 form.append('duration', seconds);
 
-                const target = recTarget || activeUserId;
+                const target = recTarget || (activeGroupId
+                    ? { url: '/chat/groups/' + activeGroupId + '/messages', group: activeGroupId }
+                    : { url: '/chat/with/' + activeUserId, user: activeUserId });
 
                 $.ajax({
-                    url: '/chat/with/' + target,
+                    url: target.url,
                     type: 'POST',
                     data: form,
                     processData: false,
                     contentType: false,
                 }).done(function (r) {
                     // The thread may have been switched while the upload was in flight.
-                    if (target === activeUserId) appendMessage(r.message);
+                    const stillHere = target.group ? target.group === activeGroupId : target.user === activeUserId;
+                    if (stillHere) appendMessage(r.message);
                     loadConversations();
                 }).fail(function (x) {
                     Swal.fire('Error', x.responseJSON?.message || 'Voice message failed to send', 'error');
@@ -1810,7 +1985,7 @@
                     return;
                 }
 
-                if (activeChannel) { activeChannel.whisper('typing', { id: ME }); }
+                if (activeChannel) { activeChannel.whisper('typing', { id: ME, name: MY_NAME }); }
             });
             $('#chatBack').on('click', function () { $('#chatWrap').removeClass('has-active'); });
 
@@ -1835,7 +2010,8 @@
                 });
                 activeChannel.listenForWhisper('typing', function (e) {
                     if (!e || e.id === ME) return;
-                    $('#typingIndicator').text($('#threadName').text() + ' is typing…');
+                    // In a group the thread name is the group's, so say who it is.
+                    $('#typingIndicator').text((activeGroupId ? (e.name || 'Someone') : $('#threadName').text()) + ' is typing…');
                     clearTimeout(typingTimer);
                     typingTimer = setTimeout(() => $('#typingIndicator').text(''), 1800);
                 });
@@ -1850,6 +2026,8 @@
 
             // ── Presence (online dots) ───────────────────────────────────────
             function updateThreadPresence() {
+                // A group's header shows its size, not somebody's presence.
+                if (activeGroupId) { renderOnlinePanel(); return; }
                 const online = activeUserId && window.OnlineUsers.has(activeUserId);
                 $('#threadDot').toggleClass('online', !!online);
                 $('#threadStatus').text(online ? 'online' : 'offline');
@@ -1950,6 +2128,134 @@
             document.addEventListener('online-changed', renderOnlinePanel);
             document.addEventListener('realtime-state', renderOnlinePanel);
             renderOnlinePanel();
+
+            // ── Group creation & info ────────────────────────────────────────
+            // People pickers search the same directory the chat search uses.
+            function peoplePicker($select, $parent, exclude) {
+                if ($select.hasClass('select2-hidden-accessible')) $select.select2('destroy');
+                $select.empty().select2({
+                    theme: 'bootstrap-5', width: '100%', dropdownParent: $parent,
+                    placeholder: 'Search people…', minimumInputLength: 0,
+                    ajax: {
+                        url: '{{ route('chat.users') }}', delay: 200,
+                        data: params => ({ q: params.term || '' }),
+                        processResults: r => ({
+                            results: (r.users || [])
+                                .filter(u => !(exclude || []).includes(u.id))
+                                .map(u => ({ id: u.id, text: u.name })),
+                        }),
+                    },
+                });
+            }
+
+            function errorText(x, fallback) {
+                const errors = x.responseJSON && x.responseJSON.errors;
+                return errors ? Object.values(errors).flat().join(' ') : (x.responseJSON?.message || fallback);
+            }
+
+            $('#newGroupBtn').on('click', function () {
+                $('#groupName').val('');
+                peoplePicker($('#groupMembers'), $('#newGroupModal'));
+                bootstrap.Modal.getOrCreateInstance('#newGroupModal').show();
+                setTimeout(() => $('#groupName').trigger('focus'), 300);
+            });
+
+            $('#groupCreate').on('click', function () {
+                const btn = $(this).prop('disabled', true);
+                $.post('{{ route('chat.groups.store') }}', {
+                    name: $.trim($('#groupName').val()),
+                    member_ids: $('#groupMembers').val() || [],
+                }).done(function (r) {
+                    bootstrap.Modal.getOrCreateInstance('#newGroupModal').hide();
+                    loadConversations();
+                    openGroup(r.conversation_id, r.group.name);
+                }).fail(function (x) {
+                    Swal.fire('Could not create the group', errorText(x, 'Please try again.'), 'error');
+                }).always(() => btn.prop('disabled', false));
+            });
+
+            function paintGroupInfo() {
+                if (!activeGroup) return;
+                const g = activeGroup;
+                const manage = !!g.can_manage;
+
+                $('#groupInfoTitle').text(g.name);
+                $('#groupMemberCount').text('(' + g.members.length + ')');
+                $('#groupRenameRow').toggleClass('d-none', !manage);
+                $('#groupRename').val(g.name);
+                $('#groupAddRow').toggleClass('d-none', !manage);
+
+                $('#groupMemberList').html(g.members.map(m =>
+                    '<div class="grp-member">'
+                    + '<div class="chat-avatar">' + avatarInner(m.name, m.avatar_url) + '</div>'
+                    + '<div class="flex-grow-1 min-w-0"><div class="text-truncate" style="font-size:.84rem;color:var(--text)">'
+                    +   esc(m.name) + (m.id === ME ? ' <span style="color:var(--text3)">(you)</span>' : '') + '</div>'
+                    +   (m.role !== 'member' ? '<div class="grp-role">' + esc(m.role) + '</div>' : '')
+                    + '</div>'
+                    + ((manage && m.id !== ME && m.role !== 'owner')
+                        ? '<button class="grp-remove" data-member="' + m.id + '" data-name="' + esc(m.name) + '" title="Remove from group"><i class="bi bi-x-circle"></i></button>'
+                        : '')
+                    + '</div>').join(''));
+
+                if (manage) peoplePicker($('#groupAddMembers'), $('#groupInfoModal'), g.members.map(m => m.id));
+            }
+
+            $('#threadMembers').on('click', function () {
+                if (!activeGroup) return;
+                paintGroupInfo();
+                bootstrap.Modal.getOrCreateInstance('#groupInfoModal').show();
+            });
+
+            function groupChanged(r) {
+                activeGroup = r.group;
+                paintGroupHeader();
+                paintGroupInfo();
+                loadConversations();
+            }
+
+            $('#groupRenameSave').on('click', function () {
+                $.ajax({ url: '/chat/groups/' + activeGroupId, type: 'PUT', data: { name: $.trim($('#groupRename').val()) } })
+                    .done(groupChanged)
+                    .fail(x => Swal.fire('Could not rename', errorText(x, 'Please try again.'), 'error'));
+            });
+
+            $('#groupAddSave').on('click', function () {
+                const ids = $('#groupAddMembers').val() || [];
+                if (!ids.length) return;
+                $.post('/chat/groups/' + activeGroupId + '/members', { member_ids: ids })
+                    .done(groupChanged)
+                    .fail(x => Swal.fire('Could not add', errorText(x, 'Please try again.'), 'error'));
+            });
+
+            $(document).on('click', '.grp-remove', function () {
+                const id = $(this).data('member'), name = $(this).data('name');
+                Swal.fire({ title: 'Remove ' + name + '?', text: 'They will stop seeing this group.', icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545' })
+                    .then(res => {
+                        if (!res.isConfirmed) return;
+                        $.ajax({ url: '/chat/groups/' + activeGroupId + '/members/' + id, type: 'DELETE' })
+                            .done(groupChanged)
+                            .fail(x => Swal.fire('Could not remove', errorText(x, 'Please try again.'), 'error'));
+                    });
+            });
+
+            $('#groupLeave').on('click', function () {
+                Swal.fire({ title: 'Leave this group?', text: "You won't see its messages any more.", icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545' })
+                    .then(res => {
+                        if (!res.isConfirmed) return;
+                        $.post('/chat/groups/' + activeGroupId + '/leave').done(function (r) {
+                            bootstrap.Modal.getOrCreateInstance('#groupInfoModal').hide();
+                            if (activeChannel && window.Echo) window.Echo.leave('conversation.' + activeChannel._convId);
+                            activeChannel = null;
+                            activeGroupId = activeGroup = activeConvId = null;
+                            window.ActiveConversationId = null;
+                            $('#chatThread').addClass('d-none');
+                            $('#chatEmpty').removeClass('d-none');
+                            $('#chatWrap').removeClass('has-active');
+                            updateNavBadge(r.unread_total);
+                            loadConversations();
+                        }).fail(x => Swal.fire('Could not leave', errorText(x, 'Please try again.'), 'error'));
+                    });
+            });
 
             // A message arrived on my personal channel (from the layout listener) → refresh the list.
             document.addEventListener('chat-message', function () { loadConversations(); });
