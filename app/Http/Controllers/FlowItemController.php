@@ -10,12 +10,14 @@ use App\Models\FlowItemComment;
 use App\Models\User;
 use App\Services\FlowService;
 use App\Services\Storage\StorageSettings;
+use App\Services\Storage\StoredFileResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -299,12 +301,24 @@ class FlowItemController extends Controller
         ];
 
         if ($data['kind'] === 'file') {
-            $file   = $request->file('file');
-            $stored = Str::uuid() . '.' . $file->getClientOriginalExtension();
-            $disk   = $this->storage->activeDisk();
+            $file      = $request->file('file');
+            $extension = strtolower($file->getClientOriginalExtension());
+            $stored    = Str::uuid() . ($extension !== '' ? '.' . $extension : '');
+            $disk      = $this->storage->activeDisk();
+            $path      = $file->storeAs('flow-attachments/' . $item->id, $stored, $disk);
+
+            // storeAs() answers false rather than throwing when the provider
+            // refuses the write. Saving the row anyway left an attachment that
+            // listed fine and could never be downloaded.
+            if (!$path) {
+                throw ValidationException::withMessages([
+                    'file' => 'The file could not be stored. Please try again, or ask an admin to check Settings → Storage & CDN.',
+                ]);
+            }
+
             $payload += [
                 'original_name' => $file->getClientOriginalName(),
-                'file_path'     => $file->storeAs('flow-attachments/' . $item->id, $stored, $disk),
+                'file_path'     => $path,
                 'disk'          => $disk,
                 'mime_type'     => $file->getMimeType(),
                 'file_size'     => $file->getSize(),
@@ -323,11 +337,18 @@ class FlowItemController extends Controller
     public function downloadAttachment(Request $request, FlowItem $item, FlowItemAttachment $attachment): StreamedResponse
     {
         abort_unless($this->flow->canView($request->user(), $item), 403);
-        abort_if($attachment->flow_item_id !== $item->id, 404);
-        $disk = Storage::disk($attachment->disk ?: 'local');
-        abort_unless($attachment->isFile() && $disk->exists($attachment->file_path), 404);
+        abort_if((int) $attachment->flow_item_id !== (int) $item->id, 404);
+        abort_unless($attachment->isFile(), 404);
 
-        return $disk->download($attachment->file_path, $attachment->original_name);
+        // Type and size come from the upload record rather than a round trip to
+        // the disk — asking a CDN for them mid-download is what broke these.
+        return StoredFileResponse::download(
+            $attachment->disk,
+            (string) $attachment->file_path,
+            (string) ($attachment->original_name ?: $attachment->title ?: 'attachment'),
+            $attachment->mime_type,
+            $attachment->file_size,
+        );
     }
 
     public function destroyAttachment(Request $request, FlowItem $item, FlowItemAttachment $attachment): JsonResponse
