@@ -163,6 +163,68 @@
             </div>
         </div>
 
+        {{-- Sidebar --}}
+        <div class="card section-card mb-4">
+            <div class="card-header py-3">
+                <h6 class="fw-bold mb-0">Sidebar</h6>
+                <small style="color:var(--text3)">The icon shown when the menu is collapsed, and the colour of the item you're on.</small>
+            </div>
+            <div class="card-body">
+                {{-- Collapsed icon --}}
+                <label class="form-label small fw-semibold">Collapsed icon</label>
+                <div class="small mb-2" style="color:var(--text3)">
+                    Shown instead of the logo when the sidebar is collapsed. Square works best — 64×64 or larger.
+                    ICO / PNG / SVG / WebP / JPG · Max 256 KB.
+                </div>
+
+                @if($appIcon)
+                <div class="mb-3 p-3 d-flex align-items-center gap-3" style="border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface2)">
+                    <img src="{{ $appIcon }}" alt="Current icon" style="width:30px;height:30px;object-fit:contain">
+                    <div>
+                        <div class="small mb-1" style="color:var(--text3)">Current icon</div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="remove_icon" value="1" id="removeIcon">
+                            <label class="form-check-label small" style="color:var(--c-red)" for="removeIcon">Remove icon</label>
+                        </div>
+                    </div>
+                </div>
+                @endif
+
+                <input type="file" name="icon" accept=".ico,.png,.jpg,.jpeg,.svg,.webp"
+                       class="form-control @error('icon') is-invalid @enderror" id="iconInput">
+                @error('icon')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                <div id="iconPreviewWrap" class="mt-2 d-none">
+                    <img id="iconPreview" src="" alt="Preview"
+                         style="width:30px;height:30px;object-fit:contain;border:1px solid var(--border);padding:3px;border-radius:6px">
+                </div>
+                @unless($appIcon)
+                    <div class="small mt-2" style="color:var(--text3)">
+                        None set — the favicon is used when the sidebar collapses, or the logo is shrunk if there is no favicon either.
+                    </div>
+                @endunless
+
+                <hr style="border-color:var(--border);margin:1.25rem 0">
+
+                {{-- Active item colour --}}
+                <label class="form-label small fw-semibold">Active menu item colour</label>
+                <div class="small mb-2" style="color:var(--text3)">Colours the icon and the left edge of the page you're on.</div>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" name="nav_use_theme" value="1" id="navUseTheme" @checked(old('nav_use_theme', !$navActiveColor))>
+                    <label class="form-check-label small" for="navUseTheme">Follow the theme colour</label>
+                </div>
+                <div id="navColorRow" class="d-flex align-items-center gap-3 {{ old('nav_use_theme', !$navActiveColor) ? 'd-none' : '' }}">
+                    <input type="color" id="navColorPicker" name="nav_active_color"
+                           value="{{ old('nav_active_color', $navActiveColor ?: $themeColor) }}"
+                           class="form-control form-control-color @error('nav_active_color') is-invalid @enderror"
+                           style="width:56px;height:40px;padding:2px;cursor:pointer">
+                    <input type="text" id="navColorHex" value="{{ old('nav_active_color', $navActiveColor ?: $themeColor) }}"
+                           class="form-control form-control-sm font-monospace" style="width:100px" maxlength="7" placeholder="#1F3C88">
+                    <span class="small" style="color:var(--text3)">hex code</span>
+                </div>
+                @error('nav_active_color')<div class="small mt-1" style="color:var(--c-red)">{{ $message }}</div>@enderror
+            </div>
+        </div>
+
         <button type="submit" class="btn btn-primary px-4">
             <i class="bi bi-save me-1"></i>Save Settings
         </button>
@@ -176,21 +238,40 @@
                 <small style="color:var(--text3)">Changes apply to the whole page instantly.</small>
             </div>
             <div class="card-body">
-                {{-- Mini sidebar --}}
-                <div id="previewSidebar" class="rounded-3 p-3 mb-3" style="background:linear-gradient(180deg,{{ $sbPreviewTop }},{{ $sbPreviewBottom }});width:180px">
-                    <div id="previewBrand" class="d-flex align-items-center gap-2 pb-2 mb-2" style="border-bottom:1px solid rgba(255,255,255,.15)">
-                        @if($appLogo)
-                        <img id="previewLogoImg" src="{{ $appLogo }}" alt="Logo" style="max-height:32px;max-width:120px;object-fit:contain">
-                        @else
-                        <i class="bi bi-shop text-white" style="font-size:1.2rem"></i>
-                        <div class="text-white fw-bold text-truncate" id="previewName" style="font-size:.85rem">{{ $appName }}</div>
-                        @endif
+                {{-- Mini sidebar, expanded and collapsed --}}
+                <div class="d-flex gap-2 mb-3">
+                    <div id="previewSidebar" class="rounded-3 p-3" style="background:linear-gradient(180deg,{{ $sbPreviewTop }},{{ $sbPreviewBottom }});width:180px">
+                        <div id="previewBrand" class="d-flex align-items-center gap-2 pb-2 mb-2" style="border-bottom:1px solid rgba(255,255,255,.15)">
+                            @if($appLogo)
+                            <img id="previewLogoImg" src="{{ $appLogo }}" alt="Logo" style="max-height:32px;max-width:120px;object-fit:contain">
+                            @else
+                            <i class="bi bi-shop text-white" style="font-size:1.2rem"></i>
+                            <div class="text-white fw-bold text-truncate" id="previewName" style="font-size:.85rem">{{ $appName }}</div>
+                            @endif
+                        </div>
+                        <div id="previewActiveRow" class="mb-1"
+                             style="color:#fff;font-size:.72rem;padding:.2rem .4rem;border-radius:4px;background:rgba(255,255,255,.1);box-shadow:inset 3px 0 0 {{ $navActiveColor ?: $themeColor }}">
+                            <i class="bi bi-speedometer2 me-1" id="previewActiveIcon" style="color:{{ $navActiveColor ?: $themeColor }}"></i>Dashboard
+                        </div>
+                        <div style="color:rgba(255,255,255,.45);font-size:.72rem;padding:.2rem .4rem">
+                            <i class="bi bi-people me-1"></i>Clients
+                        </div>
                     </div>
-                    <div style="color:rgba(255,255,255,.6);font-size:.72rem;padding:.2rem .4rem;border-radius:4px;background:rgba(255,255,255,.1)" class="mb-1">
-                        <i class="bi bi-speedometer2 me-1"></i>Dashboard
-                    </div>
-                    <div style="color:rgba(255,255,255,.45);font-size:.72rem;padding:.2rem .4rem">
-                        <i class="bi bi-people me-1"></i>Clients
+
+                    {{-- Collapsed: only the icon has room here. --}}
+                    <div class="rounded-3 p-2 text-center" style="background:linear-gradient(180deg,{{ $sbPreviewTop }},{{ $sbPreviewBottom }});width:56px">
+                        <div class="pb-2 mb-2 d-flex justify-content-center" style="border-bottom:1px solid rgba(255,255,255,.15);min-height:34px">
+                            @php $previewMark = $appIcon ?: $appFavicon; @endphp
+                            <img id="previewMarkImg" src="{{ $previewMark }}" alt="Icon"
+                                 style="width:26px;height:26px;object-fit:contain;{{ $previewMark ? '' : 'display:none' }}">
+                            <i class="bi bi-shop text-white" id="previewMarkFallback" style="font-size:1.1rem;{{ $previewMark ? 'display:none' : '' }}"></i>
+                        </div>
+                        <div style="font-size:.85rem;padding:.15rem 0;border-radius:4px;background:rgba(255,255,255,.1)">
+                            <i class="bi bi-speedometer2" id="previewMiniIcon" style="color:{{ $navActiveColor ?: $themeColor }}"></i>
+                        </div>
+                        <div style="color:rgba(255,255,255,.45);font-size:.85rem;padding:.15rem 0">
+                            <i class="bi bi-people"></i>
+                        </div>
                     </div>
                 </div>
 
@@ -292,6 +373,9 @@ function applyTheme(color) {
     root.style.setProperty('--sb-bg-bottom', sbBottom);
     $('#previewSidebar').css('background', `linear-gradient(180deg, ${sbTop}, ${sbBottom})`);
 
+    // The menu highlight follows the theme unless it has been given its own colour.
+    if ($('#navUseTheme').is(':checked')) applyNavActive(color);
+
     // Highlight active preset
     $('.color-preset').css('box-shadow', '').css('transform', '');
     $(`.color-preset[data-color="${color.toLowerCase()}"]`).css({
@@ -299,6 +383,62 @@ function applyTheme(color) {
         'transform':  'scale(1.15)',
     });
 }
+
+// ── Active menu item color ───────────────────────────────────────────────────
+function applyNavActive(color) {
+    if (!isValidHex(color)) return;
+    const [r, g, b] = hexToRgb(color);
+    const root = document.documentElement;
+
+    root.style.setProperty('--nav-active', color);
+    root.style.setProperty('--nav-active-rgb', `${r}, ${g}, ${b}`);
+
+    $('#previewActiveIcon, #previewMiniIcon').css('color', color);
+    $('#previewActiveRow').css('box-shadow', `inset 3px 0 0 ${color}`);
+}
+
+$('#navUseTheme').on('change', function () {
+    $('#navColorRow').toggleClass('d-none', this.checked);
+    applyNavActive(this.checked ? $('#colorPicker').val() : $('#navColorPicker').val());
+});
+
+$('#navColorPicker').on('input', function () {
+    $('#navColorHex').val($(this).val());
+    applyNavActive($(this).val());
+});
+
+$('#navColorHex').on('input', function () {
+    let v = $(this).val().trim();
+    if (!v.startsWith('#')) v = '#' + v;
+    if (isValidHex(v)) {
+        $('#navColorPicker').val(v);
+        applyNavActive(v);
+    }
+});
+
+// ── Collapsed sidebar icon preview ───────────────────────────────────────────
+$('#iconInput').on('change', function () {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        $('#iconPreview').attr('src', e.target.result);
+        $('#iconPreviewWrap').removeClass('d-none');
+        $('#previewMarkImg').attr('src', e.target.result).show();
+        $('#previewMarkFallback').hide();
+    };
+    reader.readAsDataURL(file);
+});
+
+$('#removeIcon').on('change', function () {
+    const favicon = @json($appFavicon);
+    if (this.checked && !favicon) {
+        $('#previewMarkImg').hide();
+        $('#previewMarkFallback').show();
+    } else if (this.checked) {
+        $('#previewMarkImg').attr('src', favicon).show();
+    }
+});
 
 // ── Color picker ─────────────────────────────────────────────────────────────
 $('#colorPicker').on('input', function () {
@@ -372,7 +512,8 @@ $('#removeLogo').on('change', function () {
     }
 });
 
-// Apply saved color on load so preset highlight is correct
+// Apply saved colors on load so the preset highlight and menu preview are correct
 applyTheme('{{ $themeColor }}');
+applyNavActive('{{ $navActiveColor ?: $themeColor }}');
 </script>
 @endpush

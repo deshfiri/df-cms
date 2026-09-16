@@ -13,6 +13,9 @@
         $branding = app(\App\Services\Storage\BrandingAssetService::class);
         $appLogo = $branding->url('app_logo');
         $appFavicon = $branding->url('app_favicon');
+        // The square mark shown once the sidebar collapses. Falls back to the
+        // favicon, which is already a square version of the same brand.
+        $appIcon = $branding->url('app_icon') ?: $appFavicon;
         $themeHex = ltrim(\App\Models\Setting::get('theme_color', '#1F3C88'), '#');
         $themeColor = '#' . $themeHex;
         $tR = hexdec(substr($themeHex, 0, 2));
@@ -38,6 +41,13 @@
         $sbBgBottom = $shade(.16);
         $sbBgTopDarkMode = $shade(.20);
         $sbBgBottomDarkMode = $shade(.10);
+        // Active menu item colour — its own setting so the highlight can differ
+        // from the theme colour; unset simply follows it.
+        $navActiveHex = ltrim(\App\Models\Setting::get('nav_active_color') ?: $themeColor, '#');
+        $navActive = '#' . $navActiveHex;
+        $nR = hexdec(substr($navActiveHex, 0, 2));
+        $nG = hexdec(substr($navActiveHex, 2, 2));
+        $nB = hexdec(substr($navActiveHex, 4, 2));
     @endphp
     <title>@yield('title', 'Dashboard') — {{ $appName }}</title>
 
@@ -113,6 +123,11 @@
             --sb-hover: rgba(255, 255, 255, .07);
             --sb-active: rgba(255, 255, 255, .1);
             --sb-bd: rgba(255, 255, 255, .07);
+
+            /* Active menu item (Settings → General). Read by shell.css for the
+               item's icon and its left edge, in both light and dark mode. */
+            --nav-active: {{ $navActive }};
+            --nav-active-rgb: {{ $nR }}, {{ $nG }}, {{ $nB }};
 
             --bs-primary:
                 {{ $themeColor }}
@@ -252,7 +267,8 @@
 <body>
 
     {{-- ── Sidebar ──────────────────────────────────────────────────── --}}
-    <aside id="sidebar">
+    {{-- `has-mark` swaps the full logo for the square icon while collapsed. --}}
+    <aside id="sidebar" class="{{ $appIcon ? 'has-mark' : '' }}">
 
         <div class="sb-brand">
             @if($appLogo)
@@ -263,6 +279,9 @@
                     <div class="sb-brand-name">{{ $appName }}</div>
                     <div class="sb-brand-sub">Client Management</div>
                 </div>
+            @endif
+            @if($appIcon)
+                <img src="{{ $appIcon }}" alt="{{ $appName }}" class="sb-brand-mark">
             @endif
         </div>
 

@@ -93,13 +93,13 @@
         }
 
         [data-theme="dark"] .sb-link.active {
-            background: rgba(var(--primary-rgb), .16);
+            background: rgba(var(--nav-active-rgb, var(--primary-rgb)), .16);
             color: #F8FAFC;
-            box-shadow: inset 3px 0 0 var(--primary);
+            box-shadow: inset 3px 0 0 var(--nav-active, var(--primary));
         }
 
         [data-theme="dark"] .sb-link.active i {
-            color: var(--primary);
+            color: var(--nav-active, var(--primary));
         }
 
         [data-theme="dark"] .sb-section {
@@ -337,6 +337,30 @@
             transition: opacity var(--t), width var(--t);
         }
 
+        /* The square mark, uploaded in Settings. Only ever shown collapsed,
+           where a wide logo has nowhere to go. */
+        .sb-brand-mark {
+            display: none;
+            width: 30px;
+            height: 30px;
+            object-fit: contain;
+            flex-shrink: 0;
+        }
+
+        #sidebar.has-mark.collapsed .sb-brand-mark {
+            display: block;
+        }
+
+        #sidebar.has-mark.collapsed .sb-brand-logo,
+        #sidebar.has-mark.collapsed .sb-brand-icon {
+            display: none;
+        }
+
+        #sidebar.collapsed .sb-brand {
+            justify-content: center;
+            padding: 0 8px;
+        }
+
         .sb-nav {
             padding: 8px 7px;
             flex: 1;
@@ -386,7 +410,7 @@
         .sb-link.active {
             background: var(--sb-active);
             color: #fff;
-            box-shadow: inset 3px 0 0 var(--primary);
+            box-shadow: inset 3px 0 0 var(--nav-active, var(--primary));
         }
 
         .sb-link i {
@@ -397,7 +421,7 @@
         }
 
         .sb-link.active i {
-            color: var(--primary);
+            color: var(--nav-active, var(--primary));
         }
 
         .sb-link .sb-lbl {

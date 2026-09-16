@@ -25,7 +25,11 @@ class SettingController extends Controller
         // case the stored value is a remote path rather than a public/ one.
         $appLogo    = $this->branding->url('app_logo');
         $appFavicon = $this->branding->url('app_favicon');
+        // Shown in place of the logo once the sidebar is collapsed to icons.
+        $appIcon    = $this->branding->url('app_icon');
         $themeColor = Setting::get('theme_color', '#1F3C88');
+        // Null means "follow the theme colour", which is the default.
+        $navActiveColor = Setting::get('nav_active_color');
 
         $hex = ltrim($themeColor, '#');
         $themeColorDark = sprintf('#%02x%02x%02x',
@@ -34,7 +38,7 @@ class SettingController extends Controller
             max(0, (int) round(hexdec(substr($hex, 4, 2)) * .82))
         );
 
-        return view('settings.general', compact('appName', 'appLogo', 'appFavicon', 'themeColor', 'themeColorDark'));
+        return view('settings.general', compact('appName', 'appLogo', 'appFavicon', 'appIcon', 'themeColor', 'themeColorDark', 'navActiveColor'));
     }
 
     public function update(Request $request): RedirectResponse
@@ -45,9 +49,15 @@ class SettingController extends Controller
             // Not the `image` rule: it rejects .ico, which is still the most
             // common thing people have to hand for a favicon.
             'favicon'     => 'nullable|file|mimes:png,jpg,jpeg,svg,webp,ico|max:256',
+            // The collapsed-sidebar mark. Same rules as the favicon: small,
+            // square, and .ico is fair game.
+            'icon'        => 'nullable|file|mimes:png,jpg,jpeg,svg,webp,ico|max:256',
             'theme_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'nav_active_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
         ], [
             'favicon.mimes' => 'The favicon must be a .ico, .png, .svg, .webp or .jpg file.',
+            'icon.mimes'    => 'The sidebar icon must be a .ico, .png, .svg, .webp or .jpg file.',
+            'nav_active_color.regex' => 'The active menu colour must be a hex code like #1F3C88.',
         ]);
 
         if ($request->filled('app_name')) {
@@ -59,8 +69,17 @@ class SettingController extends Controller
             Setting::set('theme_color', strtolower($request->theme_color));
         }
 
+        // Cleared rather than stored when it should simply follow the theme, so
+        // changing the theme colour keeps moving the menu highlight with it.
+        if ($request->boolean('nav_use_theme')) {
+            Setting::set('nav_active_color', null);
+        } elseif ($request->filled('nav_active_color')) {
+            Setting::set('nav_active_color', strtolower($request->nav_active_color));
+        }
+
         $this->handleBrandImage($request, 'logo', 'app_logo', 'uploads/logo');
         $this->handleBrandImage($request, 'favicon', 'app_favicon', 'uploads/favicon');
+        $this->handleBrandImage($request, 'icon', 'app_icon', 'uploads/icon');
 
         return back()->with('success', 'Settings saved.');
     }
