@@ -168,14 +168,14 @@
         }
 
         [data-theme="dark"] .fpill:hover {
-            border-color: var(--c-blue);
-            color: var(--c-blue);
-            background: rgba(59, 130, 246, .08);
+            border-color: var(--filter-active, var(--c-blue));
+            color: var(--filter-active, var(--c-blue));
+            background: rgba(var(--filter-active-rgb, 59, 130, 246), .08);
         }
 
         [data-theme="dark"] .fpill.active {
-            background: var(--c-blue);
-            border-color: var(--c-blue);
+            background: var(--filter-active, var(--c-blue));
+            border-color: var(--filter-active, var(--c-blue));
             color: #fff;
         }
 
@@ -583,6 +583,16 @@
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
+            overflow: hidden;
+        }
+
+        /* A profile picture filling whichever avatar circle it is dropped into. */
+        .avatar-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 50%;
+            display: block;
         }
 
         /* ── Main ───────────────────────────────────────────────────── */
@@ -960,13 +970,13 @@
         }
 
         .fpill:hover {
-            border-color: var(--primary);
-            color: var(--primary);
+            border-color: var(--filter-active, var(--primary));
+            color: var(--filter-active, var(--primary));
         }
 
         .fpill.active {
-            background: var(--primary);
-            border-color: var(--primary);
+            background: var(--filter-active, var(--primary));
+            border-color: var(--filter-active, var(--primary));
             color: #fff;
         }
 

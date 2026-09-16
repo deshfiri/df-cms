@@ -91,6 +91,12 @@ Route::middleware(['auth'])->group(function () {
     Route::put('account/password', [AccountController::class, 'updatePassword'])
         ->middleware('throttle:6,1')
         ->name('account.password');
+    Route::post('account/avatar', [AccountController::class, 'updateAvatar'])->name('account.avatar');
+    Route::delete('account/avatar', [AccountController::class, 'destroyAvatar'])->name('account.avatar.destroy');
+
+    // A colleague's picture, shown wherever their name is. Proxied like every
+    // other upload so it follows the storage provider and stays behind login.
+    Route::get('users/{user}/avatar', [AccountController::class, 'avatar'])->name('users.avatar');
 
     // Client resource
     Route::resource('clients', ClientController::class);

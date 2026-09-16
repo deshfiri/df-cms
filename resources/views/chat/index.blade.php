@@ -1021,6 +1021,10 @@
 
             const esc = s => $('<div>').text(s == null ? '' : s).html();
             const initials = n => (n || '?').split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+            // A profile picture where somebody has set one, their initials otherwise.
+            const avatarInner = (name, url) => url
+                ? '<img src="' + esc(url) + '" alt="" class="avatar-img">'
+                : esc(initials(name));
             const timeOf = iso => { try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
 
             function updateNavBadge(total) {
@@ -1044,7 +1048,7 @@
                 list.forEach(c => {
                     const online = window.OnlineUsers.has(c.user_id);
                     html += `<div class="chat-item ${c.conversation_id === activeConvId ? 'active' : ''}" data-user="${c.user_id}" data-conv="${c.conversation_id}" data-name="${esc(c.name)}">
-                                            <div class="chat-avatar">${esc(initials(c.name))}<span class="chat-dot ${online ? 'online' : ''}" data-user-dot="${c.user_id}"></span></div>
+                                            <div class="chat-avatar">${avatarInner(c.name, c.avatar_url)}<span class="chat-dot ${online ? 'online' : ''}" data-user-dot="${c.user_id}"></span></div>
                                             <div class="chat-item-body">
                                                 <div class="chat-item-name"><span>${esc(c.name)}</span><span class="time">${c.last_at || ''}</span></div>
                                                 <div class="d-flex justify-content-between align-items-center gap-2">
@@ -1148,7 +1152,7 @@
                         r.users.forEach(u => {
                             const online = window.OnlineUsers.has(u.id);
                             html += `<div class="chat-item" data-user="${u.id}" data-name="${esc(u.name)}">
-                                                    <div class="chat-avatar">${esc(initials(u.name))}<span class="chat-dot ${online ? 'online' : ''}" data-user-dot="${u.id}"></span></div>
+                                                    <div class="chat-avatar">${avatarInner(u.name, u.avatar_url)}<span class="chat-dot ${online ? 'online' : ''}" data-user-dot="${u.id}"></span></div>
                                                     <div class="chat-item-body"><div class="chat-item-name"><span>${esc(u.name)}</span></div><div class="chat-item-last">Start a conversation</div></div>
                                                 </div>`;
                         });
@@ -1180,6 +1184,12 @@
                 updateThreadPresence();
 
                 $.get('/chat/with/' + userId).done(function (r) {
+                    // The picture arrives with the thread, so the header swaps
+                    // from initials to a face as it opens.
+                    $('#threadAvatar').html(avatarInner(name, r.other && r.other.avatar_url)
+                        + '<span class="chat-dot" id="threadDot"></span>');
+                    updateThreadPresence();
+
                     activeConvId = r.conversation_id;
                     window.ActiveConversationId = activeConvId;
                     renderMessages(r.messages);
@@ -1927,7 +1937,7 @@
                 $('#onlineList').html(shown.map(u =>
                     '<div class="chat-online-item' + (u.id === activeUserId ? ' active' : '') + '" role="button" tabindex="0"'
                     + ' data-online-user="' + u.id + '" data-name="' + esc(u.name) + '" title="Chat with ' + esc(u.name) + '">'
-                    +   '<div class="chat-avatar">' + esc(initials(u.name)) + '<span class="chat-dot online"></span></div>'
+                    +   '<div class="chat-avatar">' + avatarInner(u.name, u.avatar) + '<span class="chat-dot online"></span></div>'
                     +   '<div class="min-w-0 flex-grow-1">'
                     +     '<div class="chat-online-name">' + esc(u.name) + '</div>'
                     +     (u.role ? '<div class="chat-online-role">' + esc(u.role) + '</div>' : '')

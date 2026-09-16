@@ -33,7 +33,11 @@ class ChatController extends Controller
 
         $conversations = Conversation::forUser($me)
             ->whereNotNull('last_message_at')
-            ->with(['userOne:id,name', 'userTwo:id,name', 'messages' => fn($q) => $q->latest('id')->limit(1)])
+            ->with([
+                'userOne:id,name,avatar,avatar_disk',
+                'userTwo:id,name,avatar,avatar_disk',
+                'messages' => fn($q) => $q->latest('id')->limit(1),
+            ])
             ->orderByDesc('last_message_at')
             ->limit(100)
             ->get();
@@ -54,6 +58,7 @@ class ChatController extends Controller
                 'conversation_id' => $c->id,
                 'user_id' => $otherId,
                 'name' => $other->name ?? '—',
+                'avatar_url' => $other?->avatarUrl(),
                 'last_body' => $last?->previewLine(),
                 'last_from_me' => $last && $last->sender_id === $me,
                 'last_at' => $c->last_message_at?->diffForHumans(),
@@ -74,7 +79,8 @@ class ChatController extends Controller
             ->when($q, fn($qq) => $qq->where('name', 'like', "%{$q}%"))
             ->orderBy('name')
             ->limit(50)
-            ->get(['id', 'name']);
+            ->get(['id', 'name', 'avatar', 'avatar_disk'])
+            ->map(fn (User $u) => ['id' => $u->id, 'name' => $u->name, 'avatar_url' => $u->avatarUrl()]);
 
         return response()->json(['users' => $users]);
     }
@@ -96,7 +102,7 @@ class ChatController extends Controller
 
         return response()->json([
             'conversation_id' => $conversation->id,
-            'other' => ['id' => $user->id, 'name' => $user->name],
+            'other' => ['id' => $user->id, 'name' => $user->name, 'avatar_url' => $user->avatarUrl()],
             'messages' => $messages,
             'unread_total' => $this->chat->unreadCountFor($me),
         ]);

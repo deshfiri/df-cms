@@ -236,14 +236,16 @@ class TaskController extends Controller
 
     private function dataTable(Request $request): JsonResponse
     {
+        $me = $request->user();
+
         // Authorization first, so no filter below can widen the result set.
         $query = Task::query()
-            ->visibleTo($request->user())
+            ->visibleTo($me)
             ->with(['client:id,client_name', 'assignedUser:id,name']);
 
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
+        // Every filter except the status itself: the pill counts have to say how
+        // much sits under each status within the *other* filters, or picking one
+        // status would zero all the others.
         if ($request->filled('priority')) {
             $query->where('priority', $request->priority);
         }
@@ -253,16 +255,21 @@ class TaskController extends Controller
         if ($request->filled('client_id')) {
             $query->where('client_id', $request->client_id);
         }
+
+        $counts = $this->pillCounts($query, $me);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
         if ($request->boolean('overdue_only')) {
             $query->overdue();
         }
         // "Waiting on me": what I delegated and somebody has handed back.
         if ($request->boolean('review')) {
-            $query->where('created_by', $request->user()->id)
+            $query->where('created_by', $me->id)
                 ->where('status', Task::STATUS_SUBMITTED);
         }
 
-        $me = $request->user();
         $canManage = $me->can('manage tasks');
 
         return DataTables::of($query)
@@ -304,7 +311,30 @@ class TaskController extends Controller
                 return $html;
             })
             ->rawColumns(['priority_badge', 'status_badge', 'actions'])
+            // Ride along with the table so the filter pills stay true after every
+            // refresh — no second request, and never out of step with the rows.
+            ->with(['counts' => $counts])
             ->make(true);
+    }
+
+    /**
+     * Live pill counts for the filters in play.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $filtered  every filter except status
+     */
+    private function pillCounts($filtered, User $me): array
+    {
+        $byStatus = (clone $filtered)->reorder()
+            ->selectRaw('status, COUNT(*) as cnt')
+            ->groupBy('status')
+            ->pluck('cnt', 'status');
+
+        return [
+            'total'   => (int) $byStatus->sum(),
+            'status'  => $byStatus->map(fn ($n) => (int) $n),
+            'overdue' => (clone $filtered)->reorder()->overdue()->count(),
+            'review'  => Task::where('created_by', $me->id)->where('status', Task::STATUS_SUBMITTED)->count(),
+        ];
     }
 
     private function priorityBadge(string $priority): string

@@ -29,7 +29,8 @@ class SettingController extends Controller
         $appIcon    = $this->branding->url('app_icon');
         $themeColor = Setting::get('theme_color', '#1F3C88');
         // Null means "follow the theme colour", which is the default.
-        $navActiveColor = Setting::get('nav_active_color');
+        $navActiveColor    = Setting::get('nav_active_color');
+        $filterActiveColor = Setting::get('filter_active_color');
 
         $hex = ltrim($themeColor, '#');
         $themeColorDark = sprintf('#%02x%02x%02x',
@@ -38,7 +39,10 @@ class SettingController extends Controller
             max(0, (int) round(hexdec(substr($hex, 4, 2)) * .82))
         );
 
-        return view('settings.general', compact('appName', 'appLogo', 'appFavicon', 'appIcon', 'themeColor', 'themeColorDark', 'navActiveColor'));
+        return view('settings.general', compact(
+            'appName', 'appLogo', 'appFavicon', 'appIcon',
+            'themeColor', 'themeColorDark', 'navActiveColor', 'filterActiveColor',
+        ));
     }
 
     public function update(Request $request): RedirectResponse
@@ -54,10 +58,12 @@ class SettingController extends Controller
             'icon'        => 'nullable|file|mimes:png,jpg,jpeg,svg,webp,ico|max:256',
             'theme_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'nav_active_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'filter_active_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
         ], [
             'favicon.mimes' => 'The favicon must be a .ico, .png, .svg, .webp or .jpg file.',
             'icon.mimes'    => 'The sidebar icon must be a .ico, .png, .svg, .webp or .jpg file.',
             'nav_active_color.regex' => 'The active menu colour must be a hex code like #1F3C88.',
+            'filter_active_color.regex' => 'The filter colour must be a hex code like #1F3C88.',
         ]);
 
         if ($request->filled('app_name')) {
@@ -71,10 +77,15 @@ class SettingController extends Controller
 
         // Cleared rather than stored when it should simply follow the theme, so
         // changing the theme colour keeps moving the menu highlight with it.
-        if ($request->boolean('nav_use_theme')) {
-            Setting::set('nav_active_color', null);
-        } elseif ($request->filled('nav_active_color')) {
-            Setting::set('nav_active_color', strtolower($request->nav_active_color));
+        foreach ([
+            'nav_active_color'    => 'nav_use_theme',
+            'filter_active_color' => 'filter_use_theme',
+        ] as $key => $followsTheme) {
+            if ($request->boolean($followsTheme)) {
+                Setting::set($key, null);
+            } elseif ($request->filled($key)) {
+                Setting::set($key, strtolower($request->input($key)));
+            }
         }
 
         $this->handleBrandImage($request, 'logo', 'app_logo', 'uploads/logo');

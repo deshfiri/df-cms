@@ -122,9 +122,6 @@ class PaymentController extends Controller
             'invoice:id,invoice_number,title,total_payable,status',
         ]);
 
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
         if ($request->filled('client_id')) {
             $query->where('client_id', $request->client_id);
         }
@@ -132,6 +129,19 @@ class PaymentController extends Controller
             $request->category_id === 'none'
                 ? $query->whereNull('payment_category_id')
                 : $query->where('payment_category_id', $request->category_id);
+        }
+
+        // Counted before the status pill narrows it, so every pill shows what it
+        // would give under the client and category currently chosen.
+        $byStatus = (clone $query)->reorder()
+            ->selectRaw('status, COUNT(*) as cnt')
+            ->groupBy('status')
+            ->pluck('cnt', 'status');
+
+        $counts = ['total' => (int) $byStatus->sum(), 'status' => $byStatus->map(fn ($n) => (int) $n)];
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
         }
 
         $canManage = $request->user()->can('manage payments');
@@ -161,6 +171,7 @@ class PaymentController extends Controller
             })
             ->rawColumns(['client', 'category_name', 'charge', 'status_badge', 'actions'])
             ->orderColumn('date_fmt', 'payment_date $1')
+            ->with(['counts' => $counts])
             ->make(true);
     }
 

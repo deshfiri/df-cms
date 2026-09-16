@@ -34,7 +34,7 @@ class ChatOnlinePanelTest extends TestCase
         $user = tap(User::factory()->create(['is_active' => true, 'name' => 'Rahim Uddin']))->assignRole('Sales');
 
         $this->assertSame(
-            ['id' => $user->id, 'name' => 'Rahim Uddin', 'role' => 'Sales'],
+            ['id' => $user->id, 'name' => 'Rahim Uddin', 'role' => 'Sales', 'avatar' => null],
             $this->channelCallback('online')($user),
         );
     }
@@ -46,8 +46,10 @@ class ChatOnlinePanelTest extends TestCase
 
         $payload = $this->channelCallback('online')($user);
 
-        $this->assertSame(['id', 'name', 'role'], array_keys($payload));
+        // Name, role and picture — what a colleague already sees in the app.
+        $this->assertSame(['id', 'name', 'role', 'avatar'], array_keys($payload));
         $this->assertNull($payload['role']);
+        $this->assertNull($payload['avatar']);
     }
 
     public function test_the_chat_page_ships_the_panel_and_its_toggle(): void

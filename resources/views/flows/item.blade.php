@@ -174,6 +174,7 @@
                 </div>
                 <input type="text" id="attTitle" class="form-control form-control-sm mb-2" placeholder="Label (optional) — e.g. Logo v2" maxlength="150">
                 <div id="attFileWrap"><input type="file" id="attFile" class="form-control form-control-sm"></div>
+                @include('partials.dropzone')
                 <div id="attUrlWrap" class="d-none"><input type="url" id="attUrl" class="form-control form-control-sm" placeholder="https://… (video, Drive, Figma, etc.)"></div>
                 <div id="attNoteWrap" class="d-none"><textarea id="attBody" class="form-control form-control-sm" rows="2" placeholder="Type anything…" maxlength="5000"></textarea></div>
                 <div class="text-end mt-2"><button class="btn btn-sm btn-primary" id="attAdd"><i class="bi bi-plus-lg me-1"></i>Add</button></div>
@@ -332,6 +333,8 @@
         $('#attUrlWrap').toggleClass('d-none', attKind !== 'link');
         $('#attNoteWrap').toggleClass('d-none', attKind !== 'note');
     });
+    makeDropzone('#attFile', { hint: 'Any file type · up to 50 MB — use a link for larger video' });
+
     $('#attAdd').on('click', function () {
         const fd = new FormData();
         fd.append('kind', attKind);

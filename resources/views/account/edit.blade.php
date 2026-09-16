@@ -10,7 +10,7 @@
         width: 64px; height: 64px; border-radius: 50%;
         display: flex; align-items: center; justify-content: center;
         background: rgba(var(--primary-rgb), .12); color: var(--primary);
-        font-size: 1.6rem; font-weight: 700;
+        font-size: 1.6rem; font-weight: 700; overflow: hidden; flex-shrink: 0;
     }
     .acc-k { font-size: .66rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text3); font-weight: 600; }
     .acc-v { font-size: .86rem; color: var(--text); margin-bottom: .75rem; word-break: break-word; }
@@ -46,12 +46,47 @@
     <div class="card section-card">
         <div class="card-body">
             <div class="d-flex align-items-center gap-3 mb-3">
-                <div class="acc-avatar">{{ strtoupper(substr($user->name, 0, 1)) }}</div>
+                <div class="acc-avatar">
+                    @if($avatarUrl = $user->avatarUrl())
+                        <img src="{{ $avatarUrl }}" alt="{{ $user->name }}" class="avatar-img">
+                    @else
+                        {{ $user->initials() }}
+                    @endif
+                </div>
                 <div class="min-w-0">
                     <div style="font-weight:700;color:var(--text);font-size:1rem" class="text-truncate">{{ $user->name }}</div>
                     <div style="font-size:.78rem;color:var(--text3)" class="text-truncate">{{ $user->email }}</div>
                 </div>
             </div>
+
+            {{-- Profile picture --}}
+            <form method="POST" action="{{ route('account.avatar') }}" enctype="multipart/form-data" id="avatarForm" class="mb-3">
+                @csrf
+                <label class="form-label fw-semibold small">Profile picture</label>
+                <input type="file" name="avatar" id="avatarInput" accept=".jpg,.jpeg,.png,.webp"
+                       class="form-control form-control-sm @error('avatar', 'avatar') is-invalid @enderror">
+                @include('partials.dropzone')
+                @error('avatar', 'avatar')<div class="small mt-1" style="color:var(--c-red)">{{ $message }}</div>@enderror
+
+                <div class="d-flex align-items-center gap-2 mt-2">
+                    <button type="submit" class="btn btn-sm btn-primary" id="avatarSave" disabled>
+                        <i class="bi bi-upload me-1"></i>Upload
+                    </button>
+                    @if($user->avatarUrl())
+                        <button type="button" class="btn btn-sm btn-light border" id="avatarRemove">
+                            <i class="bi bi-trash me-1"></i>Remove
+                        </button>
+                    @endif
+                </div>
+                <span class="acc-help d-block mt-1">JPG, PNG or WebP · up to 2 MB. Everyone you work with sees it next to your name.</span>
+            </form>
+
+            @if($user->avatarUrl())
+                <form method="POST" action="{{ route('account.avatar.destroy') }}" id="avatarRemoveForm" class="d-none">
+                    @csrf
+                    @method('DELETE')
+                </form>
+            @endif
 
             <div class="acc-k">Roles</div>
             <div class="acc-v">
@@ -144,6 +179,17 @@
 @push('scripts')
 <script>
 (function () {
+    // Upload only becomes available once a picture has actually been chosen.
+    makeDropzone('#avatarInput', { text: 'Drag &amp; drop a picture here, or <u>browse</u>' });
+    document.getElementById('avatarInput')?.addEventListener('change', function () {
+        $('#avatarSave').prop('disabled', !this.files.length);
+    });
+
+    $('#avatarRemove').on('click', function () {
+        Swal.fire({ title: 'Remove your picture?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545' })
+            .then(r => { if (r.isConfirmed) $('#avatarRemoveForm').trigger('submit'); });
+    });
+
     // Show / hide a password field.
     $('[data-toggle-pass]').on('click', function () {
         const input = $('#' + $(this).data('toggle-pass'));

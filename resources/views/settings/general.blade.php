@@ -166,8 +166,8 @@
         {{-- Sidebar --}}
         <div class="card section-card mb-4">
             <div class="card-header py-3">
-                <h6 class="fw-bold mb-0">Sidebar</h6>
-                <small style="color:var(--text3)">The icon shown when the menu is collapsed, and the colour of the item you're on.</small>
+                <h6 class="fw-bold mb-0">Sidebar &amp; filters</h6>
+                <small style="color:var(--text3)">The collapsed menu icon, the item you're on, and the filter buttons above lists.</small>
             </div>
             <div class="card-body">
                 {{-- Collapsed icon --}}
@@ -222,6 +222,32 @@
                     <span class="small" style="color:var(--text3)">hex code</span>
                 </div>
                 @error('nav_active_color')<div class="small mt-1" style="color:var(--c-red)">{{ $message }}</div>@enderror
+
+                <hr style="border-color:var(--border);margin:1.25rem 0">
+
+                {{-- Selected filter button colour --}}
+                <label class="form-label small fw-semibold">Selected filter button colour</label>
+                <div class="small mb-2" style="color:var(--text3)">The filter pills above every list — Clients, Tasks, Payments and the rest.</div>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" name="filter_use_theme" value="1" id="filterUseTheme" @checked(old('filter_use_theme', !$filterActiveColor))>
+                    <label class="form-check-label small" for="filterUseTheme">Follow the theme colour</label>
+                </div>
+                <div id="filterColorRow" class="d-flex align-items-center gap-3 {{ old('filter_use_theme', !$filterActiveColor) ? 'd-none' : '' }}">
+                    <input type="color" id="filterColorPicker" name="filter_active_color"
+                           value="{{ old('filter_active_color', $filterActiveColor ?: $themeColor) }}"
+                           class="form-control form-control-color @error('filter_active_color') is-invalid @enderror"
+                           style="width:56px;height:40px;padding:2px;cursor:pointer">
+                    <input type="text" id="filterColorHex" value="{{ old('filter_active_color', $filterActiveColor ?: $themeColor) }}"
+                           class="form-control form-control-sm font-monospace" style="width:100px" maxlength="7" placeholder="#1F3C88">
+                    <span class="small" style="color:var(--text3)">hex code</span>
+                </div>
+                @error('filter_active_color')<div class="small mt-1" style="color:var(--c-red)">{{ $message }}</div>@enderror
+
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    <button type="button" class="fpill active" id="previewPillActive">All <span class="fcnt">12</span></button>
+                    <button type="button" class="fpill">Running <span class="fcnt">7</span></button>
+                    <button type="button" class="fpill">On Hold <span class="fcnt">3</span></button>
+                </div>
             </div>
         </div>
 
@@ -373,8 +399,9 @@ function applyTheme(color) {
     root.style.setProperty('--sb-bg-bottom', sbBottom);
     $('#previewSidebar').css('background', `linear-gradient(180deg, ${sbTop}, ${sbBottom})`);
 
-    // The menu highlight follows the theme unless it has been given its own colour.
+    // The menu highlight and filter pills follow the theme unless given their own.
     if ($('#navUseTheme').is(':checked')) applyNavActive(color);
+    if ($('#filterUseTheme').is(':checked')) applyFilterActive(color);
 
     // Highlight active preset
     $('.color-preset').css('box-shadow', '').css('transform', '');
@@ -413,6 +440,35 @@ $('#navColorHex').on('input', function () {
     if (isValidHex(v)) {
         $('#navColorPicker').val(v);
         applyNavActive(v);
+    }
+});
+
+// ── Selected filter button color ─────────────────────────────────────────────
+function applyFilterActive(color) {
+    if (!isValidHex(color)) return;
+    const [r, g, b] = hexToRgb(color);
+    const root = document.documentElement;
+
+    root.style.setProperty('--filter-active', color);
+    root.style.setProperty('--filter-active-rgb', `${r}, ${g}, ${b}`);
+}
+
+$('#filterUseTheme').on('change', function () {
+    $('#filterColorRow').toggleClass('d-none', this.checked);
+    applyFilterActive(this.checked ? $('#colorPicker').val() : $('#filterColorPicker').val());
+});
+
+$('#filterColorPicker').on('input', function () {
+    $('#filterColorHex').val($(this).val());
+    applyFilterActive($(this).val());
+});
+
+$('#filterColorHex').on('input', function () {
+    let v = $(this).val().trim();
+    if (!v.startsWith('#')) v = '#' + v;
+    if (isValidHex(v)) {
+        $('#filterColorPicker').val(v);
+        applyFilterActive(v);
     }
 });
 
@@ -515,5 +571,6 @@ $('#removeLogo').on('change', function () {
 // Apply saved colors on load so the preset highlight and menu preview are correct
 applyTheme('{{ $themeColor }}');
 applyNavActive('{{ $navActiveColor ?: $themeColor }}');
+applyFilterActive('{{ $filterActiveColor ?: $themeColor }}');
 </script>
 @endpush

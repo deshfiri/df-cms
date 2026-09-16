@@ -299,9 +299,6 @@ class ClientController extends Controller
             });
         }
 
-        if ($request->filled('status')) {
-            $query->where('client_status', $request->status);
-        }
         if ($request->filled('category_id')) {
             $query->where('category_id', $request->category_id);
         }
@@ -311,10 +308,6 @@ class ClientController extends Controller
             } else {
                 $query->where('assigned_to', $request->assigned_to);
             }
-        }
-        if ($request->boolean('no_update')) {
-            $query->whereIn('client_status', ['Running', 'Warning'])
-                  ->whereDoesntHave('productUpdates', fn ($q) => $q->where('created_at', '>=', now()->subDays(30)));
         }
         if ($request->filled('id_from')) {
             $query->where('id', '>=', (int) $request->id_from);
@@ -335,6 +328,26 @@ class ClientController extends Controller
             $query->search(trim($searchTerm));
         }
 
+        // Counted before the status pill and the "no update" pill narrow it, so
+        // each pill can show what picking it would give.
+        $byStatus = (clone $query)->reorder()
+            ->selectRaw('client_status, COUNT(*) as cnt')
+            ->groupBy('client_status')
+            ->pluck('cnt', 'client_status');
+
+        $counts = [
+            'total'  => (int) $byStatus->sum(),
+            'status' => $byStatus->map(fn ($n) => (int) $n),
+        ];
+
+        if ($request->filled('status')) {
+            $query->where('client_status', $request->status);
+        }
+        if ($request->boolean('no_update')) {
+            $query->whereIn('client_status', ['Running', 'Warning'])
+                  ->whereDoesntHave('productUpdates', fn ($q) => $q->where('created_at', '>=', now()->subDays(30)));
+        }
+
         return DataTables::of($query)
             ->addIndexColumn()
             ->addColumn('dfid', fn ($c) => '<span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);font-family:monospace;font-size:.68rem">' . e($c->dfid_number) . '</span>')
@@ -349,6 +362,7 @@ class ClientController extends Controller
             ->addColumn('payment_status', fn ($c) => $this->paymentBadge($c->latestPaymentStatus))
             ->addColumn('actions', fn ($c) => $this->actionButtons($c, $request->user()))
             ->rawColumns(['dfid', 'client', 'website', 'progress', 'client_status_badge', 'product_status', 'payment_status', 'actions'])
+            ->with(['counts' => $counts])
             ->make(true);
     }
 

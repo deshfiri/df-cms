@@ -160,6 +160,45 @@ class SidebarBrandingTest extends TestCase
         $this->assertNull(Setting::get('nav_active_color'));
     }
 
+    // ── The selected filter button's colour ──────────────────────────────
+
+    public function test_the_filter_colour_can_be_set_and_follows_the_theme_until_then(): void
+    {
+        $admin = $this->superAdmin();
+
+        $this->actingAs($admin)->post(route('settings.update'), ['theme_color' => '#059669'])->assertSessionHasNoErrors();
+        $this->assertNull(Setting::get('filter_active_color'));
+        $this->actingAs($admin)->get(route('settings.index'))->assertSee('--filter-active: #059669;', false);
+
+        $this->actingAs($admin)
+            ->post(route('settings.update'), ['filter_active_color' => '#7C3AED'])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('#7c3aed', Setting::get('filter_active_color'));
+        $this->actingAs($admin)->get(route('settings.index'))
+            ->assertSee('--filter-active: #7c3aed;', false)
+            ->assertSee('--filter-active-rgb: 124, 58, 237;', false);
+    }
+
+    public function test_the_filter_colour_can_go_back_to_following_the_theme(): void
+    {
+        $admin = $this->superAdmin();
+        $this->actingAs($admin)->post(route('settings.update'), ['filter_active_color' => '#7c3aed']);
+
+        $this->actingAs($admin)
+            ->post(route('settings.update'), ['filter_use_theme' => 1, 'filter_active_color' => '#7c3aed'])
+            ->assertSessionHasNoErrors();
+
+        $this->assertNull(Setting::get('filter_active_color'));
+    }
+
+    public function test_a_filter_colour_that_is_not_a_hex_code_is_refused(): void
+    {
+        $this->actingAs($this->superAdmin())
+            ->post(route('settings.update'), ['filter_active_color' => 'purple'])
+            ->assertSessionHasErrors('filter_active_color');
+    }
+
     public function test_only_a_super_admin_may_change_branding(): void
     {
         $this->actingAs(User::factory()->create(['is_active' => true]))

@@ -221,6 +221,16 @@ var overdueOnly  = false;
 var reviewOnly   = false;
 var currentUserId  = {{ auth()->id() }};
 
+$(function () {
+    makeDropzone('#taskFileInput', { hint: 'Any file type · up to 20 MB' });
+    livePillCounts('#tasksTable', {
+        extra: [
+            { selector: '#pillOverdue', key: 'overdue' },
+            { selector: '#pillReview',  key: 'review'  },
+        ],
+    });
+});
+
 /** Anything a user typed — a filename, a comment — goes into the page as text, never markup. */
 function escHtml(s) {
     return $('<div>').text(s == null ? '' : String(s)).html().replace(/"/g, '&quot;');
@@ -469,6 +479,8 @@ function loadTaskDetail(id) {
             <label class="form-label fw-semibold small">Attachments</label>
             <div id="taskAttachList" class="mb-2"></div>
             <input type="file" id="taskFileInput" class="form-control form-control-sm">
+            @include('partials.dropzone')
+            @include('partials.live-counts')
         </div>
         <div>
             <label class="form-label fw-semibold small">Comments</label>
@@ -558,7 +570,11 @@ function loadTaskDetail(id) {
                      errors ? Object.values(errors).flat().join(' ') : (x.responseJSON?.message || 'The file could not be uploaded.'),
                      'error');
              })
-             .always(() => $(input).prop('disabled', false).val(''));
+             .always(() => {
+                 $(input).prop('disabled', false).val('');
+                 // Native event so the drop zone clears the file it is showing.
+                 input.dispatchEvent(new Event('change', { bubbles: true }));
+             });
         });
     });
 }

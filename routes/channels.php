@@ -26,9 +26,10 @@ Broadcast::channel('conversation.{conversationId}', function (User $user, $conve
 // panel. Only what a colleague could already see in the staff directory.
 Broadcast::channel('online', function (User $user) {
     return [
-        'id'   => $user->id,
-        'name' => $user->name,
-        'role' => $user->getRoleNames()->first(),
+        'id'     => $user->id,
+        'name'   => $user->name,
+        'role'   => $user->getRoleNames()->first(),
+        'avatar' => $user->avatarUrl(),
     ];
 });
 

@@ -130,6 +130,7 @@
 <div class="card">
     <div class="card-body p-0">
         <div class="table-responsive">
+            @include('partials.live-counts')
             <table id="clientsTable" class="table table-hover align-middle w-100 mb-0">
                 <thead>
                     <tr>
@@ -204,6 +205,9 @@ $('#clearFilters').on('click', function () {
 
 $(function () {
     // DataTable init
+    // Pill counts ride along with every table response, and refresh on a timer.
+    livePillCounts('#clientsTable');
+
     window.dfTable = $('#clientsTable').DataTable({
         processing: true,
         serverSide: true,

@@ -13,9 +13,25 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable, HasRoles;
 
-    protected $fillable = ['name', 'email', 'password', 'avatar', 'is_active'];
+    protected $fillable = ['name', 'email', 'password', 'avatar', 'avatar_disk', 'is_active'];
 
     protected $hidden = ['password', 'remember_token'];
+
+    /**
+     * Where this user's profile picture can be fetched, or null when they have
+     * none. Proxied like every other upload, so it is served with the same
+     * permissions wherever the file happens to live.
+     */
+    public function avatarUrl(): ?string
+    {
+        return filled($this->avatar) ? route('users.avatar', $this) : null;
+    }
+
+    /** The letters shown when there is no picture. */
+    public function initials(): string
+    {
+        return mb_strtoupper(mb_substr(trim($this->name) ?: '?', 0, 1));
+    }
 
     protected function casts(): array
     {

@@ -48,6 +48,13 @@
         $nR = hexdec(substr($navActiveHex, 0, 2));
         $nG = hexdec(substr($navActiveHex, 2, 2));
         $nB = hexdec(substr($navActiveHex, 4, 2));
+        // Selected filter pills / tabs. Its own setting too, so the filter bar
+        // can read differently from both the theme and the menu.
+        $filterActiveHex = ltrim(\App\Models\Setting::get('filter_active_color') ?: $themeColor, '#');
+        $filterActive = '#' . $filterActiveHex;
+        $fR = hexdec(substr($filterActiveHex, 0, 2));
+        $fG = hexdec(substr($filterActiveHex, 2, 2));
+        $fB = hexdec(substr($filterActiveHex, 4, 2));
     @endphp
     <title>@yield('title', 'Dashboard') — {{ $appName }}</title>
 
@@ -128,6 +135,10 @@
                item's icon and its left edge, in both light and dark mode. */
             --nav-active: {{ $navActive }};
             --nav-active-rgb: {{ $nR }}, {{ $nG }}, {{ $nB }};
+
+            /* Selected filter pill / tab (Settings → General). */
+            --filter-active: {{ $filterActive }};
+            --filter-active-rgb: {{ $fR }}, {{ $fG }}, {{ $fB }};
 
             --bs-primary:
                 {{ $themeColor }}
@@ -575,7 +586,13 @@
             <div class="dropdown">
                 <button class="btn p-0 d-flex align-items-center gap-2" data-bs-toggle="dropdown"
                     style="background:none;border:none">
-                    <div class="user-avatar">{{ strtoupper(substr(auth()->user()->name, 0, 1)) }}</div>
+                    <div class="user-avatar">
+                        @if($avatarUrl = auth()->user()->avatarUrl())
+                            <img src="{{ $avatarUrl }}" alt="{{ auth()->user()->name }}" class="avatar-img">
+                        @else
+                            {{ auth()->user()->initials() }}
+                        @endif
+                    </div>
                     <span class="d-none d-md-block"
                         style="font-size:.76rem;font-weight:500;color:var(--text2)">{{ Str::limit(auth()->user()->name, 18) }}</span>
                     <i class="bi bi-chevron-down d-none d-md-block" style="font-size:.58rem;color:var(--text3)"></i>

@@ -124,6 +124,7 @@
 <div class="card">
     <div class="card-body p-0">
         <div class="table-responsive">
+            @include('partials.live-counts')
             <table id="paymentsTable" class="table table-hover align-middle w-100 mb-0">
                 <thead>
                     <tr>
@@ -207,6 +208,8 @@ $(function () {
             { data: 'actions', orderable: false, searchable: false, className: 'text-end pe-3' },
         ]
     });
+
+    livePillCounts('#paymentsTable');
 
     @can('manage payments')
     const $client = $('#paymentModal [data-rp="client"]');
