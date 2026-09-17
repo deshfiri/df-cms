@@ -310,6 +310,13 @@
                 <i class="bi {{ $isStageUser ? 'bi-clipboard-check' : 'bi-speedometer2' }}"></i><span class="sb-lbl">{{ $isStageUser ? 'My Work' : 'Dashboard' }}</span>
             </a>
             @unless($isStageUser)
+            {{-- Everyone has their own work; for stage workers the dashboard above already is it. --}}
+            <a href="{{ route('my-work') }}" class="sb-link {{ request()->routeIs('my-work') ? 'active' : '' }}"
+                title="My Work" data-bs-toggle="tooltip" data-bs-placement="right">
+                <i class="bi bi-person-workspace"></i><span class="sb-lbl">My Work</span>
+            </a>
+            @endunless
+            @unless($isStageUser)
             {{-- Gated on the policy, not on a bare permission name. ClientPolicy
                  admits either 'view clients' or 'manage clients', and checking
                  only the first hid this menu from anyone granted the stronger
@@ -326,6 +333,13 @@
                     class="sb-link {{ request()->routeIs('payments.*') ? 'active' : '' }}" title="Payments"
                     data-bs-toggle="tooltip" data-bs-placement="right">
                     <i class="bi bi-cash-coin"></i><span class="sb-lbl">Payments</span>
+                </a>
+            @endcan
+            @can('viewAny', App\Models\Refund::class)
+                <a href="{{ route('refunds.index') }}"
+                    class="sb-link {{ request()->routeIs('refunds.*') ? 'active' : '' }}" title="Refunds"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-arrow-counterclockwise"></i><span class="sb-lbl">Refunds</span>
                 </a>
             @endcan
             @unless($isStageUser)

@@ -26,6 +26,12 @@ class TaskAttachment extends Model
         return $this->belongsTo(User::class);
     }
 
+    /** Shown inline (thumbnail, lightbox) — see StoredFileResponse::PREVIEWABLE_IMAGES. */
+    public function isPreviewableImage(): bool
+    {
+        return \App\Services\Storage\StoredFileResponse::isPreviewableImage($this->mime_type);
+    }
+
     public function getFileSizeHumanAttribute(): string
     {
         $bytes = $this->file_size;

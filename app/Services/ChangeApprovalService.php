@@ -111,7 +111,7 @@ class ChangeApprovalService
         );
     }
 
-    private function notifyApprovers(PendingChange $pending): void
+    public function notifyApprovers(PendingChange $pending): void
     {
         // Approvers minus whoever requested the change — nobody needs a prompt
         // to approve their own edit.

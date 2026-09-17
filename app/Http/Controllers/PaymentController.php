@@ -30,6 +30,30 @@ class PaymentController extends Controller
             ->with(['createdBy:id,name', 'category:id,name', 'invoice:id,invoice_number,title'])
             ->get();
 
+        // A payment with a correction waiting can't take another until it is reviewed.
+        $waiting = \App\Models\PendingChange::where('model_type', Payment::class)
+            ->pending()
+            ->whereIn('model_id', $payments->pluck('id'))
+            ->pluck('model_id')
+            ->flip();
+        $payments->each(fn (Payment $p) => $p->setAttribute('change_waiting', $waiting->has($p->id)));
+
+        // What has gone back, what is spoken for, and what is still refundable.
+        $refunds = \App\Models\Refund::whereIn('payment_id', $payments->pluck('id'))
+            ->whereIn('status', \App\Models\Refund::COMMITTED_STATUSES)
+            ->get(['id', 'payment_id', 'refund_number', 'amount', 'status'])
+            ->groupBy('payment_id');
+        $payments->each(function (Payment $p) use ($refunds) {
+            $mine      = $refunds->get($p->id, collect());
+            $committed = (float) $mine->sum('amount');
+            $open      = $mine->first(fn ($r) => $r->isOpen());
+            $received  = in_array($p->status, ['Paid', 'Partial'], true) ? (float) $p->amount : 0.0;
+
+            $p->setAttribute('refunded_amount', number_format((float) $mine->where('status', \App\Models\Refund::STATUS_COMPLETED)->sum('amount'), 2, '.', ''));
+            $p->setAttribute('refundable_amount', number_format(max(0, $received - $committed), 2, '.', ''));
+            $p->setAttribute('open_refund', $open ? ['id' => $open->id, 'number' => $open->refund_number, 'status_label' => $open->status_label, 'amount' => $open->amount] : null);
+        });
+
         $charges = $client->invoices()
             ->with('category:id,name')
             ->withPaidTotal()
@@ -133,8 +157,10 @@ class PaymentController extends Controller
 
         // Counted before the status pill narrows it, so every pill shows what it
         // would give under the client and category currently chosen.
+        // select() replaces any columns the list query carries, so the GROUP BY
+        // stays valid under MySQL's only_full_group_by.
         $byStatus = (clone $query)->reorder()
-            ->selectRaw('status, COUNT(*) as cnt')
+            ->select('status')->selectRaw('COUNT(*) as cnt')
             ->groupBy('status')
             ->pluck('cnt', 'status');
 
@@ -162,7 +188,8 @@ class PaymentController extends Controller
             ->addColumn('date_fmt', fn (Payment $p) => $p->payment_date?->format('d M Y') ?? '—')
             ->addColumn('created_by_name', fn (Payment $p) => e($p->createdBy->name ?? '—'))
             ->addColumn('actions', function (Payment $p) use ($canManage) {
-                $html = '<a href="' . route('clients.show', $p->client_id) . '#tab-payments" class="btn btn-sm px-2 py-1" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="View Client"><i class="bi bi-eye"></i></a> ';
+                $html = '<a href="' . route('clients.show', $p->client_id) . '#tab-payments" class="btn btn-sm px-2 py-1" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="View Client"><i class="bi bi-eye"></i></a> '
+                    . '<button class="btn btn-sm px-2 py-1 payment-history" data-id="' . $p->id . '" data-client="' . $p->client_id . '" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="Correction history"><i class="bi bi-clock-history"></i></button> ';
                 if ($canManage) {
                     $html .= '<button class="btn btn-sm px-2 py-1 payment-delete" data-id="' . $p->id . '" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#dc2626" title="Delete"><i class="bi bi-trash"></i></button>';
                 }
@@ -200,13 +227,14 @@ class PaymentController extends Controller
         return response()->json(['success' => true, 'payment' => $payment->load('client:id,client_name,dfid_number')]);
     }
 
-    public function destroyAny(Payment $payment): JsonResponse
+    public function destroyAny(Request $request, Payment $payment): JsonResponse
     {
         abort_unless(Auth::user()->can('manage payments'), 403);
 
-        $this->service->delete($payment);
-
-        return response()->json(['success' => true]);
+        return $this->changeResponse(
+            $this->service->requestDelete($payment, $this->reason($request), $request->user()),
+            'Payment deleted.',
+        );
     }
 
     public function store(StorePaymentRequest $request, Client $client): JsonResponse
@@ -221,25 +249,76 @@ class PaymentController extends Controller
         ]);
     }
 
+    /**
+     * Correct a payment. Applied at once for an approver; otherwise it waits in
+     * the approval queue (202). Either way it is recorded — see history().
+     */
     public function update(StorePaymentRequest $request, Client $client, Payment $payment): JsonResponse
-    {
-        abort_unless(Auth::user()->can('manage payments'), 403);
-        $this->authorize('update', $client);
-        abort_if((int) $payment->client_id !== $client->id, 404);
-
-        $updated = $this->service->update($payment, $request->validated());
-
-        return response()->json(['success' => true, 'payment' => $updated]);
-    }
-
-    public function destroy(Client $client, Payment $payment): JsonResponse
     {
         $this->authorizeMoney($client);
         abort_if((int) $payment->client_id !== $client->id, 404);
 
-        $this->service->delete($payment);
+        return $this->changeResponse(
+            $this->service->requestUpdate($payment, $request->validated(), $this->reason($request), $request->user()),
+            'Payment updated.',
+        );
+    }
 
-        return response()->json(['success' => true]);
+    public function destroy(Request $request, Client $client, Payment $payment): JsonResponse
+    {
+        $this->authorizeMoney($client);
+        abort_if((int) $payment->client_id !== $client->id, 404);
+
+        return $this->changeResponse(
+            $this->service->requestDelete($payment, $this->reason($request), $request->user()),
+            'Payment deleted.',
+        );
+    }
+
+    /** Every correction requested for this payment: what, who, when, why, and the outcome. */
+    public function history(Client $client, int $payment): JsonResponse
+    {
+        $this->authorizeView($client);
+
+        // The trail outlives the payment, so it is looked up by id — but only
+        // under the client it belonged to, which every change row records.
+        $belongs = Payment::whereKey($payment)->where('client_id', $client->id)->exists()
+            || \App\Models\PendingChange::for(Payment::class, $payment)
+                ->get(['old_values'])
+                ->contains(fn ($c) => (int) ($c->old_values['client_id'] ?? 0) === $client->id);
+        abort_unless($belongs, 404);
+
+        return response()->json(['data' => $this->service->history($payment)]);
+    }
+
+    private function reason(Request $request): string
+    {
+        return $request->validate(
+            ['reason' => ['required', 'string', 'min:3', 'max:1000']],
+            ['reason.required' => 'Say why this payment is being changed — it is kept on the record.'],
+        )['reason'];
+    }
+
+    /** @param array{applied:bool, change:\App\Models\PendingChange, payment?:Payment} $result */
+    private function changeResponse(array $result, string $appliedMessage): JsonResponse
+    {
+        if ($result['applied']) {
+            return response()->json([
+                'success' => true,
+                'applied' => true,
+                'message' => $appliedMessage,
+                'payment' => $result['payment'] ?? null,
+                'change_id' => $result['change']->id,
+            ]);
+        }
+
+        return response()->json([
+            'success'   => true,
+            'applied'   => false,
+            'pending'   => true,
+            'message'   => 'Sent for approval. A Super Admin or Manager has to approve it before it takes effect.',
+            'change_id' => $result['change']->id,
+        ], 202);
     }
 
     /**

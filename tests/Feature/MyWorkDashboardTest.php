@@ -129,11 +129,11 @@ class MyWorkDashboardTest extends TestCase
         $this->flow->claim($item->fresh(), $reviewer);
         $this->flow->sendBack($item->fresh(), $reviewer, 'Wrong colours'); // Review → Brief
 
-        $this->actingAs($me)->get(route('dashboard'))
-            ->assertViewHas('flowDoneThisWeek', 1);
+        $this->actingAs($me)->getJson(route('my-work.stats'))
+            ->assertJsonPath('periods.week.completed', 1);
 
-        $this->actingAs($reviewer)->get(route('dashboard'))
-            ->assertViewHas('flowDoneThisWeek', 0);
+        $this->actingAs($reviewer)->getJson(route('my-work.stats'))
+            ->assertJsonPath('periods.week.completed', 0);
     }
 
     // ── Tasks ────────────────────────────────────────────────────────────
@@ -167,11 +167,16 @@ class MyWorkDashboardTest extends TestCase
             ->assertViewHas('completedTasks', fn ($list) => $list->pluck('id')->all() === [$done->id])
             ->assertViewHas('submittedTaskCount', 1)
             ->assertViewHas('submittedTasks', fn ($list) => $list->pluck('id')->all() === [$submitted->id])
-            ->assertViewHas('tasksDoneThisWeek', 1)
             ->assertViewHas('openTaskCount', 0)
             ->assertSee('Finished the flyer')
             ->assertSee('Handed in the menu')
-            ->assertDontSee('Dropped idea');
+            ->assertDontSee('Dropped idea')
+            ->assertSee('id="myWorkPanel"', false);
+
+        $this->actingAs($me)->getJson(route('my-work.stats'))
+            ->assertJsonPath('periods.week.completed', 1)
+            ->assertJsonPath('now.awaiting_review', 1)
+            ->assertJsonPath('now.assigned', 0);
     }
 
     public function test_work_handed_in_to_me_waits_under_to_review(): void
@@ -195,7 +200,7 @@ class MyWorkDashboardTest extends TestCase
 
         $this->actingAs($me)->get(route('dashboard'))
             ->assertSee(route('flow-items.show', $item), false)
-            ->assertSee(route('tasks.index', ['task' => $task->id]), false)
+            ->assertSee(route('tasks.show', $task), false)
             ->assertSee('data-id="' . $item->id . '"', false);   // Claim button
     }
 }

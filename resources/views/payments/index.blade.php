@@ -149,6 +149,7 @@
 @can('manage payments')
     @include('payments.partials.record-modal', ['modalId' => 'paymentModal', 'withClientPicker' => true, 'clients' => $clients])
 @endcan
+@include('payments.partials.correction')
 @endsection
 
 @push('scripts')
@@ -234,15 +235,10 @@ $(function () {
 });
 
 $(document).on('click', '.payment-delete', function () {
-    var id = $(this).data('id');
-    Swal.fire({ title: 'Delete payment?', text: 'If it was paid against a charge, that charge\'s balance goes back up.', icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545' })
-    .then(function (r) {
-        if (r.isConfirmed) {
-            $.ajax({ url: '/payments/' + id, type: 'DELETE' }).done(function () {
-                window.pTable.ajax.reload();
-            });
-        }
-    });
+    PaymentCorrection.remove('/payments/' + $(this).data('id'), () => window.pTable.ajax.reload(null, false));
+});
+$(document).on('click', '.payment-history', function () {
+    PaymentCorrection.history('{{ url('clients') }}/' + $(this).data('client') + '/payments/' + $(this).data('id') + '/history');
 });
 </script>
 @endpush

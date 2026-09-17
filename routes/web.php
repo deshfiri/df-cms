@@ -14,6 +14,7 @@ use App\Http\Controllers\ClientCorrectionRequestController;
 use App\Http\Controllers\ClientPortalAccountController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\MeetingController;
+use App\Http\Controllers\MyWorkController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentProofController;
 use App\Http\Controllers\PerformanceController;
@@ -41,6 +42,7 @@ use App\Http\Controllers\ImportController;
 use App\Http\Controllers\NoteController;
 use App\Http\Controllers\PaymentCategoryController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\RefundController;
 use App\Http\Controllers\PendingChangeController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\ProductUpdateController;
@@ -83,6 +85,9 @@ Route::prefix('whatsapp')->group(function () {
 Route::middleware(['auth'])->group(function () {
 
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    // The signed-in person's own workload and output (My Work panel).
+    Route::get('my-work', [MyWorkController::class, 'index'])->name('my-work');
+    Route::get('my-work/stats', [MyWorkController::class, 'stats'])->name('my-work.stats');
 
     // My Account — the signed-in user's own password. No user id in the URL:
     // it can only ever act on the requester. Throttled because it checks the
@@ -137,6 +142,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('payments', [PaymentController::class, 'store'])->name('payments.store');
         Route::put('payments/{payment}', [PaymentController::class, 'update'])->name('payments.update');
         Route::delete('payments/{payment}', [PaymentController::class, 'destroy'])->name('payments.destroy');
+        Route::get('payments/{payment}/history', [PaymentController::class, 'history'])->whereNumber('payment')->name('payments.history');
 
         // Ad Campaigns
         Route::get('ads', [AdCampaignController::class, 'index'])->name('ads.index');
@@ -266,6 +272,7 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('tasks/{task}/comments/{comment}', [TaskController::class, 'destroyComment'])->name('tasks.comments.destroy');
     Route::post('tasks/{task}/attachments', [TaskController::class, 'storeAttachment'])->name('tasks.attachments.store');
     Route::get('tasks/{task}/attachments/{attachment}/download', [TaskController::class, 'downloadAttachment'])->name('tasks.attachments.download');
+    Route::get('tasks/{task}/attachments/{attachment}/preview', [TaskController::class, 'previewAttachment'])->name('tasks.attachments.preview');
     Route::delete('tasks/{task}/attachments/{attachment}', [TaskController::class, 'destroyAttachment'])->name('tasks.attachments.destroy');
 
     // Employee requests (standalone)
@@ -278,6 +285,18 @@ Route::middleware(['auth'])->group(function () {
     Route::get('payments', [PaymentController::class, 'all'])->name('payments.index');
     Route::post('payments', [PaymentController::class, 'storeAny'])->name('payments.store');
     Route::delete('payments/{payment}', [PaymentController::class, 'destroyAny'])->name('payments.destroy');
+
+    // Refunds — authorized in RefundController / RefundService (RefundPolicy).
+    Route::post('payments/{payment}/refunds', [RefundController::class, 'store'])->name('payments.refunds.store');
+    Route::get('clients/{client}/refunds', [RefundController::class, 'forClient'])->name('clients.refunds.index');
+    Route::get('refunds', [RefundController::class, 'index'])->name('refunds.index');
+    Route::get('refunds/{refund}', [RefundController::class, 'show'])->name('refunds.show');
+    Route::post('refunds/{refund}/review', [RefundController::class, 'review'])->name('refunds.review');
+    Route::post('refunds/{refund}/approve', [RefundController::class, 'approve'])->name('refunds.approve');
+    Route::post('refunds/{refund}/reject', [RefundController::class, 'reject'])->name('refunds.reject');
+    Route::post('refunds/{refund}/process', [RefundController::class, 'process'])->name('refunds.process');
+    Route::post('refunds/{refund}/complete', [RefundController::class, 'complete'])->name('refunds.complete');
+    Route::post('refunds/{refund}/cancel', [RefundController::class, 'cancel'])->name('refunds.cancel');
 
     // What a client can be billed for — Social Media Ads, Website, … ("manage payments").
     Route::get('settings/payment-categories', [PaymentCategoryController::class, 'index'])->name('payment-categories.index');
@@ -450,6 +469,7 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('flow-items/{item}/comments/{comment}', [FlowItemController::class, 'destroyComment'])->name('flow-items.comments.destroy');
     Route::post('flow-items/{item}/attachments', [FlowItemController::class, 'storeAttachment'])->name('flow-items.attachments.store');
     Route::get('flow-items/{item}/attachments/{attachment}/download', [FlowItemController::class, 'downloadAttachment'])->name('flow-items.attachments.download');
+    Route::get('flow-items/{item}/attachments/{attachment}/preview', [FlowItemController::class, 'previewAttachment'])->name('flow-items.attachments.preview');
     Route::delete('flow-items/{item}/attachments/{attachment}', [FlowItemController::class, 'destroyAttachment'])->name('flow-items.attachments.destroy');
 
     // Settings

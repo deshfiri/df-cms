@@ -194,6 +194,39 @@ class WorkflowTrackerTest extends TestCase
             ->assertJsonPath('recordsFiltered', 2);   // the unclaimed one in each flow
     }
 
+    /**
+     * Regression guard for the page's AJAX error.
+     *
+     * MySQL's only_full_group_by rejected the count query because it grouped
+     * by status while still selecting every column of the list query. SQLite
+     * does not enforce that rule, so it is checked here on the SQL itself: the
+     * grouped query may select the status and the count, nothing else.
+     */
+    public function test_the_status_count_query_is_valid_under_only_full_group_by(): void
+    {
+        [$flow] = $this->flowWith($this->user());
+        $this->item($flow, 'Something');
+
+        $grouped = [];
+        \Illuminate\Support\Facades\DB::listen(function ($query) use (&$grouped) {
+            if (stripos($query->sql, 'group by') !== false && stripos($query->sql, 'flow_items') !== false) {
+                $grouped[] = $query->sql;
+            }
+        });
+
+        $this->actingAs($this->user('view workflows'))
+            ->getJson(route('workflows.items'), self::AJAX)
+            ->assertOk();
+
+        $this->assertNotEmpty($grouped, 'The tracker should count by status.');
+        foreach ($grouped as $sql) {
+            $selectList = strtolower(substr($sql, 0, stripos($sql, ' from ')));
+            // A table-wide ".*" is the offender; COUNT(*) is of course fine.
+            $this->assertStringNotContainsString('.*', $selectList, "Grouped query selects every column: {$sql}");
+            $this->assertStringNotContainsString('_count', $selectList, "Grouped query carries withCount sub-selects: {$sql}");
+        }
+    }
+
     // ── The detail of one item ───────────────────────────────────────────
 
     public function test_the_details_panel_tells_the_whole_story_of_an_item(): void

@@ -25,6 +25,38 @@
             }
         });
 
+        // ── DataTables errors, app-wide ─────────────────────────────────────
+        // DataTables' default reaction to a failed load is a browser alert()
+        // reading "Ajax error, see http://datatables.net/tn/7" — no reason, no
+        // way to act on it. Every table now reports what the server said
+        // instead. 403s are left to the handler above, so nothing shows twice.
+        if ($.fn.dataTable) {
+            $.fn.dataTable.ext.errMode = 'none';
+
+            $(document).on('error.dt', function (e, settings, techNote, message) {
+                var xhr = settings && settings.jqXHR;
+                var status = xhr ? xhr.status : 0;
+                if (status === 403) return;
+
+                var json = xhr && xhr.responseJSON;
+                var text;
+                if (status === 419) {
+                    text = 'Your session has expired. Refresh the page and sign in again.';
+                } else if (status === 0 && xhr && xhr.statusText === 'abort') {
+                    return; // superseded by a newer reload
+                } else if (status === 0) {
+                    text = 'The server could not be reached. Check your connection and try again.';
+                } else if (json && (json.message || json.error)) {
+                    text = json.message || json.error;
+                } else {
+                    text = 'This list could not be loaded' + (status ? ' (error ' + status + ')' : '') + '. The problem has been logged.';
+                }
+
+                if (window.console) console.error('DataTables:', message, xhr);
+                Swal.fire({ icon: 'error', title: 'Could not load the list', text: text });
+            });
+        }
+
         // ── Dark mode ──────────────────────────────────────────────────────
         function updateDarkIcon() {
             var dark = document.documentElement.getAttribute('data-theme') === 'dark';

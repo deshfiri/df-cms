@@ -66,19 +66,38 @@ class Invoice extends Model
         return $this->hasMany(PaymentProofSubmission::class);
     }
 
+    public function refunds()
+    {
+        return $this->hasMany(Refund::class);
+    }
+
     /**
-     * Money received against this charge.
+     * Money received against this charge and kept: payments, less whatever has
+     * actually been paid back (completed refunds). A refund still on its way
+     * has not left the account yet, so it does not count here.
      *
-     * Lists should load it with withPaidTotal() — the fallback query is fine for
-     * one invoice but runs once per row otherwise.
+     * Lists should load it with withPaidTotal() — the fallback queries are fine
+     * for one invoice but run once per row otherwise.
      */
     public function getPaidAmountAttribute(): float
     {
-        if (array_key_exists('paid_total', $this->attributes)) {
-            return round((float) $this->attributes['paid_total'], 2);
-        }
+        $received = array_key_exists('paid_total', $this->attributes)
+            ? (float) $this->attributes['paid_total']
+            : (float) $this->payments()->where('status', 'Paid')->sum('amount');
 
-        return round((float) $this->payments()->where('status', 'Paid')->sum('amount'), 2);
+        $refunded = array_key_exists('refunded_total', $this->attributes)
+            ? (float) $this->attributes['refunded_total']
+            : (float) $this->refunds()->where('status', Refund::STATUS_COMPLETED)->sum('amount');
+
+        return round($received - $refunded, 2);
+    }
+
+    /** What has been paid back on this charge. */
+    public function getRefundedAmountAttribute(): float
+    {
+        return round((float) (array_key_exists('refunded_total', $this->attributes)
+            ? $this->attributes['refunded_total']
+            : $this->refunds()->where('status', Refund::STATUS_COMPLETED)->sum('amount')), 2);
     }
 
     public function getDueAmountAttribute(): float
@@ -94,7 +113,9 @@ class Invoice extends Model
 
     public function scopeWithPaidTotal(Builder $query): Builder
     {
-        return $query->withSum(['payments as paid_total' => fn ($q) => $q->where('status', 'Paid')], 'amount');
+        return $query
+            ->withSum(['payments as paid_total' => fn ($q) => $q->where('status', 'Paid')], 'amount')
+            ->withSum(['refunds as refunded_total' => fn ($q) => $q->where('status', Refund::STATUS_COMPLETED)], 'amount');
     }
 
     public function isTerminal(): bool

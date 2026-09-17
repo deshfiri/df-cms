@@ -48,6 +48,7 @@ class Task extends Model
     protected $fillable = [
         'title',
         'description',
+        'requires_attachment',
         'client_id',
         'assigned_to',
         'created_by',
@@ -56,8 +57,11 @@ class Task extends Model
         'status',
         'type',
         'start_date',
+        'started_at',
         'due_date',
+        'due_at',
         'completion_date',
+        'completed_at',
         'submitted_at',
         'reminder_at',
         'estimated_hours',
@@ -67,13 +71,101 @@ class Task extends Model
     protected function casts(): array
     {
         return [
+            'requires_attachment' => 'boolean',
             'start_date' => 'date',
+            'started_at' => 'datetime',
             'due_date' => 'date',
+            'due_at' => 'datetime',
             'completion_date' => 'date',
+            'completed_at' => 'datetime',
             'submitted_at' => 'datetime',
             'reminder_at' => 'datetime',
             'estimated_hours' => 'decimal:2',
             'actual_hours' => 'decimal:2',
+        ];
+    }
+
+    /**
+     * Keeps the lifecycle moments and their calendar days in step, whoever
+     * saves the task — the form, a status button, an approval, an import.
+     *
+     *  - Deadline: due_at is the exact moment; due_date is its day. Setting only
+     *    a day means "by the end of that day", which is what a date-only
+     *    deadline has always meant here (late from the next day).
+     *  - Start: the first time work moves to In Progress. Pausing and resuming
+     *    do not move it; it records when work began, not when it last resumed.
+     *  - Completion: stamped when the task becomes Completed, cleared if it is
+     *    reopened — a reopened task is not finished.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (Task $task) {
+            if ($task->isDirty('due_at')) {
+                $task->due_date = $task->due_at?->toDateString();
+            } elseif ($task->isDirty('due_date')) {
+                $task->due_at = $task->due_date ? $task->due_date->copy()->setTime(23, 59, 59) : null;
+            }
+
+            if (!$task->isDirty('status')) {
+                return;
+            }
+
+            if ($task->status === 'In Progress' && $task->started_at === null) {
+                $task->started_at = now();
+            }
+
+            if ($task->status === 'Completed') {
+                $task->completed_at ??= now();
+                $task->completion_date ??= $task->completed_at->toDateString();
+            } elseif ($task->getOriginal('status') === 'Completed') {
+                $task->completed_at    = null;
+                $task->completion_date = null;
+            }
+        });
+    }
+
+    /** True when the deadline carries a time, not just a day. */
+    public function dueHasTime(): bool
+    {
+        return $this->due_at !== null && $this->due_at->format('H:i:s') !== '23:59:59';
+    }
+
+    /**
+     * Everything a live counter needs, computed on the server.
+     *
+     * `server_now` lets the browser correct for its own clock being wrong, so a
+     * counter reads the same on every machine and after every refresh. States:
+     * not_started, running, paused, overdue, submitted, completed, cancelled.
+     *
+     * @return array<string,mixed>
+     */
+    public function timer(): array
+    {
+        $state = match (true) {
+            $this->status === 'Completed'           => 'completed',
+            $this->status === 'Cancelled'           => 'cancelled',
+            $this->status === self::STATUS_SUBMITTED => 'submitted',
+            $this->is_overdue                        => 'overdue',
+            $this->status === 'In Progress'          => 'running',
+            $this->started_at !== null               => 'paused',
+            default                                  => 'not_started',
+        };
+
+        // Work stops being "in hand" once it is handed in or finished.
+        $until = $this->completed_at ?? $this->submitted_at;
+
+        return [
+            'state'             => $state,
+            'server_now'        => now()->toIso8601String(),
+            'created_at'        => $this->created_at?->toIso8601String(),
+            'started_at'        => $this->started_at?->toIso8601String(),
+            'due_at'            => $this->due_at?->toIso8601String(),
+            'due_has_time'      => $this->dueHasTime(),
+            'submitted_at'      => $this->submitted_at?->toIso8601String(),
+            'completed_at'      => $this->completed_at?->toIso8601String(),
+            'estimated_seconds' => $this->estimated_hours !== null ? (int) round((float) $this->estimated_hours * 3600) : null,
+            // Wall-clock time from first start to hand-in (or now, if still open).
+            'elapsed_seconds'   => $this->started_at ? (int) $this->started_at->diffInSeconds($until ?? now()) : null,
         ];
     }
 
@@ -122,6 +214,12 @@ class Task extends Model
         return $this->hasMany(TaskRevision::class)->latest();
     }
 
+    /** Who was involved and how much of the work is theirs — see TaskInvolvementService. */
+    public function involvements(): HasMany
+    {
+        return $this->hasMany(TaskInvolvement::class);
+    }
+
     /**
      * Overdue means the due *date* has passed, not the moment it began.
      *
@@ -132,9 +230,17 @@ class Task extends Model
      */
     public function getIsOverdueAttribute(): bool
     {
-        return $this->due_date
-            && $this->due_date->startOfDay()->lt(today())
-            && !in_array($this->status, self::$settledStatuses, true);
+        if (in_array($this->status, self::$settledStatuses, true)) {
+            return false;
+        }
+
+        // The exact deadline when there is one; a date-only deadline's due_at
+        // is the end of that day, so "due today" still is not late.
+        if ($this->due_at) {
+            return $this->due_at->lt(now());
+        }
+
+        return $this->due_date && $this->due_date->startOfDay()->lt(today());
     }
 
     /**
@@ -173,9 +279,12 @@ class Task extends Model
         return $query->where('status', $status);
     }
 
+    /** Same rule as is_overdue, in SQL. */
     public function scopeOverdue($query)
     {
-        return $query->whereDate('due_date', '<', today())
-            ->whereNotIn('status', self::$settledStatuses);
+        return $query->whereNotIn('status', self::$settledStatuses)
+            ->where(fn ($q) => $q
+                ->where('due_at', '<', now())
+                ->orWhere(fn ($legacy) => $legacy->whereNull('due_at')->whereDate('due_date', '<', today())));
     }
 }

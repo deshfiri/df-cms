@@ -8,7 +8,6 @@ use App\Models\ClientMeeting;
 use App\Models\ClientOwnershipTransfer;
 use App\Models\ClientStageProgress;
 use App\Models\EmployeeRequest;
-use App\Models\FlowTransition;
 use App\Models\ImportLog;
 use App\Models\Payment;
 use App\Models\ProductUpdate;
@@ -383,7 +382,6 @@ class DashboardController extends Controller
     private function departmentDashboard(User $user)
     {
         $departments = $user->getRoleNames()->intersect(self::DEPARTMENT_ROLES)->values();
-        $weekStart   = now()->startOfWeek();
 
         // Legacy departmental pipeline. Retired in favour of the flow engine
         // below, but rows can still exist, so its panel shows only when it has any.
@@ -406,18 +404,8 @@ class DashboardController extends Controller
         $flowMine        = $queue->filter(fn($item) => (int) $item->assigned_to === (int) $user->id)->values();
         $flowAvailable   = $queue->filter(fn($item) => $item->assigned_to === null)->values();
 
-        // Stages this user handed forward (or finished) this week. A send-back
-        // moves work backwards and a cancellation withdraws it — neither is done.
-        $flowDoneThisWeek = FlowTransition::query()
-            ->from('flow_transitions as t')
-            ->leftJoin('flow_stages as fs', 'fs.id', '=', 't.from_stage_id')
-            ->leftJoin('flow_stages as ts', 'ts.id', '=', 't.to_stage_id')
-            ->where('t.moved_by', $user->id)
-            ->whereNotNull('t.from_stage_id')
-            ->where('t.created_at', '>=', $weekStart)
-            ->where(fn($q) => $q->whereNull('t.note')->orWhere('t.note', 'not like', 'Cancelled%'))
-            ->where(fn($q) => $q->whereNull('t.to_stage_id')->orWhereColumn('ts.position', '>', 'fs.position'))
-            ->count();
+        // Counters — today / this week / this month, overdue — are the My Work
+        // panel's, loaded from MyWorkService in the viewer's time zone.
 
         // ── Tasks ─────────────────────────────────────────────────────
         // Counts are real counts: the list below is capped, the tile is not.
@@ -458,16 +446,6 @@ class DashboardController extends Controller
             ->latest('submitted_at')
             ->limit(10)
             ->get($taskColumns);
-
-        $tasksDoneThisWeek = $mine()->where('status', 'Completed')
-            ->where(fn($q) => $q->whereDate('completion_date', '>=', $weekStart->toDateString())
-                ->orWhere(fn($q) => $q->whereNull('completion_date')->where('updated_at', '>=', $weekStart)))
-            ->count();
-
-        $overdueTaskCount = $mine()->overdue()->count();
-        $overdueFlowCount = $flowMine->filter(fn($item) => $item->isOverdue())->count();
-
-        $completedThisWeek = $tasksDoneThisWeek + $flowDoneThisWeek;
 
         // ── My assigned clients (client-ownership feature) ────────────
         $myClientIds = Client::where('assigned_to', $user->id)->pluck('id');
@@ -531,10 +509,6 @@ class DashboardController extends Controller
             'flowParticipant' => $flowParticipant,
             'flowMine' => $flowMine,
             'flowAvailable' => $flowAvailable,
-            'flowDoneThisWeek' => $flowDoneThisWeek,
-            'overdueFlowCount' => $overdueFlowCount,
-            'completedThisWeek' => $completedThisWeek,
-            'tasksDoneThisWeek' => $tasksDoneThisWeek,
             'myTasks' => $myTasks,
             'openTaskCount' => $openTaskCount,
             'submittedTasks' => $submittedTasks,
@@ -543,7 +517,6 @@ class DashboardController extends Controller
             'completedTaskCount' => $completedTaskCount,
             'toReviewTasks' => $toReviewTasks,
             'toReviewCount' => $toReviewCount,
-            'overdueTaskCount' => $overdueTaskCount,
             'myAssignedClientCount' => $myAssignedClientCount,
             'myActiveClientCount' => $myActiveClientCount,
             'followUpsDueToday' => $followUpsDueToday,

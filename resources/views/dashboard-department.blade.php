@@ -3,18 +3,6 @@
 
 @push('styles')
 <style>
-    .mw-tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .75rem; }
-    @media (max-width: 991.98px) { .mw-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    .mw-tile {
-        display: block; text-decoration: none; text-align: center; padding: .85rem .5rem;
-        background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-        box-shadow: var(--shadow-sm); transition: border-color .12s;
-    }
-    a.mw-tile:hover { border-color: var(--primary); }
-    .mw-tile-v { font-size: 1.5rem; font-weight: 700; line-height: 1.2; color: var(--primary); font-variant-numeric: tabular-nums; }
-    .mw-tile-k { font-size: .66rem; color: var(--text3); text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; }
-    .mw-tile-s { font-size: .66rem; color: var(--text3); margin-top: 1px; }
-
     .mw-tabs { display: flex; gap: .3rem; flex-wrap: wrap; }
     .mw-tab {
         border: 1px solid var(--border); background: var(--surface2); color: var(--text2);
@@ -50,34 +38,8 @@
         </div>
     </div>
 
-    {{-- ── Counters ── --}}
-    <div class="mw-tiles mb-3">
-        <a href="{{ route('flow.queue') }}" class="mw-tile">
-            <div class="mw-tile-v">{{ $flowMine->count() }}</div>
-            <div class="mw-tile-k">My Workflow Items</div>
-            <div class="mw-tile-s">claimed by you</div>
-        </a>
-        <a href="{{ route('flow.queue') }}" class="mw-tile">
-            <div class="mw-tile-v" style="color:var(--c-yellow)">{{ $flowAvailable->count() }}</div>
-            <div class="mw-tile-k">Available to Claim</div>
-            <div class="mw-tile-s">waiting at your stages</div>
-        </a>
-        @if($canTasks)<a href="{{ route('tasks.index') }}" class="mw-tile">@else<div class="mw-tile">@endif
-            <div class="mw-tile-v">{{ $openTaskCount }}</div>
-            <div class="mw-tile-k">Open Tasks</div>
-            <div class="mw-tile-s">{{ $submittedTaskCount }} submitted for review</div>
-        @if($canTasks)</a>@else</div>@endif
-        <div class="mw-tile">
-            <div class="mw-tile-v" style="color:var(--c-green)">{{ $completedThisWeek }}</div>
-            <div class="mw-tile-k">Completed This Week</div>
-            <div class="mw-tile-s">{{ $tasksDoneThisWeek }} {{ Str::plural('task', $tasksDoneThisWeek) }} · {{ $flowDoneThisWeek }} workflow</div>
-        </div>
-        <div class="mw-tile">
-            <div class="mw-tile-v c-red">{{ $overdueTaskCount + $overdueFlowCount }}</div>
-            <div class="mw-tile-k">Overdue</div>
-            <div class="mw-tile-s">{{ $overdueTaskCount }} {{ Str::plural('task', $overdueTaskCount) }} · {{ $overdueFlowCount }} workflow</div>
-        </div>
-    </div>
+    {{-- ── Counters: workload now, output today / this week / this month ── --}}
+    @include('partials.my-work-panel')
 
     @unless($stageUser)
     <div class="row g-3 mb-3">
@@ -212,7 +174,7 @@
                                 <div class="mw-row">
                                     <div class="flex-grow-1 min-w-0">
                                         @if($canTasks)
-                                            <a href="{{ route('tasks.index', ['task' => $task->id] + ($pane === 'task-review' ? ['review' => 1] : [])) }}" class="mw-title">{{ $task->title }}</a>
+                                            <a href="{{ route('tasks.show', $task) }}" class="mw-title">{{ $task->title }}</a>
                                         @else
                                             <span class="mw-title">{{ $task->title }}</span>
                                         @endif

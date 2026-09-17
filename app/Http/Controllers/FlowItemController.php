@@ -351,6 +351,22 @@ class FlowItemController extends Controller
         );
     }
 
+    /** An image attachment shown in the page — same authorization as a download. */
+    public function previewAttachment(Request $request, FlowItem $item, FlowItemAttachment $attachment): StreamedResponse
+    {
+        abort_unless($this->flow->canView($request->user(), $item), 403);
+        abort_if((int) $attachment->flow_item_id !== (int) $item->id, 404);
+        abort_unless($attachment->isFile(), 404);
+
+        return StoredFileResponse::preview(
+            $attachment->disk,
+            (string) $attachment->file_path,
+            (string) ($attachment->original_name ?: $attachment->title ?: 'image'),
+            $attachment->mime_type,
+            $attachment->file_size,
+        );
+    }
+
     public function destroyAttachment(Request $request, FlowItem $item, FlowItemAttachment $attachment): JsonResponse
     {
         abort_if($attachment->flow_item_id !== $item->id, 404);

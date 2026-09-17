@@ -229,6 +229,19 @@
                     </div>
                 </div>
             </div>
+
+            @can('viewAny', App\Models\Refund::class)
+            <div class="card section-card mt-3" id="refundCard" hidden>
+                <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="fw-bold mb-0">Refunds</h6>
+                        <small style="color:var(--text3)">Money going back to this client.</small>
+                    </div>
+                    <a href="{{ route('refunds.index') }}" class="btn btn-sm btn-light border">All refunds</a>
+                </div>
+                <div class="card-body p-0"><div id="refundList"></div></div>
+            </div>
+            @endcan
         </div>
 
         {{-- ── ADS TAB ── --}}
@@ -433,6 +446,10 @@
 
     {{-- Record Payment Modal — shared markup with the Payments page --}}
     @include('payments.partials.record-modal', ['modalId' => 'addPaymentModal', 'withClientPicker' => false])
+    @include('payments.partials.correction')
+    @can('viewAny', App\Models\Refund::class)
+        @include('refunds.partials.dialogs')
+    @endcan
 
     {{-- New / Edit Charge Modal --}}
     <div class="modal fade" id="chargeModal" tabindex="-1">
@@ -1279,6 +1296,7 @@
                 renderPayCategories((r.summary && r.summary.by_category) || []);
                 renderChargeList(payState.charges);
                 renderPaymentHistory(r.payments || []);
+                loadRefunds();
             }).fail(function (x) {
                 const msg = x.status === 403 ? 'You do not have access to this client\'s payments.' : 'Could not load payments.';
                 $('#payTotals').html('<div class="small c-red"><i class="bi bi-exclamation-circle me-1"></i>' + msg + '</div>');
@@ -1293,7 +1311,8 @@
                 + (sub ? '<div class="pay-tile-s">' + sub + '</div>' : '') + '</div>';
 
             let html = tile('Billed', rpMoney(s.total_billed), 'var(--text)', 'across all charges')
-                + tile('Received', rpMoney(s.total_paid), 'var(--c-green)', (s.count || 0) + ' payment' + (s.count === 1 ? '' : 's'))
+                + tile('Received', rpMoney(s.net_received !== undefined ? s.net_received : s.total_paid), 'var(--c-green)',
+                       (s.count || 0) + ' payment' + (s.count === 1 ? '' : 's') + (parseFloat(s.total_refunded) > 0 ? ' · ' + rpMoney(s.total_refunded) + ' refunded' : ''))
                 + tile('Outstanding', rpMoney(s.total_outstanding), s.total_outstanding > 0 ? 'var(--c-red)' : 'var(--text3)',
                        s.open_charges ? s.open_charges + ' open charge' + (s.open_charges === 1 ? '' : 's') : 'nothing owed');
             if (parseFloat(s.total_partial) > 0) {
@@ -1381,17 +1400,30 @@
                 + '<th class="ps-3">Date</th><th>Category</th><th>Against</th><th class="text-end">Amount</th><th>Status</th>'
                 + '<th>Method</th><th>Txn #</th><th>By</th><th class="pe-3"></th></tr></thead><tbody>';
 
+            payState.payments = data;
             data.forEach(function (p) {
+                let actions = '<button class="pay-icon-btn payment-history" data-id="' + p.id + '" title="Correction history"><i class="bi bi-clock-history"></i></button> ';
+                if (canRequestRefund && Number(p.refundable_amount) > 0 && !p.open_refund && !p.change_waiting) {
+                    actions += '<button class="pay-icon-btn request-refund" data-id="' + p.id + '" title="Request a refund"><i class="bi bi-arrow-counterclockwise"></i></button> ';
+                }
+                if (canManageMoney && !p.change_waiting) {
+                    actions += '<button class="pay-icon-btn edit-payment" data-id="' + p.id + '" title="Correct"><i class="bi bi-pencil"></i></button> '
+                        + '<button class="pay-icon-btn pay-icon-danger delete-payment" data-id="' + p.id + '" title="Delete"><i class="bi bi-trash"></i></button>';
+                }
                 html += '<tr>'
                     + '<td class="ps-3" style="white-space:nowrap">' + fmtDate(p.payment_date) + '</td>'
                     + '<td>' + (p.category ? '<span class="pay-cat">' + esc(p.category.name) + '</span>' : '<span style="color:var(--text3)">—</span>') + '</td>'
                     + '<td style="font-size:.78rem">' + (p.invoice ? esc(p.invoice.invoice_number) : '<span style="color:var(--text3)">—</span>') + '</td>'
                     + '<td class="text-end pay-num">' + (p.amount !== null ? rpMoney(p.amount) : '—') + '</td>'
-                    + '<td><span class="spill ' + (paymentSpill[p.status] || 'spill-hold') + '">' + esc(p.status) + '</span></td>'
+                    + '<td><span class="spill ' + (paymentSpill[p.status] || 'spill-hold') + '">' + esc(p.status) + '</span>'
+                    +   (p.change_waiting ? ' <span class="spill spill-warning" style="font-size:.6rem" title="A correction is waiting for approval">Change pending</span>' : '')
+                    +   (p.open_refund ? ' <button type="button" class="spill spill-in-progress border-0 open-refund" data-id="' + p.open_refund.id + '" style="font-size:.6rem" title="Open refund">Refund ' + esc(p.open_refund.status_label.toLowerCase()) + '</button>' : '')
+                    +   (Number(p.refunded_amount) > 0 ? ' <span class="spill spill-hold" style="font-size:.6rem">' + rpMoney(p.refunded_amount) + ' refunded</span>' : '')
+                    + '</td>'
                     + '<td>' + (esc(p.payment_method) || '—') + '</td>'
                     + '<td>' + (esc(p.transaction_number) || '—') + '</td>'
                     + '<td>' + (esc(p.created_by && p.created_by.name) || '—') + '</td>'
-                    + '<td class="pe-3 text-end">' + (canManageMoney ? '<button class="pay-icon-btn pay-icon-danger delete-payment" data-id="' + p.id + '" title="Delete"><i class="bi bi-trash"></i></button>' : '') + '</td>'
+                    + '<td class="pe-3 text-end" style="white-space:nowrap">' + actions + '</td>'
                     + '</tr>';
             });
 
@@ -1407,14 +1439,52 @@
             if (charge) clientPayment.open({ categoryId: charge.category ? charge.category.id : null, chargeId: charge.id });
         });
 
+        // Corrections and deletions carry a reason and, for anyone but an
+        // approver, wait for approval — see payments/partials/correction.
         $(document).on('click', '.delete-payment', function () {
-            const id = $(this).data('id');
-            Swal.fire({ title: 'Delete payment?', text: 'If it was paid against a charge, that charge\'s balance goes back up.', icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545' })
-                .then(r => {
-                    if (r.isConfirmed) $.ajax({ url: baseUrl + '/payments/' + id, type: 'DELETE' })
-                        .done(loadPayments)
-                        .fail(x => Swal.fire({ icon: 'error', title: 'Could not delete', html: rpErrorText(x) }));
+            PaymentCorrection.remove(baseUrl + '/payments/' + $(this).data('id'), loadPayments);
+        });
+        $(document).on('click', '.edit-payment', function () {
+            const payment = (payState.payments || []).find(p => p.id === $(this).data('id'));
+            if (payment) PaymentCorrection.edit(payment, baseUrl + '/payments/' + payment.id, loadPayments);
+        });
+        $(document).on('click', '.payment-history', function () {
+            PaymentCorrection.history(baseUrl + '/payments/' + $(this).data('id') + '/history');
+        });
+
+        // ── Refunds ──
+        var canRequestRefund = {{ Js::from(auth()->user()->can('request refunds')) }};
+        var canSeeRefunds    = {{ Js::from(auth()->user()->can('viewAny', App\Models\Refund::class)) }};
+
+        function loadRefunds() {
+            if (!canSeeRefunds) return;
+            $.getJSON(baseUrl + '/refunds').done(function (r) {
+                const rows = r.data || [];
+                $('#refundCard').prop('hidden', !rows.length);
+                if (!rows.length) return;
+
+                let html = '<div class="table-responsive"><table class="table table-sm align-middle mb-0 pay-table"><thead><tr>'
+                    + '<th class="ps-3">Refund</th><th class="text-end">Amount</th><th>Status</th><th>Requested</th><th>Reference</th><th class="pe-3"></th></tr></thead><tbody>';
+                rows.forEach(function (rf) {
+                    html += '<tr>'
+                        + '<td class="ps-3"><button type="button" class="btn btn-link p-0 fw-semibold open-refund" data-id="' + rf.id + '">' + esc(rf.refund_number) + '</button></td>'
+                        + '<td class="text-end pay-num">' + rpMoney(rf.amount) + '</td>'
+                        + '<td><span class="spill ' + (Refunds.spill[rf.status] || 'spill-hold') + '">' + esc(rf.status_label) + '</span></td>'
+                        + '<td style="font-size:.78rem">' + esc(rf.requested_by || '—') + ' · ' + fmtDate(rf.requested_at) + '</td>'
+                        + '<td style="font-size:.78rem">' + (esc(rf.reference) || '—') + '</td>'
+                        + '<td class="pe-3 text-end"><button class="pay-icon-btn open-refund" data-id="' + rf.id + '" title="Open"><i class="bi bi-box-arrow-up-right"></i></button></td>'
+                        + '</tr>';
                 });
+                $('#refundList').html(html + '</tbody></table></div>');
+            });
+        }
+
+        $(document).on('click', '.request-refund', function () {
+            const payment = (payState.payments || []).find(p => p.id === $(this).data('id'));
+            if (payment) Refunds.request(payment, () => { loadPayments(); });
+        });
+        $(document).on('click', '.open-refund', function () {
+            Refunds.open($(this).data('id'), () => { loadPayments(); });
         });
 
         // ── Charges ──

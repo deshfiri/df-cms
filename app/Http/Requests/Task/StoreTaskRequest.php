@@ -20,6 +20,8 @@ class StoreTaskRequest extends FormRequest
         return [
             'title'            => ['required', 'string', 'max:255'],
             'description'      => ['nullable', 'string'],
+            // The submission must include a file (see TaskService::submitForReview).
+            'requires_attachment' => ['sometimes', 'boolean'],
             // Optional: internal work — delegating something to a colleague —
             // has no client to attach it to.
             'client_id'        => ['nullable', 'exists:clients,id'],
@@ -29,6 +31,9 @@ class StoreTaskRequest extends FormRequest
             'type'             => ['required', Rule::in(Task::$types)],
             'start_date'       => ['nullable', 'date'],
             'due_date'         => ['nullable', 'date'],
+            // The exact deadline, sent by the browser with its UTC offset so a
+            // time picked in Dhaka means that moment, whatever the server's zone.
+            'due_at'           => ['nullable', 'date'],
             'reminder_at'      => ['nullable', 'date'],
             'estimated_hours'  => ['nullable', 'numeric', 'min:0'],
             'label_ids'        => ['nullable', 'array'],

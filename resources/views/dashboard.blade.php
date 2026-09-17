@@ -116,6 +116,9 @@
     </div>
 </div>
 
+{{-- Admins have their own work too. --}}
+@include('partials.my-work-panel')
+
 @if($unassignedClientCount > 0)
 <div class="d-flex align-items-center gap-2 mb-3 p-3" style="background:var(--c-yellow-bg);border:1px solid var(--c-yellow-bg);border-radius:var(--radius)">
     <i class="bi bi-exclamation-triangle-fill c-yellow"></i>

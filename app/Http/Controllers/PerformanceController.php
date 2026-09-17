@@ -114,6 +114,8 @@ class PerformanceController extends Controller
             'period'   => $period,
             'periods'  => $this->periodOptions(),
             'result'   => $this->performance->finalScore($user, $period),
+            // The per-task audit trail behind the task KPIs.
+            'credit'   => $this->performance->taskCredit($user, $period),
             'trend'    => [
                 'labels' => $snapshots->map(fn ($s) => \Illuminate\Support\Carbon::createFromFormat('Y-m', $s->period)->format('M Y'))->all(),
                 'scores' => $snapshots->map(fn ($s) => (float) $s->final_score)->all(),

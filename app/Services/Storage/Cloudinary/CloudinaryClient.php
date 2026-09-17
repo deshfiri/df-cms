@@ -145,6 +145,20 @@ class CloudinaryClient
         $response = $this->fetch($this->url($path));
 
         /*
+         * Delivery refused. Cloudinary accounts block public delivery of PDF and
+         * ZIP files by default ("Allow delivery of PDF and ZIP files" under
+         * Security), answering 401 with an x-cld-error of "deny or ACL failure"
+         * or "Untrusted File Access". The upload succeeded and the file is there
+         * — only the public edge will not hand it out, and the versioned URL
+         * below is refused the same way. The signed download API is not subject
+         * to that restriction, so it is used instead. Every download is proxied
+         * through the app anyway, so nothing becomes public by doing this.
+         */
+        if ($response !== null && in_array($response->status(), [401, 403], true)) {
+            $response = $this->fetch($this->signedDownloadUrl($path));
+        }
+
+        /*
          * A miss here does not mean the file is absent. The delivery edge caches
          * 404s, so a path that was checked before it was written keeps reading
          * as missing from that URL. The Admin API hands back a *versioned* URL
@@ -155,6 +169,11 @@ class CloudinaryClient
             $versioned = $this->resource($path)['secure_url'] ?? null;
 
             $response = $versioned ? $this->fetch($versioned) : null;
+        }
+
+        // Last resort for anything the edge still will not serve.
+        if ($response === null || !$response->successful()) {
+            $response = $this->fetch($this->signedDownloadUrl($path));
         }
 
         if ($response === null || !$response->successful()) {
@@ -168,6 +187,29 @@ class CloudinaryClient
         }
 
         return $stream;
+    }
+
+    /**
+     * A short-lived, signed link to the original bytes through Cloudinary's
+     * download API.
+     *
+     * Unlike the public delivery URL it is authenticated by the API secret, so
+     * account-level delivery restrictions (PDF/ZIP blocked by default) do not
+     * apply. It is only ever fetched server-side and streamed through the app;
+     * the URL itself never reaches a browser.
+     */
+    public function signedDownloadUrl(string $path): string
+    {
+        $params = [
+            'public_id' => $this->publicId($path),
+            'timestamp' => (string) time(),
+            'type'      => 'upload',
+        ];
+
+        return $this->endpoint('download') . '?' . http_build_query($params + [
+            'api_key'   => $this->apiKey,
+            'signature' => $this->sign($params),
+        ]);
     }
 
     /** A streamed GET that reports failure rather than throwing. */

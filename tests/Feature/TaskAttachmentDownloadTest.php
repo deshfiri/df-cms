@@ -209,6 +209,86 @@ class TaskAttachmentDownloadTest extends TestCase
         $this->assertSame(48213, $adapter->fileSize('task-attachments/1/a.pdf')->fileSize());
     }
 
+    /**
+     * The reported bug: images downloaded, ZIPs and PDFs did not.
+     *
+     * Cloudinary blocks public delivery of PDF and ZIP files by default and
+     * answers 401. The file is there; reads now go through the signed download
+     * API instead of failing as "no longer available".
+     */
+    public function test_a_file_the_cdn_refuses_to_deliver_is_read_through_the_signed_api(): void
+    {
+        Http::fake([
+            'res.cloudinary.com/*' => Http::response('', 401, ['x-cld-error' => 'deny or ACL failure']),
+            'api.cloudinary.com/v1_1/demo-cloud/raw/download*' => Http::response('PK-zip-bytes', 200),
+        ]);
+
+        $stream = $this->cloudinary()->readStream('task-attachments/1/archive.zip');
+
+        $this->assertSame('PK-zip-bytes', stream_get_contents($stream));
+        Http::assertSent(function (HttpRequest $request) {
+            if (!str_contains($request->url(), '/raw/download')) {
+                return false;
+            }
+            parse_str(parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return $query['public_id'] === 'task-attachments/1/archive.zip'
+                && $query['type'] === 'upload'
+                && !empty($query['signature'])
+                && $query['api_key'] === 'key';
+        });
+    }
+
+    public function test_the_signed_link_is_signed_with_the_secret_not_exposed_in_it(): void
+    {
+        $url = $this->cloudinary()->signedDownloadUrl('a/b.pdf');
+
+        $this->assertStringContainsString('https://api.cloudinary.com/v1_1/demo-cloud/raw/download?', $url);
+        $this->assertStringNotContainsString('secret', $url);
+
+        parse_str(parse_url($url, PHP_URL_QUERY), $query);
+        $expected = sha1('public_id=a/b.pdf&timestamp=' . $query['timestamp'] . '&type=upload' . 'secret');
+        $this->assertSame($expected, $query['signature']);
+    }
+
+    /** @return array<string,array{0:string,1:string}> */
+    public static function fileTypes(): array
+    {
+        return [
+            'jpg'  => ['photo.jpg', 'image/jpeg'],
+            'png'  => ['image.png', 'image/png'],
+            'webp' => ['image.webp', 'image/webp'],
+            'pdf'  => ['brochure.pdf', 'application/pdf'],
+            'zip'  => ['archive.zip', 'application/zip'],
+            'docx' => ['letter.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+            'xlsx' => ['sheet.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+            'csv'  => ['list.csv', 'text/csv'],
+            'txt'  => ['notes.txt', 'text/plain'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('fileTypes')]
+    public function test_every_file_type_downloads_whole_as_a_download(string $name, string $mime): void
+    {
+        [$task, $assignee] = $this->setup_task();
+        $body = random_bytes(3000);
+        Storage::disk('local')->put('task-attachments/x/' . $name, $body);
+
+        $attachment = TaskAttachment::create([
+            'task_id' => $task->id, 'user_id' => $assignee->id, 'original_name' => $name, 'stored_name' => $name,
+            'file_path' => 'task-attachments/x/' . $name, 'disk' => 'local', 'mime_type' => $mime, 'file_size' => 3000,
+        ]);
+
+        $response = $this->actingAs($assignee)->get(route('tasks.attachments.download', [$task, $attachment]));
+
+        $response->assertOk();
+        $this->assertSame($body, $response->streamedContent());
+        $this->assertStringStartsWith('attachment;', $response->headers->get('Content-Disposition'));
+        $this->assertStringContainsString($name, $response->headers->get('Content-Disposition'));
+        // Text types gain "; charset=UTF-8" on the way out, which is correct.
+        $this->assertStringStartsWith($mime, $response->headers->get('Content-Type'));
+    }
+
     public function test_reads_ask_the_cdn_for_the_files_own_bytes(): void
     {
         Http::fake(['res.cloudinary.com/*' => Http::response('%PDF-raw-bytes', 200)]);

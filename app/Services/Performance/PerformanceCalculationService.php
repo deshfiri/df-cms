@@ -10,6 +10,7 @@ use App\Models\SalesTarget;
 use App\Models\Task;
 use App\Models\TaskActivity;
 use App\Models\User;
+use App\Services\TaskInvolvementService;
 use Carbon\Carbon;
 
 class PerformanceCalculationService
@@ -69,13 +70,7 @@ class PerformanceCalculationService
 
         // One task set per employee, serving task completion, on-time and
         // revision rate — all three are subsets of "their tasks due this period".
-        $this->tasksByUser = Task::whereIn('assigned_to', $ids)
-            ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
-            ->withCount('revisions')
-            ->with(['revisions' => fn ($q) => $q->where('reason_category', 'Employee Mistake')])
-            ->get()
-            ->groupBy('assigned_to')
-            ->all();
+        $this->tasksByUser = $this->loadTasks($ids, $period);
 
         $this->targetsByUser = SalesTarget::whereIn('user_id', $ids)
             ->where('period', $period)
@@ -123,13 +118,145 @@ class PerformanceCalculationService
             return $this->tasksByUser[$user->id] ?? collect();
         }
 
+        return $this->loadTasks(collect([$user->id]), $period)[$user->id] ?? collect();
+    }
+
+    // ── Task credit ──────────────────────────────────────────────────────
+    //
+    // A task counts for a person in proportion to the work they did on it, as
+    // recorded by TaskInvolvementService: whoever holds it now and anyone who
+    // contributed share it by their work points. Someone it merely passed
+    // through, whoever created it, and whoever reviewed it get no share, so it
+    // neither helps nor hurts their task KPIs.
+    //
+    // Every task-based KPI is then a share-weighted rate:
+    //
+    //     completion %  = Σ share(completed)            ÷ Σ share(counted tasks)   × 100
+    //     on-time %     = Σ share(completed on time)    ÷ Σ share(completed)       × 100
+    //     revision KPI  = Σ share(sent back for a mistake) ÷ Σ share(submitted)   × 100
+    //
+    // A task done alone has share 1, so for the ordinary case every number is
+    // exactly what it was before involvement existed. The counts shown next to
+    // the rates stay whole tasks; the `credited_*` figures are the weighted sums
+    // the rates were computed from, so a scorecard can always be re-derived by
+    // hand from the per-task breakdown in taskCredit().
+
+    /**
+     * Tasks due in the period that count for each of these users, each a copy
+     * carrying that user's `work_share`.
+     *
+     * @param  \Illuminate\Support\Collection<int,int>  $ids
+     * @return array<int,\Illuminate\Support\Collection<int,Task>>
+     */
+    private function loadTasks(\Illuminate\Support\Collection $ids, string $period): array
+    {
         [$start, $end] = $this->periodBounds($period);
 
-        return Task::where('assigned_to', $user->id)
+        $tasks = Task::query()
             ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
+            ->where(fn ($q) => $q
+                ->whereIn('assigned_to', $ids)
+                ->orWhereHas('involvements', fn ($inv) => $inv->whereIn('user_id', $ids)->where('points', '>', 0)))
             ->withCount('revisions')
-            ->with(['revisions' => fn ($q) => $q->where('reason_category', 'Employee Mistake')])
+            ->with([
+                'revisions' => fn ($q) => $q->where('reason_category', 'Employee Mistake'),
+                'involvements',
+            ])
+            ->orderBy('id')
             ->get();
+
+        $byUser = [];
+        foreach ($tasks as $task) {
+            foreach (self::workSharesOf($task) as $userId => $share) {
+                if ($share > 0 && $ids->contains($userId)) {
+                    $byUser[$userId][] = (clone $task)->setAttribute('work_share', $share);
+                }
+            }
+        }
+
+        return array_map(fn (array $list) => collect($list), $byUser);
+    }
+
+    /**
+     * Each doer's share of one task (loaded with its involvements).
+     *
+     * The task's current assignee is treated as the holder whatever its rows
+     * last recorded, so credit follows the task even if something reassigned it
+     * without going through TaskService. A task with no involvement recorded at
+     * all counts wholly for its assignee, as every task did before.
+     *
+     * @return array<int,float>
+     */
+    public static function workSharesOf(Task $task): array
+    {
+        $holder = $task->assigned_to ? (int) $task->assigned_to : null;
+
+        if ($task->involvements->isEmpty()) {
+            return $holder ? [$holder => 1.0] : [];
+        }
+
+        $rows = $task->involvements->map(fn ($inv) => [
+            'user_id' => (int) $inv->user_id,
+            'points'  => (float) $inv->points,
+            'role'    => match (true) {
+                (int) $inv->user_id === $holder => TaskInvolvementService::ROLE_PRIMARY,
+                (float) $inv->points > 0        => TaskInvolvementService::ROLE_CONTRIBUTOR,
+                default                         => $inv->role === TaskInvolvementService::ROLE_PRIMARY
+                                                      ? TaskInvolvementService::ROLE_PASSED_THROUGH
+                                                      : $inv->role,
+            },
+        ])->all();
+
+        if ($holder && !$task->involvements->contains(fn ($inv) => (int) $inv->user_id === $holder)) {
+            $rows[] = ['user_id' => $holder, 'points' => 0.0, 'role' => TaskInvolvementService::ROLE_PRIMARY];
+        }
+
+        return TaskInvolvementService::workShares($rows);
+    }
+
+    /**
+     * The per-task audit trail behind a user's task KPIs for the period: every
+     * task they were involved in, with their role, points, the events that
+     * earned them, and the share that was credited.
+     *
+     * Includes tasks that earned no share (passed through, reviewed, created)
+     * so a scorecard can show why they did not count.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function taskCredit(User $user, string $period): array
+    {
+        [$start, $end] = $this->periodBounds($period);
+
+        $tasks = Task::query()
+            ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
+            ->where(fn ($q) => $q
+                ->where('assigned_to', $user->id)
+                ->orWhereHas('involvements', fn ($inv) => $inv->where('user_id', $user->id)))
+            ->with('involvements')
+            ->orderBy('due_date')->orderBy('id')
+            ->get(['id', 'title', 'status', 'assigned_to', 'created_by', 'due_date', 'due_at']);
+
+        return $tasks->map(function (Task $task) use ($user) {
+            $mine  = $task->involvements->first(fn ($inv) => (int) $inv->user_id === (int) $user->id);
+            $share = self::workSharesOf($task)[$user->id] ?? 0.0;
+
+            return [
+                'task_id'   => $task->id,
+                'title'     => $task->title,
+                'status'    => $task->status,
+                'due'       => $task->due_date?->toDateString(),
+                'role'      => (int) $task->assigned_to === (int) $user->id
+                                   ? TaskInvolvementService::ROLE_PRIMARY
+                                   : ($mine?->role ?? TaskInvolvementService::ROLE_OTHER),
+                'points'    => (float) ($mine?->points ?? 0),
+                'review_points' => (float) ($mine?->review_points ?? 0),
+                'breakdown' => $mine?->breakdown ?? [],
+                'share'     => $share,
+                'counted'   => $share > 0,
+                'tracked'   => $task->involvements->isNotEmpty(),
+            ];
+        })->all();
     }
 
     public function periodBounds(string $period): array
@@ -156,18 +283,42 @@ class PerformanceCalculationService
         $pending   = $tasks->where('status', 'Pending')->count();
         $onHold    = $tasks->where('status', 'On Hold')->count();
         $inProgress = $tasks->where('status', 'In Progress')->count();
-        // Task::$settledStatuses, so submitted work waiting on a reviewer is not
-        // counted late against the person who handed it in.
-        $overdue   = $tasks->filter(fn (Task $t) => $t->due_date && $t->due_date->isPast() && !in_array($t->status, Task::$settledStatuses, true))->count();
+        // is_overdue honours Task::$settledStatuses, so submitted work waiting on
+        // a reviewer is not counted late against the person who handed it in,
+        // and an exact deadline is late from that moment, a date-only one from
+        // the next day.
+        $overdue   = $tasks->filter(fn (Task $t) => $t->is_overdue)->count();
 
-        $denominator = $settings->count_cancelled_against_kpi ? $total : ($total - $cancelled);
-        $completionPct = $denominator > 0 ? round($completed / $denominator * 100, 2) : null;
+        $counted = $settings->count_cancelled_against_kpi ? $tasks : $tasks->where('status', '!=', 'Cancelled');
+        $creditedTotal     = self::credit($counted);
+        $creditedCompleted = self::credit($counted->where('status', 'Completed'));
+        $completionPct = $counted->isNotEmpty() && $creditedTotal > 0 ? round($creditedCompleted / $creditedTotal * 100, 2) : null;
 
         return [
             'total' => $total, 'completed' => $completed, 'pending' => $pending,
             'in_progress' => $inProgress, 'on_hold' => $onHold, 'overdue' => $overdue, 'cancelled' => $cancelled,
             'completion_pct' => $completionPct,
+            'shared' => $tasks->filter(fn (Task $t) => self::shareOf($t) < 1)->count(),
+            'credited_total' => round($creditedTotal, 4),
+            'credited_completed' => round($creditedCompleted, 4),
         ];
+    }
+
+    /** This user's share of a task loaded by loadTasks(). */
+    private static function shareOf(Task $task): float
+    {
+        return (float) ($task->getAttribute('work_share') ?? 1.0);
+    }
+
+    /** Sum of shares — how many whole tasks' worth of credit a set represents. */
+    private static function credit(iterable $tasks): float
+    {
+        $sum = 0.0;
+        foreach ($tasks as $task) {
+            $sum += self::shareOf($task);
+        }
+
+        return $sum;
     }
 
     public function onTimeCompletion(User $user, string $period): array
@@ -178,29 +329,56 @@ class PerformanceCalculationService
             ->values();
 
         $before = $onTime = $after = 0;
-        $delays = [];
+        $creditedOnTime = $creditedLate = $weightedDelay = 0.0;
 
         foreach ($completed as $task) {
-            $diff = $task->due_date->diffInDays($task->completion_date, false);
-            if ($diff < 0) {
-                $before++;
-            } elseif ($diff === 0) {
-                $onTime++;
-            } else {
+            $share = self::shareOf($task);
+            $delay = self::delayDays($task);
+
+            if ($delay > 0) {
                 $after++;
-                $delays[] = $diff;
+                $creditedLate  += $share;
+                $weightedDelay += $delay * $share;
+            } else {
+                $task->completion_date->lt($task->due_date->copy()->startOfDay()) ? $before++ : $onTime++;
+                $creditedOnTime += $share;
             }
         }
 
         $totalCompleted = $completed->count();
-        $onTimeRate = $totalCompleted > 0 ? round(($before + $onTime) / $totalCompleted * 100, 2) : null;
-        $avgDelay = count($delays) > 0 ? round(array_sum($delays) / count($delays), 2) : null;
+        $creditedCompleted = $creditedOnTime + $creditedLate;
+        $onTimeRate = $totalCompleted > 0 && $creditedCompleted > 0 ? round($creditedOnTime / $creditedCompleted * 100, 2) : null;
+        $avgDelay = $after > 0 && $creditedLate > 0 ? round($weightedDelay / $creditedLate, 2) : null;
 
         return [
             'total_completed' => $totalCompleted,
             'before_deadline' => $before, 'on_deadline' => $onTime, 'after_deadline' => $after,
             'avg_delay_days' => $avgDelay, 'on_time_rate' => $onTimeRate,
+            'credited_completed' => round($creditedCompleted, 4),
+            'credited_on_time' => round($creditedOnTime, 4),
         ];
+    }
+
+    /**
+     * How late a completed task was, in days; 0 when it met its deadline.
+     *
+     * An exact deadline is met or missed at that moment, and lateness is the
+     * fraction of days past it. A date-only deadline is met by finishing any
+     * time that day, as it always was.
+     *
+     * Whole days are cast to int deliberately: Carbon 3 returns floats from
+     * diffInDays(), so the old `=== 0` test never matched and every task
+     * finished on its due date was counted late with a zero delay.
+     */
+    private static function delayDays(Task $task): float
+    {
+        if ($task->dueHasTime() && $task->completed_at) {
+            $seconds = $task->due_at->diffInSeconds($task->completed_at, false);
+
+            return $seconds > 0 ? round($seconds / 86400, 2) : 0.0;
+        }
+
+        return (float) max(0, (int) $task->due_date->copy()->startOfDay()->diffInDays($task->completion_date->copy()->startOfDay(), false));
     }
 
     public function deadlineExtensionHistory(Task $task): array
@@ -237,14 +415,23 @@ class PerformanceCalculationService
         $employeeMistakeCount = $tasks->filter(fn (Task $t) => $t->revisions->isNotEmpty())->count();
         $totalRevisionRequests = (int) $tasks->sum('revisions_count');
 
+        // Rates are share-weighted: a mistake on a task someone did a third of
+        // weighs a third as much in their KPI.
+        $creditedSubmitted = self::credit($tasks);
+        $creditedRevised   = self::credit($tasks->where('revisions_count', '>', 0));
+        $creditedMistakes  = self::credit($tasks->filter(fn (Task $t) => $t->revisions->isNotEmpty()));
+        $rate = fn (float $part) => $totalSubmitted > 0 && $creditedSubmitted > 0 ? round($part / $creditedSubmitted * 100, 2) : null;
+
         return [
             'total_submitted' => $totalSubmitted,
             'approved_first_submission' => $totalSubmitted - $requiringRevision,
             'requiring_revision' => $requiringRevision,
             'total_revision_requests' => $totalRevisionRequests,
             'avg_revisions_per_task' => $totalSubmitted > 0 ? round($totalRevisionRequests / $totalSubmitted, 2) : null,
-            'revision_rate_all' => $totalSubmitted > 0 ? round($requiringRevision / $totalSubmitted * 100, 2) : null,
-            'revision_rate_kpi' => $totalSubmitted > 0 ? round($employeeMistakeCount / $totalSubmitted * 100, 2) : null,
+            'revision_rate_all' => $rate($creditedRevised),
+            'revision_rate_kpi' => $rate($creditedMistakes),
+            'credited_submitted' => round($creditedSubmitted, 4),
+            'credited_mistakes' => round($creditedMistakes, 4),
         ];
     }
 

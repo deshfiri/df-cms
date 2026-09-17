@@ -34,7 +34,7 @@ class TaskAssigned extends Notification
             'client_id' => $this->task->client_id,
             // The list with this task opened — tasks.show is the modal's JSON
             // endpoint, not a page, and following it showed the raw payload.
-            'url'       => route('tasks.index', ['task' => $this->task->id]),
+            'url'       => route('tasks.show', $this->task->id),
         ];
     }
 }

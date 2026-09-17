@@ -14,8 +14,8 @@ use App\Models\User;
 use App\Services\Storage\StoredFileResponse;
 use App\Services\TaskService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\View\View;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -33,6 +33,12 @@ class TaskController extends Controller
 
         if ($request->ajax()) {
             return $this->dataTable($request);
+        }
+
+        // Links from before tasks had their own page (/tasks?task=12), including
+        // notifications already stored in the database.
+        if ($request->filled('task') && ctype_digit((string) $request->query('task'))) {
+            return redirect()->route('tasks.show', (int) $request->query('task'));
         }
 
         $clients = Client::withoutTrashed()->orderBy('client_name')->get(['id', 'client_name', 'dfid_number']);
@@ -66,24 +72,65 @@ class TaskController extends Controller
     }
 
     /**
-     * One task — as JSON for the page's detail modal, or as a redirect for a
-     * browser.
+     * One task — its own page for a browser, JSON for scripts (the edit dialog,
+     * the live timer's resync).
      *
-     * There is no standalone task page: the list opens tasks in a modal. So a
-     * person arriving here by following a link (a notification, a bookmark) was
-     * handed the raw JSON payload. They are now sent to the list with the task
-     * opened. Handled here rather than only in the notification classes because
-     * notifications already sent have this URL stored in the database.
-     *
-     * Authorized first either way, so a redirect never confirms that a task you
-     * may not see exists.
+     * Authorized first either way, so nothing confirms that a task you may not
+     * see exists. Opening a task is never logged: looking is not involvement.
      */
-    public function show(Request $request, Task $task): JsonResponse|RedirectResponse
+    public function show(Request $request, Task $task): JsonResponse|View
     {
         $this->authorize('view', $task);
 
-        if (!$request->ajax() && !$request->expectsJson()) {
-            return redirect()->route('tasks.index', ['task' => $task->id]);
+        if ($request->ajax() || $request->expectsJson()) {
+            return $this->showJson($request, $task);
+        }
+
+        $me = $request->user();
+
+        $task->load([
+            'client:id,client_name,dfid_number',
+            'assignedUser:id,name,avatar',
+            'createdBy:id,name,avatar',
+            'updatedBy:id,name',
+            'labels',
+            'comments.user:id,name,avatar',
+            'attachments.user:id,name',
+            'activities.user:id,name',
+            'revisions.requestedBy:id,name',
+            'involvements.user:id,name,avatar',
+        ]);
+
+        $canUpdate = $me->can('update', $task);
+
+        return view('tasks.show', [
+            'task'  => $task,
+            'timer' => $task->timer(),
+            'can'   => [
+                'progress' => $me->can('progress', $task),
+                'submit'   => $me->can('submit', $task),
+                'review'   => $me->can('review', $task),
+                'update'   => $canUpdate,
+                'delete'   => $me->can('delete', $task),
+                'manage'   => $me->can('manage tasks'),
+                // Work shares are performance data: shown to those who manage
+                // tasks or read performance, not to everyone on the task.
+                'shares'   => $me->canAny(['manage tasks', 'view performance']),
+            ],
+            'awaitingSubmissionFile' => $task->requires_attachment && !$this->service->hasSubmissionFile($task),
+            // Only needed for the edit dialog.
+            'clients' => $canUpdate ? Client::withoutTrashed()->orderBy('client_name')->get(['id', 'client_name', 'dfid_number']) : collect(),
+            'users'   => $canUpdate ? User::where('is_active', true)->orderBy('name')->get(['id', 'name']) : collect(),
+            'labels'  => $canUpdate ? Label::orderBy('name')->get() : collect(),
+            'reasonCategories' => TaskRevision::$reasonCategories,
+        ]);
+    }
+
+    private function showJson(Request $request, Task $task): JsonResponse
+    {
+        // The live counter resyncs every minute; it needs the clock, not the history.
+        if ($request->boolean('timer_only')) {
+            return response()->json(['status' => $task->status, 'timer' => $task->timer()]);
         }
 
         $task->load([
@@ -97,7 +144,7 @@ class TaskController extends Controller
             'revisions.requestedBy:id,name',
         ]);
 
-        return response()->json(['task' => $task]);
+        return response()->json(['task' => $task, 'timer' => $task->timer()]);
     }
 
     public function update(UpdateTaskRequest $request, Task $task): JsonResponse
@@ -111,7 +158,7 @@ class TaskController extends Controller
 
     public function destroy(Task $task): JsonResponse
     {
-        $this->authorize('manage tasks');
+        $this->authorize('delete', $task);
         $this->service->delete($task);
 
         return response()->json(['success' => true]);
@@ -136,16 +183,31 @@ class TaskController extends Controller
         return response()->json(['success' => true, 'task' => $updated]);
     }
 
-    /** The assignee hands the work back to whoever asked for it. */
+    /**
+     * The assignee hands the work back to whoever asked for it, optionally with
+     * the files that make up the work.
+     */
     public function submit(Request $request, Task $task): JsonResponse
     {
         $this->authorize('submit', $task);
 
-        $data = $request->validate(['note' => ['nullable', 'string', 'max:1000']]);
+        $data = $request->validate([
+            'note'    => ['nullable', 'string', 'max:1000'],
+            'files'   => ['nullable', 'array', 'max:10'],
+            'files.*' => ['file', 'max:20480'],
+        ], [
+            'files.max'   => 'Hand in up to 10 files at a time.',
+            'files.*.max' => 'Each file can be up to 20 MB.',
+        ]);
 
-        $updated = $this->service->submitForReview($task, $request->user(), $data['note'] ?? null);
+        $updated = $this->service->submitForReview($task, $request->user(), $data['note'] ?? null, $request->file('files', []));
 
-        return response()->json(['success' => true, 'task' => $updated]);
+        return response()->json([
+            'success' => true,
+            'message' => 'Submitted for review.',
+            'task'    => $updated,
+            'timer'   => $updated->timer(),
+        ]);
     }
 
     /** The requester accepts the work, or sends it back with a reason. */
@@ -166,7 +228,8 @@ class TaskController extends Controller
 
     public function storeRevision(Request $request, Task $task): JsonResponse
     {
-        $this->authorize('manage tasks');
+        // Reopening finished work is a management call, same as editing it.
+        $this->authorize('update', $task);
 
         $data = $request->validate([
             'reason_category' => ['required', Rule::in(TaskRevision::$reasonCategories)],
@@ -190,7 +253,8 @@ class TaskController extends Controller
 
     public function destroyComment(Task $task, TaskComment $comment): JsonResponse
     {
-        abort_if($comment->task_id !== $task->id, 404);
+        $this->authorize('view', $task);
+        abort_if((int) $comment->task_id !== (int) $task->id, 404);
         abort_unless($comment->user_id === auth()->id() || auth()->user()->can('manage tasks'), 403, "Cannot delete another user's comment.");
 
         $this->service->deleteComment($comment);
@@ -224,8 +288,25 @@ class TaskController extends Controller
         );
     }
 
+    /** An image attachment shown in the page — same authorization as a download. */
+    public function previewAttachment(Task $task, TaskAttachment $attachment): StreamedResponse
+    {
+        $this->authorize('view', $task);
+        abort_if((int) $attachment->task_id !== (int) $task->id, 404);
+
+        return StoredFileResponse::preview(
+            $attachment->disk,
+            (string) $attachment->file_path,
+            (string) $attachment->original_name,
+            $attachment->mime_type,
+            $attachment->file_size,
+        );
+    }
+
     public function destroyAttachment(Task $task, TaskAttachment $attachment): JsonResponse
     {
+        // Having uploaded to a task you can no longer see is not a way back in.
+        $this->authorize('view', $task);
         abort_if((int) $attachment->task_id !== (int) $task->id, 404);
         abort_unless((int) $attachment->user_id === (int) auth()->id() || auth()->user()->can('manage tasks'), 403, "Cannot delete another user's attachment.");
 
@@ -274,13 +355,23 @@ class TaskController extends Controller
 
         return DataTables::of($query)
             ->addIndexColumn()
+            ->addColumn('title_link', fn (Task $t) => '<a class="task-title-link" href="' . e(route('tasks.show', $t)) . '">' . e($t->title) . '</a>'
+                . ($t->requires_attachment ? ' <i class="bi bi-paperclip" style="color:var(--text3);font-size:.72rem" title="Submission needs a file"></i>' : ''))
             ->addColumn('client', fn (Task $t) => e($t->client->client_name ?? '-'))
             ->addColumn('assigned', fn (Task $t) => e($t->assignedUser->name ?? 'Unassigned'))
             ->addColumn('priority_badge', fn (Task $t) => $this->priorityBadge($t->priority))
             ->addColumn('status_badge', fn (Task $t) => $this->statusBadge($t))
-            ->addColumn('due', fn (Task $t) => $t->due_date?->format('d M Y') ?? '-')
+            ->addColumn('due', function (Task $t) {
+                if (!$t->due_at) {
+                    return '-';
+                }
+                // An exact deadline shows its time, in the viewer's zone (see the page script).
+                return $t->dueHasTime()
+                    ? '<time class="local-dt" datetime="' . e($t->due_at->toIso8601String()) . '">' . e($t->due_at->format('d M Y, H:i')) . '</time>'
+                    : e($t->due_date?->format('d M Y') ?? '-');
+            })
             ->addColumn('actions', function (Task $t) use ($canManage, $me) {
-                $html = '<button class="btn btn-sm px-2 py-1 task-view" data-id="' . $t->id . '" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="View"><i class="bi bi-eye"></i></button> ';
+                $html = '<a href="' . e(route('tasks.show', $t)) . '" class="btn btn-sm px-2 py-1" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="Open"><i class="bi bi-box-arrow-up-right"></i></a> ';
 
                 // Start / pause, for the person actually holding the task. Shown
                 // only where the transition is one the endpoint would accept, so
@@ -297,7 +388,7 @@ class TaskController extends Controller
                 // The assignee hands it back; the requester rules on it. Both
                 // are policy checks so the buttons match what the endpoints allow.
                 if ($me->can('submit', $t)) {
-                    $html .= '<button class="btn btn-sm px-2 py-1 task-submit" data-id="' . $t->id . '" data-title="' . e($t->title) . '" style="background:rgba(var(--primary-rgb),.1);border:1px solid var(--primary);color:var(--primary)" title="Submit for review"><i class="bi bi-send"></i></button> ';
+                    $html .= '<button class="btn btn-sm px-2 py-1 task-submit" data-id="' . $t->id . '" data-title="' . e($t->title) . '" data-requires="' . ($t->requires_attachment ? 1 : 0) . '" style="background:rgba(var(--primary-rgb),.1);border:1px solid var(--primary);color:var(--primary)" title="Submit for review"><i class="bi bi-send"></i></button> ';
                 }
                 if ($me->can('review', $t)) {
                     $html .= '<button class="btn btn-sm px-2 py-1 task-review" data-id="' . $t->id . '" data-title="' . e($t->title) . '" style="background:var(--c-yellow-bg);border:1px solid var(--c-yellow);color:var(--c-yellow)" title="Review submission"><i class="bi bi-clipboard-check"></i></button> ';
@@ -310,7 +401,7 @@ class TaskController extends Controller
 
                 return $html;
             })
-            ->rawColumns(['priority_badge', 'status_badge', 'actions'])
+            ->rawColumns(['title_link', 'priority_badge', 'status_badge', 'due', 'actions'])
             // Ride along with the table so the filter pills stay true after every
             // refresh — no second request, and never out of step with the rows.
             ->with(['counts' => $counts])
@@ -324,8 +415,10 @@ class TaskController extends Controller
      */
     private function pillCounts($filtered, User $me): array
     {
+        // select() replaces any columns the list query carries, so the GROUP BY
+        // stays valid under MySQL's only_full_group_by.
         $byStatus = (clone $filtered)->reorder()
-            ->selectRaw('status, COUNT(*) as cnt')
+            ->select('status')->selectRaw('COUNT(*) as cnt')
             ->groupBy('status')
             ->pluck('cnt', 'status');
 

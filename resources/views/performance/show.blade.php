@@ -45,6 +45,16 @@
     .sc-metric .v { font-weight: 600; color: var(--text); }
     .sc-weight { font-size: .66rem; color: var(--text3); }
     .sc-headline { font-size: 2rem; font-weight: 800; }
+    .sc-credit-table { font-size: .8rem; margin: 0; }
+    .sc-credit-table th { font-size: .66rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text3); font-weight: 600; background: var(--surface2); border-color: var(--border); white-space: nowrap; }
+    .sc-credit-table td { color: var(--text); border-color: var(--border); vertical-align: middle; background: transparent; }
+    .sc-credit-table tr.is-uncounted td { color: var(--text3); }
+    .sc-credit-table a { color: var(--text); text-decoration: none; font-weight: 600; }
+    .sc-credit-table a:hover { color: var(--primary); }
+    .sc-event { display: inline-block; font-size: .66rem; padding: 1px 6px; margin: 1px 2px 1px 0; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); white-space: nowrap; }
+    .sc-share-bar { height: 4px; border-radius: 2px; background: var(--surface2); overflow: hidden; margin-top: 3px; min-width: 60px; }
+    .sc-share-bar > span { display: block; height: 100%; background: var(--primary); }
+    .sc-formula { font-size: .72rem; color: var(--text3); }
 </style>
 @endpush
 
@@ -204,6 +214,65 @@
                     <div class="sc-metric"><span class="k">Complaints (≤2)</span><span class="v">{{ $c['satisfaction']['complaints'] }}</span></div>
                 @else
                     <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">No client ratings recorded for this period.</div>
+                @endif
+            </div>
+        </div>
+    </div>
+
+    {{-- Task credit: the audit trail behind the three task KPIs --}}
+    <div class="col-12">
+        <div class="card section-card">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h6 class="fw-bold mb-0"><i class="bi bi-diagram-3 me-1"></i>Task credit</h6>
+                <span class="sc-formula">
+                    Credited {{ rtrim(rtrim(number_format($c['taskCompletion']['credited_total'], 2), '0'), '.') }}
+                    of {{ $c['taskCompletion']['total'] }} {{ Str::plural('task', $c['taskCompletion']['total']) }}
+                    @if ($c['taskCompletion']['shared'] > 0) &middot; {{ $c['taskCompletion']['shared'] }} shared @endif
+                </span>
+            </div>
+            <div class="card-body p-0">
+                @if (count($credit))
+                    <div class="table-responsive">
+                        <table class="table sc-credit-table">
+                            <thead>
+                                <tr><th>Task</th><th>Status</th><th>Due</th><th>Role</th><th>Work recorded</th><th class="text-end">Points</th><th style="width:120px">Share</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach ($credit as $row)
+                                    <tr class="{{ $row['counted'] ? '' : 'is-uncounted' }}">
+                                        <td><a href="{{ route('tasks.show', $row['task_id']) }}">#{{ $row['task_id'] }} {{ Str::limit($row['title'], 48) }}</a></td>
+                                        <td>{{ $row['status'] }}</td>
+                                        <td style="white-space:nowrap">{{ $row['due'] ? \Illuminate\Support\Carbon::parse($row['due'])->format('d M') : '—' }}</td>
+                                        <td style="white-space:nowrap">{{ Str::headline($row['role']) }}</td>
+                                        <td>
+                                            @forelse ($row['breakdown'] as $event => $points)
+                                                <span class="sc-event">{{ Str::headline($event) }} +{{ rtrim(rtrim(number_format($points, 2), '0'), '.') }}</span>
+                                            @empty
+                                                <span style="color:var(--text3)">{{ $row['tracked'] ? 'No work logged' : 'Not tracked — counted in full' }}</span>
+                                            @endforelse
+                                            @if ($row['review_points'] > 0)
+                                                <span class="sc-event">Reviewed</span>
+                                            @endif
+                                        </td>
+                                        <td class="text-end">{{ rtrim(rtrim(number_format($row['points'], 2), '0'), '.') }}</td>
+                                        <td>
+                                            {{ round($row['share'] * 100) }}%
+                                            <div class="sc-share-bar"><span style="width: {{ round($row['share'] * 100) }}%"></span></div>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="px-3 py-2 sc-formula" style="border-top:1px solid var(--border)">
+                        Share = your work points ÷ all doers' points on the task (the current holder adds {{ \App\Services\TaskInvolvementService::HOLDING_POINTS + 0 }}).
+                        Started {{ \App\Services\TaskInvolvementService::WORK_POINTS['started'] + 0 }} · file {{ \App\Services\TaskInvolvementService::WORK_POINTS['attachment_added'] + 0 }} (max {{ \App\Services\TaskInvolvementService::CAPS['attachment_added'] + 0 }})
+                        · comment {{ \App\Services\TaskInvolvementService::WORK_POINTS['comment'] + 0 }} (max {{ \App\Services\TaskInvolvementService::CAPS['comment'] + 0 }})
+                        · submitted {{ \App\Services\TaskInvolvementService::WORK_POINTS['submitted'] + 0 }}.
+                        Creating, reviewing or only holding a task that passed on earns no share. Rates weight each task by its share.
+                    </div>
+                @else
+                    <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">No tasks due in this period.</div>
                 @endif
             </div>
         </div>

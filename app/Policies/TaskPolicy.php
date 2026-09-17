@@ -5,7 +5,22 @@ namespace App\Policies;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\TaskDelegationService;
+use Illuminate\Auth\Access\Response;
 
+/**
+ * Who may see and act on a task.
+ *
+ * The rule, in one place:
+ *  - "manage tasks" (admins and whoever a role grants it to) sees and manages
+ *    every task;
+ *  - everyone else with "view tasks" sees only tasks they created or that are
+ *    assigned to them — and manages none of them beyond their own work on it
+ *    (start/pause, submit, review what they asked for).
+ *
+ * Every check uses can(), never hasPermissionTo(): the latter throws when a
+ * permission row has not been seeded, turning a missing grant into a server
+ * error instead of a plain refusal.
+ */
 class TaskPolicy
 {
     public function __construct(
@@ -14,7 +29,7 @@ class TaskPolicy
 
     public function viewAny(User $user): bool
     {
-        return $user->hasAnyPermission(['view tasks', 'manage tasks']);
+        return $user->canAny(['view tasks', 'manage tasks']);
     }
 
     /**
@@ -27,18 +42,16 @@ class TaskPolicy
      */
     public function view(User $user, Task $task): bool
     {
-        if (!$user->hasAnyPermission(['view tasks', 'manage tasks'])) {
+        if (!$this->viewAny($user)) {
             return false;
         }
 
         // Oversight, and what lets a manager clear a stalled review queue.
-        // can() rather than hasPermissionTo(), which throws on a permission
-        // that has never been seeded.
         if ($user->can('manage tasks')) {
             return true;
         }
 
-        return $task->assigned_to === $user->id || $task->created_by === $user->id;
+        return $this->isParty($user, $task);
     }
 
     /**
@@ -48,17 +61,18 @@ class TaskPolicy
      */
     public function create(User $user): bool
     {
-        return $user->hasPermissionTo('manage tasks') || $this->delegation->canDelegate($user);
+        return $user->can('manage tasks') || $this->delegation->canDelegate($user);
     }
 
+    /** The full edit — title, brief, deadline, assignee — is management's. */
     public function update(User $user, Task $task): bool
     {
-        return $user->hasPermissionTo('manage tasks');
+        return $user->can('manage tasks');
     }
 
     public function delete(User $user, Task $task): bool
     {
-        return $user->hasPermissionTo('manage tasks');
+        return $user->can('manage tasks');
     }
 
     /**
@@ -75,15 +89,27 @@ class TaskPolicy
      */
     public function progress(User $user, Task $task): bool
     {
-        return $task->assigned_to === $user->id
+        return (int) $task->assigned_to === (int) $user->id
             && in_array($task->status, Task::$workingStatuses, true);
     }
 
-    /** Only the person holding the task hands it back for review. */
-    public function submit(User $user, Task $task): bool
+    /**
+     * Only the person holding the task hands it back for review. Denials carry
+     * a reason, which the AJAX response shows instead of a bare "unauthorized".
+     */
+    public function submit(User $user, Task $task): Response
     {
-        return $task->assigned_to === $user->id
-            && in_array($task->status, Task::$submittableStatuses, true);
+        if ((int) $task->assigned_to !== (int) $user->id) {
+            return Response::deny('Only the person this task is assigned to can submit it.');
+        }
+
+        if (!in_array($task->status, Task::$submittableStatuses, true)) {
+            return Response::deny($task->status === Task::STATUS_SUBMITTED
+                ? 'This task has already been submitted and is waiting for review.'
+                : "This task is {$task->status} and can no longer be submitted.");
+        }
+
+        return Response::allow();
     }
 
     /**
@@ -94,6 +120,13 @@ class TaskPolicy
     public function review(User $user, Task $task): bool
     {
         return $task->status === Task::STATUS_SUBMITTED
-            && ($task->created_by === $user->id || $user->hasPermissionTo('manage tasks'));
+            && ((int) $task->created_by === (int) $user->id || $user->can('manage tasks'));
+    }
+
+    /** Created it, or holds it. */
+    private function isParty(User $user, Task $task): bool
+    {
+        return (int) $task->assigned_to === (int) $user->id
+            || (int) $task->created_by === (int) $user->id;
     }
 }

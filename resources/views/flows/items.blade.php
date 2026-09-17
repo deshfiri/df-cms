@@ -116,6 +116,7 @@
     <div class="card-body p-0">
         <div class="table-responsive">
             @include('partials.live-counts')
+            @include('partials.file-preview')
             <table id="itemsTable" class="table table-hover align-middle w-100 mb-0" style="font-size:.85rem">
                 <thead>
                     <tr>
@@ -239,7 +240,8 @@ $(function () {
             { data: 'flow_name',      orderable: false, searchable: false },
             { data: 'stage',          orderable: false, searchable: false },
             { data: 'who',            orderable: false, searchable: false },
-            { data: 'due' },
+            // Sorts on the real column; not searchable, since it holds rendered HTML.
+            { data: 'due', name: 'due_date', searchable: false },
             { data: 'status_badge',   orderable: false, searchable: false },
             { data: 'actions',        orderable: false, searchable: false, className: 'text-end pe-3' },
         ],
@@ -297,12 +299,18 @@ function renderDetails(d) {
         + '</div></div>').join('') || '<div class="wt-empty">No stages.</div>';
 
     html += '<div class="wt-section">Attachments (' + (d.attachments || []).length + ')</div>';
-    html += (d.attachments || []).map(a => '<div class="wt-row">'
+    html += (d.attachments || []).map(a => '<div class="wt-row' + (a.preview_url ? ' d-flex gap-2 align-items-center' : '') + '">'
+        + (a.preview_url
+            ? '<button type="button" class="fp-thumb" data-preview-src="' + wtEsc(a.preview_url) + '" data-preview-name="' + wtEsc(a.label) + '" data-download-src="' + wtEsc(a.url) + '" title="Preview">'
+              + '<img src="' + wtEsc(a.preview_url) + '" alt="" loading="lazy"></button><div class="min-w-0">'
+            : '')
         + (a.kind === 'note'
             ? '<div class="wt-row-head">' + wtEsc(a.label || 'Note') + '</div><div class="wt-row-body">' + wtEsc(a.body) + '</div>'
             : '<a class="wt-row-head text-decoration-none" href="' + wtEsc(a.url) + '"' + (a.kind === 'link' ? ' target="_blank" rel="noopener"' : '') + '>'
               + '<i class="bi ' + (a.kind === 'link' ? 'bi-link-45deg' : 'bi-paperclip') + ' me-1"></i>' + wtEsc(a.label) + '</a>')
-        + '<div class="wt-row-sub">added by ' + wtEsc(a.by || '—') + '</div></div>').join('')
+        + '<div class="wt-row-sub">added by ' + wtEsc(a.by || '—') + '</div>'
+        + (a.preview_url ? '</div>' : '')
+        + '</div>').join('')
         || '<div class="wt-empty">None.</div>';
 
     html += '<div class="wt-section">Discussion (' + (d.comments || []).length + ')</div>';

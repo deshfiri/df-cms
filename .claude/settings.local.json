@@ -405,7 +405,8 @@
       "PowerShell(wsl bash -lc \"cd /home/deshfiri/projects/dfcp && git status --short\")",
       "PowerShell(wsl bash -lc \"cd /home/deshfiri/projects/dfcp && git stash && php artisan test --filter=ExportScopingTest 2>&1 | tail -30; git stash pop\")",
       "PowerShell(wsl bash -lc \"cd /home/deshfiri/projects/dfcp && php artisan test 2>&1 | tail -20\")",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "PowerShell(wsl -d Ubuntu -- bash -lc \"cd /home/deshfiri/projects/dfcp && php artisan test tests/Feature/RefundTest.php 2>&1 | grep -vE '^\\\\s+#[0-9]+ ' | grep -E 'PASS|FAIL|V|?|Tests:|Failed|Expected|at tests|?|Exception|rror' | head -80\")"
     ]
   }
 }

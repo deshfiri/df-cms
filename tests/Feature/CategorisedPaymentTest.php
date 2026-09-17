@@ -212,14 +212,18 @@ class CategorisedPaymentTest extends TestCase
         $this->record(['invoice_id' => $charge->id, 'amount' => 10000])->assertOk();
         $this->assertSame(Invoice::STATUS_PAID, $charge->fresh()->status);
 
+        // Deletions are approved corrections now (see PaymentCorrectionTest);
+        // an approver's own applies at once.
+        $approver = $this->privileged();
         $last = Payment::latest('id')->first();
-        $this->actingAs($this->accounts)
-            ->deleteJson(route('clients.payments.destroy', [$this->client, $last]))
-            ->assertOk();
+        $this->actingAs($approver)
+            ->deleteJson(route('clients.payments.destroy', [$this->client, $last]), ['reason' => 'Entered twice'])
+            ->assertOk()
+            ->assertJsonPath('applied', true);
 
         $this->assertSame(Invoice::STATUS_PARTIALLY_PAID, $charge->fresh()->status);
 
-        $this->actingAs($this->accounts)->deleteJson(route('payments.destroy', Payment::sole()))->assertOk();
+        $this->actingAs($approver)->deleteJson(route('payments.destroy', Payment::sole()), ['reason' => 'Bounced'])->assertOk();
         $this->assertSame(Invoice::STATUS_UNPAID, $charge->fresh()->status);
     }
 
@@ -227,15 +231,16 @@ class CategorisedPaymentTest extends TestCase
     {
         $charge  = $this->adsChargeHalfPaid();
         $payment = Payment::sole();
-        $this->actingAs($this->privileged());
+        $approver = $this->privileged();
+        $this->actingAs($approver);
         $service = app(PaymentService::class);
 
-        $service->update($payment, ['amount' => 20000]);
+        $service->requestUpdate($payment, ['amount' => 20000], 'Paid in full', $approver);
         $this->assertSame(Invoice::STATUS_PAID, $charge->fresh()->status);
 
         // Its own earlier amount doesn't count against it, but the total still does.
         $this->expectException(ValidationException::class);
-        $service->update($payment->fresh(), ['amount' => 20000.5]);
+        $service->requestUpdate($payment->fresh(), ['amount' => 20000.5], 'Typo', $approver);
     }
 
     public function test_moving_a_payment_between_charges_recalculates_both(): void
@@ -244,8 +249,9 @@ class CategorisedPaymentTest extends TestCase
         $this->record(['payment_category_id' => $this->web->id, 'charge_total' => 50000, 'amount' => 1000])->assertOk();
         $web = Invoice::where('payment_category_id', $this->web->id)->sole();
 
-        $this->actingAs($this->privileged());
-        app(PaymentService::class)->update(Payment::where('invoice_id', $ads->id)->sole(), ['invoice_id' => $web->id]);
+        $approver = $this->privileged();
+        $this->actingAs($approver);
+        app(PaymentService::class)->requestUpdate(Payment::where('invoice_id', $ads->id)->sole(), ['invoice_id' => $web->id], 'Wrong charge', $approver);
 
         $this->assertSame(Invoice::STATUS_UNPAID, $ads->fresh()->status);
         $this->assertSame(11000.0, $web->fresh()->paid_amount);

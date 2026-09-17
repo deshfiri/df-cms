@@ -7,6 +7,7 @@ use App\Models\Brand;
 use App\Models\BrandIntegration;
 use App\Models\Client;
 use App\Models\EmployeeRequest;
+use App\Models\Refund;
 use App\Models\Task;
 use App\Models\User;
 use App\Models\WhatsAppConversation;
@@ -14,6 +15,7 @@ use App\Policies\AdCampaignPolicy;
 use App\Policies\BrandIntegrationPolicy;
 use App\Policies\ClientPolicy;
 use App\Policies\EmployeeRequestPolicy;
+use App\Policies\RefundPolicy;
 use App\Policies\TaskPolicy;
 use App\Policies\WhatsAppConversationPolicy;
 use App\Services\Contracts\GoogleCalendarServiceInterface;
@@ -43,6 +45,8 @@ class AppServiceProvider extends ServiceProvider
         // Customer messaging. Entirely separate from the internal chat, which
         // has no policy and is authorized inside its own controller.
         Gate::policy(WhatsAppConversation::class, WhatsAppConversationPolicy::class);
+        // Money going back: requested, decided by someone else, paid out.
+        Gate::policy(Refund::class, RefundPolicy::class);
 
         // Super Admins bypass all gates. Guarded with an instanceof check because
         // ClientPortalUser (the client-portal auth principal) has no HasRoles trait —

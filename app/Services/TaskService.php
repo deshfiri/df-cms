@@ -14,6 +14,7 @@ use App\Notifications\TaskReviewed;
 use App\Notifications\TaskSubmitted;
 use App\Services\Storage\StorageSettings;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -24,9 +25,10 @@ use InvalidArgumentException;
 class TaskService
 {
     public function __construct(
-        private readonly ActivityLogService    $activityLog,
-        private readonly WorkloadService       $workload,
-        private readonly StorageSettings       $storage,
+        private readonly ActivityLogService       $activityLog,
+        private readonly WorkloadService          $workload,
+        private readonly StorageSettings          $storage,
+        private readonly TaskInvolvementService   $involvement,
     ) {}
 
     public function create(array $data): Task
@@ -35,7 +37,7 @@ class TaskService
             $labelIds = $data['label_ids'] ?? [];
             unset($data['label_ids']);
 
-            $data = $this->applyWorkloadRules($data);
+            $data = $this->applyWorkloadRules($this->applyDeadline($data));
             $data['created_by'] = Auth::id();
             $task = Task::create($data);
 
@@ -43,7 +45,10 @@ class TaskService
                 $task->labels()->sync($labelIds);
             }
 
-            $this->logActivity($task, 'Created', "Task \"{$task->title}\" created");
+            $this->logActivity($task, 'Created', "Task \"{$task->title}\" created", event: 'created', meta: [
+                'assigned_to' => $task->assigned_to,
+                'due_at'      => $task->due_at?->toIso8601String(),
+            ]);
             $this->activityLog->log('Task', 'Created', $task->client_id, null, ['title' => $task->title]);
 
             return $task->load('assignedUser:id,name', 'client:id,client_name', 'labels');
@@ -69,8 +74,9 @@ class TaskService
         $updated = DB::transaction(function () use ($task, $data) {
             $labelIds = $data['label_ids'] ?? null;
             unset($data['label_ids']);
+            $data = $this->applyDeadline($data);
 
-            $old = $task->only(['status', 'priority', 'assigned_to', 'due_date']);
+            $old = $task->only(['status', 'priority', 'assigned_to', 'due_date', 'due_at']);
             $data['updated_by'] = Auth::id();
 
             if (($data['status'] ?? null) === 'Completed' && $task->status !== 'Completed') {
@@ -83,7 +89,28 @@ class TaskService
                 $task->labels()->sync($labelIds);
             }
 
-            $this->logActivity($task, 'Updated', 'Task updated', $old, $task->only(['status', 'priority', 'assigned_to', 'due_date']));
+            // The full before/after stays on one "Updated" row (deadline-extension
+            // history reads it); the changes that matter to who did what are also
+            // logged as their own events.
+            $this->logActivity($task, 'Updated', 'Task updated', $old, $task->only(['status', 'priority', 'assigned_to', 'due_date', 'due_at']), 'updated');
+
+            if ((int) ($old['assigned_to'] ?? 0) !== (int) ($task->assigned_to ?? 0)) {
+                $names = User::whereIn('id', array_filter([$old['assigned_to'], $task->assigned_to]))->pluck('name', 'id');
+                $this->logActivity($task, 'Reassigned',
+                    ($names[$old['assigned_to']] ?? 'Unassigned') . ' → ' . ($names[$task->assigned_to] ?? 'Unassigned'),
+                    event: 'reassigned', meta: ['from' => $old['assigned_to'], 'to' => $task->assigned_to]);
+            }
+
+            if (($old['status'] ?? null) !== $task->status) {
+                $this->logActivity($task, 'Status Changed', "{$old['status']} → {$task->status}",
+                    event: 'status_changed', meta: ['from' => $old['status'], 'to' => $task->status]);
+            }
+
+            $oldDue = $old['due_at'] ?? null;
+            if (($oldDue?->toIso8601String()) !== $task->due_at?->toIso8601String()) {
+                $this->logActivity($task, 'Due Changed', 'Deadline moved',
+                    event: 'due_changed', meta: ['from' => $oldDue?->toIso8601String(), 'to' => $task->due_at?->toIso8601String()]);
+            }
             $this->activityLog->log('Task', 'Updated', $task->client_id, $old, $data);
 
             return $task->fresh(['assignedUser:id,name', 'client:id,client_name', 'labels']);
@@ -139,7 +166,7 @@ class TaskService
 
         $task->update(['status' => $status, 'updated_by' => $actor->id]);
 
-        $this->logActivity($task, 'Status Changed', "{$previous} → {$status}");
+        $this->logActivity($task, 'Status Changed', "{$previous} → {$status}", event: 'status_changed', meta: ['from' => $previous, 'to' => $status]);
         $this->activityLog->log('Task', 'Status Changed', $task->client_id, $previous, $status);
 
         return $task->fresh(['assignedUser:id,name', 'client:id,client_name', 'labels']);
@@ -151,21 +178,84 @@ class TaskService
      * Deliberately not "Completed": the person who requested the work decides
      * whether it is finished, so this parks it in their review queue instead.
      */
-    public function submitForReview(Task $task, User $actor, ?string $note = null): Task
+    /**
+     * Files handed in with the submission are attached first, as ordinary
+     * attachments, so they show in the task's files and count as the work they
+     * are. Everything is checked against the locked row: a double click or a
+     * second tab gets a clear refusal, not a second submission.
+     *
+     * @param  array<int,UploadedFile>  $files
+     */
+    public function submitForReview(Task $task, User $actor, ?string $note = null, array $files = []): Task
     {
-        $task->update([
-            'status'       => Task::STATUS_SUBMITTED,
-            'submitted_at' => now(),
-            'updated_by'   => $actor->id,
-        ]);
+        $stored = [];
 
-        $description = 'Submitted for review' . ($note ? ": {$note}" : '');
-        $this->logActivity($task, 'Submitted', $description);
-        $this->activityLog->log('Task', 'Submitted', $task->client_id, null, ['title' => $task->title]);
+        try {
+            DB::transaction(function () use ($task, $actor, $note, $files, &$stored) {
+                $locked = Task::whereKey($task->id)->lockForUpdate()->firstOrFail();
 
+                if (!in_array($locked->status, Task::$submittableStatuses, true)) {
+                    throw ValidationException::withMessages([
+                        'status' => $locked->status === Task::STATUS_SUBMITTED
+                            ? 'This task has already been submitted and is waiting for review.'
+                            : "This task is {$locked->status} and can no longer be submitted.",
+                    ]);
+                }
+
+                if ($locked->requires_attachment && !$files && !$this->hasSubmissionFile($locked)) {
+                    throw ValidationException::withMessages([
+                        'files' => 'This task needs a file with the submission. Attach your work, then submit.',
+                    ]);
+                }
+
+                foreach ($files as $file) {
+                    $stored[] = $this->uploadAttachment($locked, $file);
+                }
+
+                $locked->update([
+                    'status'       => Task::STATUS_SUBMITTED,
+                    'submitted_at' => now(),
+                    'updated_by'   => $actor->id,
+                ]);
+
+                $description = 'Submitted for review' . ($note ? ": {$note}" : '');
+                $this->logActivity($locked, 'Submitted', $description, event: 'submitted', meta: array_filter([
+                    'note'           => $note,
+                    'attachment_ids' => array_map(fn (TaskAttachment $a) => $a->id, $stored),
+                ]));
+                $this->activityLog->log('Task', 'Submitted', $locked->client_id, null, ['title' => $locked->title]);
+            });
+        } catch (\Throwable $e) {
+            // The rows rolled back; the files already written must not linger
+            // where nothing points to them.
+            foreach ($stored as $attachment) {
+                Storage::disk($attachment->disk ?: 'local')->delete($attachment->file_path);
+            }
+            throw $e;
+        }
+
+        $task = $task->fresh(['assignedUser:id,name', 'client:id,client_name', 'labels']);
         $this->notifyReviewer($task, $actor, $note);
 
-        return $task->fresh(['assignedUser:id,name', 'client:id,client_name', 'labels']);
+        return $task;
+    }
+
+    /**
+     * Whether the work handed in includes a file: one added since the task was
+     * last sent back (rework needs the reworked file), by someone doing the work
+     * rather than the person who asked for it — a brief attached at creation is
+     * not a deliverable.
+     */
+    public function hasSubmissionFile(Task $task): bool
+    {
+        $since = TaskRevision::where('task_id', $task->id)->max('created_at');
+
+        return TaskAttachment::where('task_id', $task->id)
+            ->when($since, fn ($q) => $q->where('created_at', '>=', $since))
+            ->where(fn ($q) => $q
+                ->where('user_id', '!=', (int) $task->created_by)
+                ->orWhere('user_id', (int) $task->assigned_to))
+            ->exists();
     }
 
     /**
@@ -183,7 +273,8 @@ class TaskService
                 'updated_by'      => $actor->id,
             ]);
 
-            $this->logActivity($task, 'Approved', 'Submission accepted' . (!empty($data['note']) ? ": {$data['note']}" : ''));
+            $this->logActivity($task, 'Approved', 'Submission accepted' . (!empty($data['note']) ? ": {$data['note']}" : ''),
+                event: 'approved', meta: array_filter(['note' => $data['note'] ?? null, 'to' => 'Completed']));
             $this->activityLog->log('Task', 'Submission Accepted', $task->client_id, null, ['title' => $task->title]);
         } else {
             $this->requestRevision($task, [
@@ -248,7 +339,10 @@ class TaskService
             }
 
             $description = "Revision requested ({$data['reason_category']})" . (!empty($data['note']) ? ": {$data['note']}" : '');
-            $this->logActivity($task, 'Revision Requested', $description);
+            $this->logActivity($task, 'Revision Requested', $description, event: 'returned', meta: array_filter([
+                'reason_category' => $data['reason_category'],
+                'note'            => $data['note'] ?? null,
+            ]));
             $this->activityLog->log('Task', 'Revision Requested', $task->client_id, null, ['reason_category' => $data['reason_category']]);
 
             return $revision->load('requestedBy:id,name');
@@ -274,7 +368,7 @@ class TaskService
             'comment' => $comment,
         ]);
 
-        $this->logActivity($task, 'Comment Added', $comment);
+        $this->logActivity($task, 'Comment Added', $comment, event: 'comment', meta: ['comment_id' => $created->id]);
 
         return $created->load('user:id,name');
     }
@@ -312,7 +406,11 @@ class TaskService
                 'file_size'     => $file->getSize(),
             ]);
 
-            $this->logActivity($task, 'Attachment Added', $file->getClientOriginalName());
+            $this->logActivity($task, 'Attachment Added', $file->getClientOriginalName(), event: 'attachment_added', meta: [
+                'attachment_id' => $attachment->id,
+                'mime'          => $attachment->mime_type,
+                'size'          => $attachment->file_size,
+            ]);
 
             return $attachment->load('user:id,name');
         });
@@ -321,8 +419,31 @@ class TaskService
     public function deleteAttachment(TaskAttachment $attachment): void
     {
         Storage::disk($attachment->disk ?: 'local')->delete($attachment->file_path);
-        $this->logActivity($attachment->task, 'Attachment Removed', $attachment->original_name);
+        $this->logActivity($attachment->task, 'Attachment Removed', $attachment->original_name, event: 'attachment_removed', meta: ['attachment_id' => $attachment->id]);
         $attachment->delete();
+    }
+
+    /**
+     * Turn what the form sent into one deadline.
+     *
+     * An exact moment (due_at, sent with the browser's UTC offset) wins and the
+     * model derives its day. A date on its own means the end of that day. The
+     * day column is never written directly here, so the two cannot disagree —
+     * and clearing a time by sending only a date really does clear it.
+     */
+    private function applyDeadline(array $data): array
+    {
+        if (!empty($data['due_at'])) {
+            $data['due_at'] = Carbon::parse($data['due_at'])->setTimezone(config('app.timezone'));
+            unset($data['due_date']);
+        } elseif (array_key_exists('due_date', $data)) {
+            $data['due_at'] = $data['due_date'] ? Carbon::parse($data['due_date'])->setTime(23, 59, 59) : null;
+            unset($data['due_date']);
+        } else {
+            unset($data['due_at']);
+        }
+
+        return $data;
     }
 
     /**
@@ -354,15 +475,32 @@ class TaskService
         return $data;
     }
 
-    private function logActivity(Task $task, string $action, ?string $description = null, mixed $old = null, mixed $new = null): void
-    {
+    /**
+     * Record something that happened, then refresh who was involved.
+     *
+     * Involvement is rebuilt from this log rather than nudged incrementally, so
+     * it can never drift from the evidence it is based on.
+     */
+    private function logActivity(
+        Task $task,
+        string $action,
+        ?string $description = null,
+        mixed $old = null,
+        mixed $new = null,
+        ?string $event = null,
+        array $meta = [],
+    ): void {
         \App\Models\TaskActivity::create([
             'task_id'     => $task->id,
             'user_id'     => Auth::id(),
             'action'      => $action,
+            'event'       => $event,
+            'meta'        => $meta ?: null,
             'description' => $description,
             'old_value'   => is_array($old) ? json_encode($old) : $old,
             'new_value'   => is_array($new) ? json_encode($new) : $new,
         ]);
+
+        $this->involvement->rebuild($task->fresh() ?? $task);
     }
 }

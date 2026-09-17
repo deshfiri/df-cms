@@ -51,4 +51,10 @@ class FlowItemAttachment extends Model
     {
         return $this->isFile() && str_starts_with((string) $this->mime_type, 'image/');
     }
+
+    /** Shown inline (thumbnail, lightbox) — see StoredFileResponse::PREVIEWABLE_IMAGES. */
+    public function isPreviewableImage(): bool
+    {
+        return $this->isFile() && \App\Services\Storage\StoredFileResponse::isPreviewableImage($this->mime_type);
+    }
 }

@@ -37,7 +37,7 @@ class TaskReviewed extends Notification
             'client_id' => $this->task->client_id,
             // Straight to the task, so the verdict and any note can be read
             // without hunting for it in the list.
-            'url'       => route('tasks.index', ['task' => $this->task->id]),
+            'url'       => route('tasks.show', $this->task->id),
         ];
     }
 }

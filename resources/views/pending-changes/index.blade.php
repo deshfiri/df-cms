@@ -38,7 +38,8 @@ function pcLoad() {
 }
 
 function pcDiffRows(oldValues, newValues) {
-    const keys = Array.from(new Set([...Object.keys(oldValues || {}), ...Object.keys(newValues || {})]));
+    const keys = Array.from(new Set([...Object.keys(oldValues || {}), ...Object.keys(newValues || {})]))
+        .filter(k => k !== '_action' && k !== 'client_id');
     let html = '';
     keys.forEach(function (key) {
         const oldVal = oldValues ? oldValues[key] : undefined;
@@ -69,11 +70,16 @@ function pcRender(items) {
             + '<span class="ms-2 small" style="color:var(--text3)">Requested by ' + pcEsc(item.requested_by || 'Unknown') + ' &middot; ' + pcEsc(item.created_at_human) + '</span>'
             + '</div>'
             + '<div class="d-flex gap-2">'
-            + '<button class="btn btn-sm btn-success pc-approve" data-id="' + item.id + '"><i class="bi bi-check-lg me-1"></i>Approve</button>'
-            + '<button class="btn btn-sm btn-outline-danger pc-reject" data-id="' + item.id + '"><i class="bi bi-x-lg me-1"></i>Reject</button>'
+            + (item.can_review
+                ? '<button class="btn btn-sm btn-success pc-approve" data-id="' + item.id + '"><i class="bi bi-check-lg me-1"></i>Approve</button>'
+                  + '<button class="btn btn-sm btn-outline-danger pc-reject" data-id="' + item.id + '"><i class="bi bi-x-lg me-1"></i>Reject</button>'
+                : '<span class="small" style="color:var(--text3)"><i class="bi bi-person-lock me-1"></i>Your own request — another approver reviews it</span>')
             + '</div>'
             + '</div>'
-            + pcDiffRows(item.old_values, item.new_values)
+            + (item.reason ? '<div class="mb-2 p-2 rounded small" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)"><strong style="color:var(--text)">Reason:</strong> ' + pcEsc(item.reason) + '</div>' : '')
+            + (item.is_deletion
+                ? '<div class="small c-red mb-1"><i class="bi bi-trash me-1"></i>Delete this record</div>' + pcDiffRows(item.old_values, {})
+                : pcDiffRows(item.old_values, item.new_values))
             + '</div>';
     });
 
@@ -87,7 +93,11 @@ $(document).on('click', '.pc-approve', function () {
         if (!r.isConfirmed) return;
         $.post(pcApproveBase + '/' + id + '/approve')
         .done(function () { pcLoad(); Swal.fire({ icon: 'success', title: 'Approved', timer: 1200, showConfirmButton: false }); })
-        .fail(function (x) { Swal.fire('Error', x.responseJSON?.message || 'Could not approve.', 'error'); });
+        .fail(function (x) {
+            const errors = x.responseJSON && x.responseJSON.errors;
+            Swal.fire('Could not approve', errors ? Object.values(errors).flat().join(' ') : (x.responseJSON?.message || 'Please try again.'), 'error');
+            pcLoad();
+        });
     });
 });
 
@@ -98,7 +108,11 @@ $(document).on('click', '.pc-reject', function () {
         if (!r.isConfirmed) return;
         $.post(pcApproveBase + '/' + id + '/reject', { note: r.value || '' })
         .done(function () { pcLoad(); Swal.fire({ icon: 'success', title: 'Rejected', timer: 1200, showConfirmButton: false }); })
-        .fail(function (x) { Swal.fire('Error', x.responseJSON?.message || 'Could not reject.', 'error'); });
+        .fail(function (x) {
+            const errors = x.responseJSON && x.responseJSON.errors;
+            Swal.fire('Could not reject', errors ? Object.values(errors).flat().join(' ') : (x.responseJSON?.message || 'Please try again.'), 'error');
+            pcLoad();
+        });
     });
 });
 

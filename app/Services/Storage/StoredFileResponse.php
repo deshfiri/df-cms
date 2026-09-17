@@ -22,9 +22,39 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 final class StoredFileResponse
 {
+    /**
+     * Image types a browser may render inline from our own origin.
+     *
+     * Raster formats only. SVG is deliberately absent: it is a document that can
+     * carry script, so an uploaded one would run with this site's session.
+     */
+    public const PREVIEWABLE_IMAGES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp'];
+
     public static function download(?string $disk, string $path, string $name, ?string $mime = null, ?int $size = null): StreamedResponse
     {
         return self::make($disk, $path, $name, $mime, $size, HeaderUtils::DISPOSITION_ATTACHMENT);
+    }
+
+    public static function isPreviewableImage(?string $mime): bool
+    {
+        return in_array(strtolower((string) $mime), self::PREVIEWABLE_IMAGES, true);
+    }
+
+    /**
+     * An image shown in the page rather than saved — for thumbnails and the
+     * lightbox. Refuses anything outside PREVIEWABLE_IMAGES, and locks the
+     * response down so even a mislabelled file cannot act as a page.
+     */
+    public static function preview(?string $disk, string $path, string $name, ?string $mime, ?int $size = null): StreamedResponse
+    {
+        abort_unless(self::isPreviewableImage($mime), 415, 'This file cannot be previewed. Download it instead.');
+
+        $response = self::make($disk, $path, $name, strtolower((string) $mime), $size, HeaderUtils::DISPOSITION_INLINE);
+        $response->headers->set('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
+        $response->headers->set('Cache-Control', 'private, max-age=600');
+        $response->headers->set('Cross-Origin-Resource-Policy', 'same-origin');
+
+        return $response;
     }
 
     public static function make(?string $disk, string $path, string $name, ?string $mime, ?int $size, string $disposition): StreamedResponse

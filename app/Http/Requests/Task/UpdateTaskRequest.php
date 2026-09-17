@@ -18,6 +18,7 @@ class UpdateTaskRequest extends FormRequest
         return [
             'title'            => ['required', 'string', 'max:255'],
             'description'      => ['nullable', 'string'],
+            'requires_attachment' => ['sometimes', 'boolean'],
             'client_id'        => ['nullable', 'exists:clients,id'],
             'assigned_to'      => ['nullable', 'exists:users,id'],
             'priority'         => ['required', Rule::in(Task::$priorities)],
@@ -25,6 +26,7 @@ class UpdateTaskRequest extends FormRequest
             'type'             => ['required', Rule::in(Task::$types)],
             'start_date'       => ['nullable', 'date'],
             'due_date'         => ['nullable', 'date'],
+            'due_at'           => ['nullable', 'date'],
             'reminder_at'      => ['nullable', 'date'],
             'estimated_hours'  => ['nullable', 'numeric', 'min:0'],
             'actual_hours'     => ['nullable', 'numeric', 'min:0'],

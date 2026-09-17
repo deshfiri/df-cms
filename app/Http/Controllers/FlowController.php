@@ -287,8 +287,14 @@ class FlowController extends Controller
     /** @param  \Illuminate\Support\Collection<int,int>  $assignedStageIds */
     private function trackerCounts($query, $assignedStageIds): array
     {
+        // select() first, replacing every column the list query carries. The list
+        // adds withCount() sub-selects and flow_items.*, and MySQL's
+        // only_full_group_by refuses to group a query that still selects them —
+        // which is what broke this page. SQLite does not enforce the rule, so
+        // the test suite never saw it.
         $byStatus = (clone $query)->reorder()
-            ->selectRaw('status, COUNT(*) as cnt')->groupBy('status')->pluck('cnt', 'status');
+            ->select('status')->selectRaw('COUNT(*) as cnt')
+            ->groupBy('status')->pluck('cnt', 'status');
 
         $open = fn () => (clone $query)->reorder()->where('status', FlowItem::STATUS_OPEN);
 
@@ -349,6 +355,7 @@ class FlowController extends Controller
                 'kind'  => $a->kind,
                 'label' => $a->title ?: ($a->original_name ?: $a->url),
                 'url'   => $a->isFile() ? route('flow-items.attachments.download', [$item, $a]) : $a->url,
+                'preview_url' => $a->isPreviewableImage() ? route('flow-items.attachments.preview', [$item, $a]) : null,
                 'body'  => $a->body,
                 'by'    => $a->uploadedBy?->name,
             ])->values(),

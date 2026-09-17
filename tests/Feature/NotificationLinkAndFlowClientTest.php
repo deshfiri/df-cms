@@ -72,9 +72,9 @@ class NotificationLinkAndFlowClientTest extends TestCase
 
     /**
      * The reported bug. A browser following the link must land on a page, not
-     * be handed the JSON the detail modal consumes.
+     * be handed the JSON the scripts consume.
      */
-    public function test_following_a_task_link_in_a_browser_redirects_to_the_task_page(): void
+    public function test_following_a_task_link_in_a_browser_opens_the_task_page(): void
     {
         $worker = $this->user('view tasks');
         $task   = Task::create([
@@ -84,7 +84,23 @@ class NotificationLinkAndFlowClientTest extends TestCase
 
         $this->actingAs($worker)
             ->get(route('tasks.show', $task))
-            ->assertRedirect(route('tasks.index', ['task' => $task->id]));
+            ->assertOk()
+            ->assertViewIs('tasks.show')
+            ->assertSee('Write the brief');
+    }
+
+    /** Links stored before tasks had a page (/tasks?task=12) still arrive at the task. */
+    public function test_an_old_list_link_redirects_to_the_task_page(): void
+    {
+        $worker = $this->user('view tasks');
+        $task   = Task::create([
+            'title' => 'Write the brief', 'priority' => 'Medium', 'status' => 'Pending',
+            'type' => 'Other', 'assigned_to' => $worker->id, 'created_by' => $worker->id,
+        ]);
+
+        $this->actingAs($worker)
+            ->get(route('tasks.index', ['task' => $task->id]))
+            ->assertRedirect(route('tasks.show', $task->id));
     }
 
     /** Notifications already in the database carry the old URL; they must keep working. */
@@ -123,7 +139,7 @@ class NotificationLinkAndFlowClientTest extends TestCase
 
         $payload = (new TaskAssigned($task))->toDatabase(new User());
 
-        $this->assertSame(route('tasks.index', ['task' => $task->id]), $payload['url']);
+        $this->assertSame(route('tasks.show', $task->id), $payload['url']);
     }
 
     // ── Workflow items know their client ─────────────────────────────────

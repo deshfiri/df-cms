@@ -53,6 +53,10 @@ class DatabaseSeeder extends Seeder
             'create requests',
             // Start a group conversation in the internal chat.
             'create chat groups',
+            // Refunds: ask for one, decide on one (never your own), pay it out.
+            'request refunds',
+            'approve refunds',
+            'process refunds',
             // WhatsApp (customer messaging). Deliberately distinct from
             // 'monitor chats', which governs the internal staff chat — the two
             // systems never share a permission.
@@ -108,6 +112,8 @@ class DatabaseSeeder extends Seeder
             }
         }
         $roles['Manager'][] = 'create chat groups';
+        array_push($roles['Manager'], 'request refunds', 'approve refunds', 'process refunds');
+        array_push($roles['Accounts'], 'request refunds', 'process refunds');
 
         foreach ($roles as $roleName => $rolePerms) {
             $role = Role::firstOrCreate(['name' => $roleName, 'guard_name' => 'web']);

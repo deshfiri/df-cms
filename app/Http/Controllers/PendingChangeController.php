@@ -54,8 +54,17 @@ class PendingChangeController extends Controller
         return view('pending-changes.index');
     }
 
-    public function approve(PendingChange $pendingChange): JsonResponse
+    public function approve(Request $request, PendingChange $pendingChange): JsonResponse
     {
+        // Money has its own review: locked, never self-approved, re-checked
+        // against the payment as it stands now. Its refusals are 422/403 JSON.
+        if ($pendingChange->model_type === Payment::class) {
+            $data = $request->validate(['note' => 'nullable|string|max:1000']);
+            $this->paymentService->approveChange($pendingChange, $request->user(), $data['note'] ?? null);
+
+            return response()->json(['success' => true, 'message' => 'Approved and applied.']);
+        }
+
         if ($pendingChange->status !== PendingChange::STATUS_PENDING) {
             return response()->json(['message' => 'This change has already been reviewed.'], 422);
         }
@@ -75,7 +84,6 @@ class PendingChangeController extends Controller
         try {
             match ($pendingChange->model_type) {
                 Client::class        => $this->clientService->update($model, $pendingChange->new_values),
-                Payment::class       => $this->paymentService->update($model, $pendingChange->new_values),
                 Task::class          => $this->taskService->update($model, $pendingChange->new_values),
                 Category::class      => $this->categoryService->update($model, $pendingChange->new_values),
                 User::class          => $this->userService->update($model, $pendingChange->new_values),
@@ -97,11 +105,17 @@ class PendingChangeController extends Controller
 
     public function reject(Request $request, PendingChange $pendingChange): JsonResponse
     {
+        $data = $request->validate(['note' => 'nullable|string|max:1000']);
+
+        if ($pendingChange->model_type === Payment::class) {
+            $this->paymentService->rejectChange($pendingChange, $request->user(), $data['note'] ?? null);
+
+            return response()->json(['success' => true, 'message' => 'Rejected.']);
+        }
+
         if ($pendingChange->status !== PendingChange::STATUS_PENDING) {
             return response()->json(['message' => 'This change has already been reviewed.'], 422);
         }
-
-        $data = $request->validate(['note' => 'nullable|string|max:1000']);
 
         $pendingChange->update([
             'status'      => PendingChange::STATUS_REJECTED,
@@ -136,6 +150,9 @@ class PendingChangeController extends Controller
             'model_id'         => $p->model_id,
             'old_values'       => $p->old_values,
             'new_values'       => $p->new_values,
+            'reason'           => $p->reason,
+            'is_deletion'      => $p->isDeletion(),
+            'can_review'       => (int) $p->requested_by !== (int) Auth::id(),
             'requested_by'     => $p->requestedBy?->name,
             'created_at_human' => $p->created_at->diffForHumans(),
             'created_at'       => $p->created_at->format('d M Y, h:i A'),

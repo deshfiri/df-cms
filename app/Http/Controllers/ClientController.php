@@ -330,8 +330,10 @@ class ClientController extends Controller
 
         // Counted before the status pill and the "no update" pill narrow it, so
         // each pill can show what picking it would give.
+        // select() replaces any columns the list query carries, so the GROUP BY
+        // stays valid under MySQL's only_full_group_by.
         $byStatus = (clone $query)->reorder()
-            ->selectRaw('client_status, COUNT(*) as cnt')
+            ->select('client_status')->selectRaw('COUNT(*) as cnt')
             ->groupBy('client_status')
             ->pluck('cnt', 'client_status');
 

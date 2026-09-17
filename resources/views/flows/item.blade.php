@@ -181,6 +181,7 @@
             </div>
         @endif
 
+        @include('partials.file-preview')
         <div id="attList">
             @forelse($item->attachments as $a)
                 @php
@@ -190,10 +191,26 @@
                         : (str_starts_with($a->mime_type ?? '', 'video/') ? 'bi-camera-video' : 'bi-paperclip'))));
                 @endphp
                 <div class="d-flex align-items-start gap-2 p-2 rounded mb-1" style="background:var(--surface);border:1px solid var(--border)">
-                    <i class="bi {{ $icon }}" style="color:var(--primary);font-size:1rem;margin-top:2px"></i>
+                    @if($a->isPreviewableImage())
+                        <button type="button" class="fp-thumb"
+                                data-preview-src="{{ route('flow-items.attachments.preview', [$item, $a]) }}"
+                                data-preview-name="{{ $a->title ?: $a->original_name }}"
+                                data-download-src="{{ route('flow-items.attachments.download', [$item, $a]) }}"
+                                title="Preview {{ $a->original_name }}">
+                            <img src="{{ route('flow-items.attachments.preview', [$item, $a]) }}" alt="" loading="lazy">
+                        </button>
+                    @else
+                        <i class="bi {{ $icon }}" style="color:var(--primary);font-size:1rem;margin-top:2px"></i>
+                    @endif
                     <div class="flex-grow-1 min-w-0">
                         @if($a->isFile())
                             <a href="{{ route('flow-items.attachments.download', [$item, $a]) }}" class="fw-semibold small text-decoration-none" style="color:var(--text)">{{ $a->title ?: $a->original_name }}</a>
+                            @if($a->isPreviewableImage())
+                                <button type="button" class="btn btn-sm p-0 ms-1 align-baseline" style="color:var(--text3);font-size:.72rem"
+                                        data-preview-src="{{ route('flow-items.attachments.preview', [$item, $a]) }}"
+                                        data-preview-name="{{ $a->title ?: $a->original_name }}"
+                                        data-download-src="{{ route('flow-items.attachments.download', [$item, $a]) }}"><i class="bi bi-arrows-fullscreen me-1"></i>View</button>
+                            @endif
                             <div style="font-size:.66rem;color:var(--text3)">{{ $a->original_name }}{{ $a->file_size ? ' · ' . number_format($a->file_size / 1024, 0) . ' KB' : '' }}</div>
                         @elseif($a->isLink())
                             <a href="{{ $a->url }}" target="_blank" rel="noopener" class="fw-semibold small text-decoration-none" style="color:var(--text)">{{ $a->title ?: $a->url }} <i class="bi bi-box-arrow-up-right" style="font-size:.62rem"></i></a>
