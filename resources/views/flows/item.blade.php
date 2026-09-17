@@ -330,8 +330,55 @@
     const ITEM = {{ $item->id }};
 
     $('#claimBtn').on('click', function () {
-        $.post('/flow-items/' + ITEM + '/claim').done(() => location.reload()).fail(x => Swal.fire('Error', x.responseJSON?.message || 'Could not claim it.', 'error'));
+        $.post('/flow-items/' + ITEM + '/claim').done(() => location.reload()).fail(x => Swal.fire('Could not claim it', x.responseJSON?.message || 'Please try again.', 'error').then(() => location.reload()));
     });
+
+    // ── Someone else claimed it ──────────────────────────────────────────
+    // Everyone else looking at this item hears who took it. A stage worker is
+    // sent to My Queue — it is no longer theirs to pick up. Workflow admins and
+    // watchers stay (they look after every item) and the page refreshes to show
+    // the new owner.
+    @if($item->isOpen())
+    (function () {
+        if (!window.Echo) return;
+        const sendToQueue = {{ Js::from(!auth()->user()->canAny(['manage workflows', 'view workflows'])) }};
+        let handled = false;
+
+        window.Echo.private('flow-item.' + ITEM).listen('.item.claimed', function (e) {
+            if (handled || Number(e.claimed_by.id) === Number(window.CURRENT_USER_ID)) return;
+            handled = true;
+
+            const name = $('<div>').text(e.claimed_by.name).html();
+            let left = 5;
+            Swal.fire({
+                icon: 'info',
+                title: name + ' claimed this work',
+                html: sendToQueue
+                    ? 'It is theirs now. Taking you to <strong>My Queue</strong> in <b id="claimCountdown">' + left + '</b>s…'
+                    : 'It is theirs to work on now.',
+                confirmButtonText: sendToQueue ? 'Go to My Queue now' : 'OK',
+                allowOutsideClick: false,
+                allowEscapeKey: false,
+                timer: 5000,
+                timerProgressBar: true,
+                didOpen: function () {
+                    const tick = setInterval(function () {
+                        left = Math.max(0, left - 1);
+                        const el = document.getElementById('claimCountdown');
+                        if (el) el.textContent = left; else clearInterval(tick);
+                    }, 1000);
+                },
+            }).then(function () {
+                if (sendToQueue) {
+                    // replace(): Back should not land on an item that is no longer theirs.
+                    window.location.replace(e.queue_url);
+                } else {
+                    window.location.reload();
+                }
+            });
+        });
+    })();
+    @endif
     $('#releaseBtn').on('click', function () {
         $.post('/flow-items/' + ITEM + '/release').done(() => location.reload()).fail(x => Swal.fire('Error', x.responseJSON?.message || 'Could not release it.', 'error'));
     });

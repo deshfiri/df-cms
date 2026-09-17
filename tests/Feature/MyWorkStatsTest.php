@@ -143,10 +143,12 @@ class MyWorkStatsTest extends TestCase
 
         $this->actingAs($boss);
         $first  = $service->create(['title' => 'A', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other', 'assigned_to' => (string) $me->id]);
-        $second = $service->create(['title' => 'B', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other', 'assigned_to' => $boss->id]);
+        // Created unassigned (nobody assigns work to themselves), then handed to me.
+        $second = $service->create(['title' => 'B', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other', 'assigned_to' => null]);
         $service->update($second, ['assigned_to' => $me->id]);
 
         $this->actingAs($me);
+        $service->changeWorkingStatus($first->fresh(), $me, 'In Progress');
         $service->submitForReview($first->fresh(), $me);
 
         $today = $this->stats($me, 'UTC')['periods']['today'];

@@ -229,9 +229,18 @@
             @if($can['submit'] || $can['progress'] || $can['review'])
                 <div class="tp-actions">
                     @if($can['submit'])
-                        <button class="btn btn-primary tp-submit task-submit" data-id="{{ $task->id }}" data-title="{{ $task->title }}" data-requires="{{ $task->requires_attachment ? 1 : 0 }}">
-                            <i class="bi bi-send me-1"></i>Submit Task
-                        </button>
+                        @if($submitBlocker = $task->submitBlocker())
+                            {{-- Visible, so the assignee knows it's coming — live once work starts. --}}
+                            <span class="d-inline-block" tabindex="0" title="{{ $submitBlocker }}">
+                                <button class="btn btn-primary tp-submit" disabled style="pointer-events:none" aria-describedby="tpSubmitBlocked">
+                                    <i class="bi bi-send me-1"></i>Submit Task
+                                </button>
+                            </span>
+                        @else
+                            <button class="btn btn-primary tp-submit task-submit" data-id="{{ $task->id }}" data-title="{{ $task->title }}" data-requires="{{ $task->requires_attachment ? 1 : 0 }}">
+                                <i class="bi bi-send me-1"></i>Submit Task
+                            </button>
+                        @endif
                     @endif
                     @if($can['progress'])
                         @if($task->status !== 'In Progress')
@@ -250,7 +259,9 @@
                         </button>
                     @endif
                 </div>
-                @if($can['submit'] && $awaitingSubmissionFile)
+                @if($can['submit'] && $task->submitBlocker())
+                    <div class="tp-hint mt-2" id="tpSubmitBlocked"><i class="bi bi-play-circle me-1"></i>{{ $task->submitBlocker() }} Press <strong>Start work</strong> and Submit becomes available.</div>
+                @elseif($can['submit'] && $awaitingSubmissionFile)
                     <div class="tp-hint mt-2"><i class="bi bi-paperclip me-1"></i>This task needs a file with the submission — attach it below or in the submit dialog.</div>
                 @elseif($can['submit'])
                     <div class="tp-hint mt-2">Submitting hands it to <strong>{{ $task->createdBy->name ?? 'the requester' }}</strong>, who accepts it or sends it back.</div>
@@ -652,13 +663,18 @@
         switch (state) {
             case 'completed':
                 label = 'Completed'; tone = 'done';
-                main = started ? clock((completed || now) - started) : '—';
-                caption = due ? (completed <= due ? 'from start to finish · on time' : 'from start to finish · ' + words(completed - due) + ' late') : 'from start to finish';
+                main = started && completed ? clock(completed - started) : '—';
+                caption = due && completed
+                    ? (completed <= due ? 'from start to finish · on time' : 'from start to finish · ' + words(completed - due) + ' late')
+                    : 'Completed.';
                 break;
             case 'submitted':
                 label = 'Waiting for review'; tone = 'waiting';
-                main = clock(now - submitted);
-                caption = 'since it was handed in' + (due ? (submitted <= due ? ' · on time' : ' · ' + words(submitted - due) + ' after the deadline') : '');
+                // Older tasks can be Submitted with no hand-in time recorded.
+                main = submitted ? clock(now - submitted) : '—';
+                caption = submitted
+                    ? 'since it was handed in' + (due ? (submitted <= due ? ' · on time' : ' · ' + words(submitted - due) + ' after the deadline') : '')
+                    : 'Handed in — waiting for review.';
                 break;
             case 'cancelled':
                 label = 'Cancelled'; tone = 'idle'; main = '—'; caption = 'No time is being counted.';
@@ -670,8 +686,8 @@
                 break;
             case 'running':
                 label = 'In progress'; tone = 'running';
-                main = due ? clock(due - now) : clock(now - started);
-                caption = due ? 'left until the deadline' : 'since work started';
+                main = due ? clock(due - now) : (started ? clock(now - started) : '—');
+                caption = due ? 'left until the deadline' : (started ? 'since work started' : 'No deadline set.');
                 break;
             case 'paused':
                 label = 'On hold'; tone = 'idle';
@@ -706,7 +722,7 @@
         $('ttDue').textContent = due
             ? (timer.due_has_time ? fullFmt.format(new Date(due)) : @json($task->due_date?->format('d M Y')) + ' (end of day)')
             : 'None';
-        $('ttElapsed').textContent = started ? words((ended || now) - started) : '—';
+        $('ttElapsed').textContent = started && (ended || now) >= started ? words((ended || now) - started) : '—';
         $('ttEstimate').textContent = timer.estimated_seconds ? words(timer.estimated_seconds * 1000) : '—';
     }
 

@@ -52,21 +52,31 @@ class TaskPageTest extends TestCase
     {
         $task = $this->task(['requires_attachment' => true]);
 
+        // Not started yet: Submit is there but disabled, and says why.
         $this->actingAs($this->anika)->get(route('tasks.show', $task))
             ->assertOk()
             ->assertViewIs('tasks.show')
             ->assertSee('Spring campaign poster')
             ->assertSee('A3, brand colours')
             ->assertSee('Submit Task')
-            ->assertSee('data-requires="1"', false)
+            ->assertDontSee('data-requires="1"', false)
+            ->assertSee('Start work on this task before submitting it.')
             ->assertSee('Start work')
-            ->assertSee('This task needs a file with the submission')
             ->assertSee('id="taskTimer"', false)
             ->assertSee('Maya Manager')
             ->assertSee('History')
             ->assertDontSee('id="tpEdit"', false)
             ->assertDontSee('id="tpDelete"', false)
             ->assertDontSee('work share');
+
+        // Started: Submit is live, with its file requirement.
+        $this->actingAs($this->anika);
+        $this->tasks->changeWorkingStatus($task, $this->anika, 'In Progress');
+
+        $this->actingAs($this->anika)->get(route('tasks.show', $task))
+            ->assertSee('data-requires="1"', false)
+            ->assertSee('This task needs a file with the submission')
+            ->assertDontSee('Start work on this task before submitting it.');
     }
 
     public function test_the_timer_carries_the_servers_clock_and_deadline(): void
@@ -98,7 +108,8 @@ class TaskPageTest extends TestCase
     {
         $task = $this->task();
         $this->actingAs($this->anika);
-        $this->tasks->submitForReview($task, $this->anika, 'Done');
+        $this->tasks->changeWorkingStatus($task, $this->anika, 'In Progress');
+        $this->tasks->submitForReview($task->fresh(), $this->anika, 'Done');
 
         $this->actingAs($this->manager)->get(route('tasks.show', $task))
             ->assertSee('Review submission')

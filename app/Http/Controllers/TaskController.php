@@ -64,6 +64,14 @@ class TaskController extends Controller
         ));
     }
 
+    /** The sidebar badge: what is waiting on the signed-in person. */
+    public function navCount(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Task::class);
+
+        return response()->json(Task::pendingCountsFor($request->user()));
+    }
+
     public function store(StoreTaskRequest $request): JsonResponse
     {
         $task = $this->service->create($request->validated());
@@ -388,7 +396,11 @@ class TaskController extends Controller
                 // The assignee hands it back; the requester rules on it. Both
                 // are policy checks so the buttons match what the endpoints allow.
                 if ($me->can('submit', $t)) {
-                    $html .= '<button class="btn btn-sm px-2 py-1 task-submit" data-id="' . $t->id . '" data-title="' . e($t->title) . '" data-requires="' . ($t->requires_attachment ? 1 : 0) . '" style="background:rgba(var(--primary-rgb),.1);border:1px solid var(--primary);color:var(--primary)" title="Submit for review"><i class="bi bi-send"></i></button> ';
+                    // Shown to the assignee throughout, but only live once work has started.
+                    $blocker = $t->submitBlocker();
+                    $html .= $blocker
+                        ? '<span class="d-inline-block" tabindex="0" title="' . e($blocker) . '"><button class="btn btn-sm px-2 py-1" disabled style="border:1px solid var(--border);color:var(--text3);pointer-events:none"><i class="bi bi-send"></i></button></span> '
+                        : '<button class="btn btn-sm px-2 py-1 task-submit" data-id="' . $t->id . '" data-title="' . e($t->title) . '" data-requires="' . ($t->requires_attachment ? 1 : 0) . '" style="background:rgba(var(--primary-rgb),.1);border:1px solid var(--primary);color:var(--primary)" title="Submit for review"><i class="bi bi-send"></i></button> ';
                 }
                 if ($me->can('review', $t)) {
                     $html .= '<button class="btn btn-sm px-2 py-1 task-review" data-id="' . $t->id . '" data-title="' . e($t->title) . '" style="background:var(--c-yellow-bg);border:1px solid var(--c-yellow);color:var(--c-yellow)" title="Review submission"><i class="bi bi-clipboard-check"></i></button> ';

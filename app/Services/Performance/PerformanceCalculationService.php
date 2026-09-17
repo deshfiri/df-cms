@@ -2,6 +2,8 @@
 
 namespace App\Services\Performance;
 
+use App\Models\ActivityLog;
+use App\Models\Client;
 use App\Models\ClientSatisfactionRating;
 use App\Models\KpiWeightConfig;
 use App\Models\Payment;
@@ -99,8 +101,13 @@ class PerformanceCalculationService
             ->groupBy('employee_id')
             ->all();
 
+        $this->clientCareByUser = $this->loadClientCare($ids, $period);
+
         $this->prefetchPeriod = $period;
     }
+
+    /** @var array<int,array<string,mixed>> */
+    private array $clientCareByUser = [];
 
     /** True when this exact period was prefetched for the cohort. */
     private function prefetched(string $period): bool
@@ -495,6 +502,151 @@ class PerformanceCalculationService
         ];
     }
 
+    // ── Client care ──────────────────────────────────────────────────────
+    //
+    // Credit for bringing clients in and looking after the clients you are
+    // responsible for — measured from what was actually done to them, never
+    // from opening a client page.
+    //
+    //   Your clients     assigned to you, or added by you and assigned to no one.
+    //                    Active ones are those Running or Warning.
+    //   Clients added    added by you in the month, by hand (an import is data
+    //                    entry, not bringing a client in), and not since deleted.
+    //   Upkeep           a day on which you did real work on one of your clients:
+    //                    edited it or changed its status, added a note, a product
+    //                    update, a project update or a document, scheduled or
+    //                    completed a meeting, added or edited a brand, replied to
+    //                    its support ticket, or opened its portal account.
+    //
+    //   points      = 3 × clients added  +  upkeep days
+    //                 (upkeep capped at 4 days per client per month — ten edits
+    //                 to one client in a day are one day, and one client can't
+    //                 carry the month)
+    //   activity %  = points ÷ monthly target (Settings) × 100, at most 100
+    //   coverage %  = active clients of yours with upkeep this month
+    //                 ÷ all your active clients × 100
+    //   score       = average of coverage % and activity %,
+    //                 or activity % alone when you have no active clients
+    //
+    // Nobody with no clients, no clients added and no upkeep gets this KPI at
+    // all, so it never pulls down someone whose job isn't client work.
+
+    public const CLIENT_ADDED_POINTS = 3;
+    public const UPKEEP_DAYS_CAP_PER_CLIENT = 4;
+    public const ACTIVE_CLIENT_STATUSES = ['Running', 'Warning'];
+
+    /** Activity-log entries that count as looking after a client. */
+    public const CLIENT_UPKEEP_ACTIONS = [
+        'Client'                => ['Updated', 'Status Changed'],
+        'Note'                  => ['Created'],
+        'Product'               => ['Update Created'],
+        'Project Update'        => ['Posted'],
+        'Document'              => ['Uploaded'],
+        'Meeting'               => ['Scheduled', 'Completed'],
+        'Brand'                 => ['Created', 'Updated'],
+        'Support Ticket'        => ['Replied'],
+        'Client Portal Account' => ['Created'],
+    ];
+
+    public function clientCare(User $user, string $period): ?array
+    {
+        return $this->prefetched($period)
+            ? ($this->clientCareByUser[$user->id] ?? null)
+            : ($this->loadClientCare(collect([$user->id]), $period)[$user->id] ?? null);
+    }
+
+    /**
+     * The client-care picture for each of these users, in a fixed handful of
+     * queries whatever the headcount.
+     *
+     * @param  \Illuminate\Support\Collection<int,int>  $ids
+     * @return array<int,array<string,mixed>|null>
+     */
+    private function loadClientCare(\Illuminate\Support\Collection $ids, string $period): array
+    {
+        [$start, $end] = $this->periodBounds($period);
+        $target = max(1, (int) ($this->settings()->client_care_target_points ?? 20));
+
+        // Whose clients: assigned to them, or added by them and assigned to no one.
+        $portfolio = Client::query()
+            ->where(fn ($q) => $q
+                ->whereIn('assigned_to', $ids)
+                ->orWhere(fn ($q) => $q->whereNull('assigned_to')->whereIn('created_by', $ids)))
+            ->get(['id', 'assigned_to', 'created_by', 'client_status']);
+
+        $owner = fn ($client) => (int) ($client->assigned_to ?? $client->created_by);
+        $portfolioByUser = $portfolio->groupBy($owner);
+
+        // Added by hand this month.
+        $added = Client::query()
+            ->whereIn('created_by', $ids)
+            ->whereBetween('created_at', [$start, $end])
+            ->get(['id', 'created_by']);
+        $imported = $added->isEmpty() ? collect() : ActivityLog::query()
+            ->where('module', 'Import')
+            ->where('action', 'Client Imported')
+            ->whereIn('client_id', $added->pluck('id'))
+            ->pluck('client_id')
+            ->flip();
+        $addedByUser = $added->reject(fn ($c) => $imported->has($c->id))->groupBy('created_by');
+
+        // The work itself.
+        $upkeep = ActivityLog::query()
+            ->whereIn('user_id', $ids)
+            ->whereNotNull('client_id')
+            ->whereBetween('created_at', [$start, $end])
+            ->where(function ($q) {
+                foreach (self::CLIENT_UPKEEP_ACTIONS as $module => $actions) {
+                    $q->orWhere(fn ($m) => $m->where('module', $module)->whereIn('action', $actions));
+                }
+            })
+            ->get(['user_id', 'client_id', 'created_at'])
+            ->groupBy('user_id');
+
+        $result = [];
+        foreach ($ids as $userId) {
+            $userId   = (int) $userId;
+            $mine     = $portfolioByUser->get($userId, collect());
+            $mineIds  = $mine->pluck('id')->flip();
+            $active   = $mine->filter(fn ($c) => in_array($c->client_status, self::ACTIVE_CLIENT_STATUSES, true));
+            $addedN   = $addedByUser->get($userId, collect())->count();
+
+            // Distinct working days per client, on their own clients only.
+            $daysByClient = $upkeep->get($userId, collect())
+                ->filter(fn ($log) => $mineIds->has($log->client_id))
+                ->groupBy('client_id')
+                ->map(fn ($logs) => $logs->map(fn ($log) => $log->created_at->toDateString())->unique()->count());
+
+            $upkeepDays = (int) $daysByClient->sum(fn ($days) => min($days, self::UPKEEP_DAYS_CAP_PER_CLIENT));
+
+            if ($active->isEmpty() && $addedN === 0 && $upkeepDays === 0) {
+                $result[$userId] = null;
+                continue;
+            }
+
+            $points   = $addedN * self::CLIENT_ADDED_POINTS + $upkeepDays;
+            $activity = round(min(100, $points / $target * 100), 2);
+            $covered  = $active->filter(fn ($c) => $daysByClient->has($c->id))->count();
+            $coverage = $active->isNotEmpty() ? round($covered / $active->count() * 100, 2) : null;
+
+            $result[$userId] = [
+                'clients_added'       => $addedN,
+                'clients_total'       => $mine->count(),
+                'clients_active'      => $active->count(),
+                'active_maintained'   => $covered,
+                'clients_maintained'  => $daysByClient->count(),
+                'upkeep_days'         => $upkeepDays,
+                'points'              => $points,
+                'target_points'       => $target,
+                'activity_pct'        => $activity,
+                'coverage_pct'        => $coverage,
+                'score'               => $coverage === null ? $activity : round(($coverage + $activity) / 2, 2),
+            ];
+        }
+
+        return $result;
+    }
+
     public function resolveWeights(User $user): KpiWeightConfig
     {
         // Resolved in-memory from the memoized set (employee → department →
@@ -517,8 +669,8 @@ class PerformanceCalculationService
         return $configs->first(fn (KpiWeightConfig $c) => $c->scope_type === KpiWeightConfig::SCOPE_GLOBAL)
             ?? new KpiWeightConfig([
                 'scope_type' => KpiWeightConfig::SCOPE_GLOBAL,
-                'task_completion_weight' => 25, 'on_time_weight' => 25, 'revision_weight' => 20,
-                'sales_weight' => 15, 'satisfaction_weight' => 15,
+                'task_completion_weight' => 20, 'on_time_weight' => 20, 'revision_weight' => 15,
+                'sales_weight' => 15, 'satisfaction_weight' => 15, 'client_care_weight' => 15,
             ]);
     }
 
@@ -529,6 +681,7 @@ class PerformanceCalculationService
         $revision       = $this->revisionRate($user, $period);
         $sales          = $this->salesAchievement($user, $period);
         $satisfaction   = $this->clientSatisfaction($user, $period);
+        $clientCare     = $this->clientCare($user, $period);
 
         $weightConfig = $this->resolveWeights($user);
         $weights = $weightConfig->toWeightsArray();
@@ -539,15 +692,18 @@ class PerformanceCalculationService
             'revision'        => $revision['revision_rate_kpi'] !== null ? round(100 - $revision['revision_rate_kpi'], 2) : null,
             'sales'           => $sales !== null ? min($sales['pct'] ?? 0, 100) : null,
             'satisfaction'    => $satisfaction['score'] ?? null,
+            'client_care'     => $clientCare['score'] ?? null,
         ];
 
-        $applicable = array_filter($scores, fn ($v) => $v !== null);
+        // A KPI counts when there is data for it and its profile gives it weight;
+        // one weighted 0 is shown but can neither lift nor sink the score.
+        $applicable = array_filter($scores, fn ($v, $key) => $v !== null && ($weights[$key] ?? 0) > 0, ARRAY_FILTER_USE_BOTH);
 
         if (empty($applicable)) {
             return [
                 'final_score' => null, 'performance_level' => null,
                 'scores' => $scores, 'weights_used' => [], 'strongest' => null, 'weakest' => null,
-                'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction'),
+                'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare'),
             ];
         }
 
@@ -577,7 +733,7 @@ class PerformanceCalculationService
             'weights_used' => $weightsUsed,
             'strongest' => $strongest,
             'weakest' => $weakest,
-            'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction'),
+            'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare'),
         ];
     }
 

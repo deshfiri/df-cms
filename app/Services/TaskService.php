@@ -38,6 +38,7 @@ class TaskService
             unset($data['label_ids']);
 
             $data = $this->applyWorkloadRules($this->applyDeadline($data));
+            $this->refuseSelfAssignment($data['assigned_to'] ?? null);
             $data['created_by'] = Auth::id();
             $task = Task::create($data);
 
@@ -70,6 +71,10 @@ class TaskService
     public function update(Task $task, array $data): Task
     {
         $previousAssignee = $task->assigned_to;
+
+        if (array_key_exists('assigned_to', $data)) {
+            $this->refuseSelfAssignment($data['assigned_to'], $task);
+        }
 
         $updated = DB::transaction(function () use ($task, $data) {
             $labelIds = $data['label_ids'] ?? null;
@@ -123,6 +128,32 @@ class TaskService
         }
 
         return $updated;
+    }
+
+    /**
+     * Nobody assigns work to themselves: a task is asked of someone else, who
+     * does it and hands it back for the asker to accept. Self-assigned work
+     * would review itself.
+     *
+     * Saving a task that is already yours unchanged is not a new assignment,
+     * so older tasks can still be edited.
+     *
+     * @throws ValidationException
+     */
+    private function refuseSelfAssignment(mixed $assignee, ?Task $task = null): void
+    {
+        $me = Auth::id();
+
+        if (!$assignee || !$me || (int) $assignee !== (int) $me) {
+            return;
+        }
+        if ($task && (int) $task->assigned_to === (int) $me) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'assigned_to' => 'You can\'t assign a task to yourself. Choose who should do it.',
+        ]);
     }
 
     /**
@@ -194,12 +225,9 @@ class TaskService
             DB::transaction(function () use ($task, $actor, $note, $files, &$stored) {
                 $locked = Task::whereKey($task->id)->lockForUpdate()->firstOrFail();
 
-                if (!in_array($locked->status, Task::$submittableStatuses, true)) {
-                    throw ValidationException::withMessages([
-                        'status' => $locked->status === Task::STATUS_SUBMITTED
-                            ? 'This task has already been submitted and is waiting for review.'
-                            : "This task is {$locked->status} and can no longer be submitted.",
-                    ]);
+                // Same rule as the policy, against the row as it is now.
+                if ($reason = $locked->submitBlocker()) {
+                    throw ValidationException::withMessages(['status' => $reason]);
                 }
 
                 if ($locked->requires_attachment && !$files && !$this->hasSubmissionFile($locked)) {
@@ -457,8 +485,9 @@ class TaskService
         $settings = PerformanceSetting::current();
 
         if ($settings->auto_assign_enabled && empty($data['assigned_to'])) {
+            // Never suggests the creator — nobody is assigned their own task.
             $assignee = $this->workload->suggestAssignee(
-                User::with('capacity')->where('is_active', true)->get()
+                User::with('capacity')->where('is_active', true)->whereKeyNot((int) Auth::id())->get()
             );
             if ($assignee) {
                 $data['assigned_to'] = $assignee->id;

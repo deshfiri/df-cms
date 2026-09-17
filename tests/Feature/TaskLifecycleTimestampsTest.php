@@ -143,7 +143,8 @@ class TaskLifecycleTimestampsTest extends TestCase
         $service = app(TaskService::class);
 
         $this->actingAs($assignee);
-        $service->submitForReview($task, $assignee);
+        $service->changeWorkingStatus($task, $assignee, 'In Progress');
+        $service->submitForReview($task->fresh(), $assignee);
 
         Carbon::setTestNow('2026-09-17 15:30:00');
         $this->actingAs($manager);

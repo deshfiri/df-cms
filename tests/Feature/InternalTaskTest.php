@@ -98,6 +98,7 @@ class InternalTaskTest extends TestCase
             'client_id' => null,
         ]);
 
+        $this->actingAs($junior)->postJson(route('tasks.progress', $task), ['status' => 'In Progress'])->assertOk();
         $this->actingAs($junior)->postJson(route('tasks.submit', $task))->assertOk();
         $this->assertSame(Task::STATUS_SUBMITTED, $task->fresh()->status);
 

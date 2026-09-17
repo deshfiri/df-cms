@@ -260,6 +260,8 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('reviews/{review}', [ReviewController::class, 'destroy'])->name('reviews.destroy');
 
     // Tasks (standalone)
+    // Before the resource, or tasks/{task} would capture "nav-count".
+    Route::get('tasks/nav-count', [TaskController::class, 'navCount'])->name('tasks.nav-count');
     Route::resource('tasks', TaskController::class)->except(['create', 'edit']);
     // Delegated work: the assignee submits, the requester accepts or returns it.
     // The assignee starting/pausing their own work. Separate from the full

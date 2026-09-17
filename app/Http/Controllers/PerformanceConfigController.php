@@ -19,7 +19,7 @@ class PerformanceConfigController extends Controller
     /** Functional teams (Spatie roles double as departments — see DatabaseSeeder). */
     private const DEPARTMENTS = ['Sales', 'Document', 'Design', 'Website', 'Product', 'Marketing', 'Support', 'Accounts', 'Content'];
 
-    private const WEIGHT_FIELDS = ['task_completion_weight', 'on_time_weight', 'revision_weight', 'sales_weight', 'satisfaction_weight'];
+    private const WEIGHT_FIELDS = ['task_completion_weight', 'on_time_weight', 'revision_weight', 'sales_weight', 'satisfaction_weight', 'client_care_weight'];
 
     public function __construct(
         private readonly PerformanceConfigService $service,
@@ -117,9 +117,10 @@ class PerformanceConfigController extends Controller
             'revision_weight'        => ['required', 'integer', 'min:0', 'max:100'],
             'sales_weight'           => ['required', 'integer', 'min:0', 'max:100'],
             'satisfaction_weight'    => ['required', 'integer', 'min:0', 'max:100'],
+            'client_care_weight'     => ['required', 'integer', 'min:0', 'max:100'],
         ]);
 
-        $sum = array_sum(array_map(fn ($f) => (int) $data[$f], self::WEIGHT_FIELDS));
+        $sum =array_sum(array_map(fn ($f) => (int) $data[$f], self::WEIGHT_FIELDS));
         if ($sum !== 100) {
             return response()->json(['success' => false, 'message' => "Weights must total 100 (currently {$sum})."], 422);
         }
@@ -157,6 +158,7 @@ class PerformanceConfigController extends Controller
             'revision_rate_alert_pct'     => ['required', 'integer', 'min:0', 'max:100'],
             'kpi_drop_alert_points'       => ['required', 'integer', 'min:0', 'max:100'],
             'overdue_alert_count'         => ['required', 'integer', 'min:0', 'max:1000'],
+            'client_care_target_points'   => ['required', 'integer', 'min:1', 'max:10000'],
             'strict_workload_limit'       => ['boolean'],
             'auto_assign_enabled'         => ['boolean'],
             'count_cancelled_against_kpi' => ['boolean'],

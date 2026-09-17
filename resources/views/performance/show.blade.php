@@ -15,6 +15,7 @@
         'revision'        => 'Quality',
         'sales'           => 'Sales Achievement',
         'satisfaction'    => 'Client Satisfaction',
+        'client_care'     => 'Client Care',
     ];
     $c = $result['components'];
     $money = fn ($v) => number_format((float) $v, 2);
@@ -101,7 +102,7 @@
                 Strongest: <strong style="color:var(--text)">{{ $componentLabels[$result['strongest']] }}</strong>
                 &middot; Weakest: <strong style="color:var(--text)">{{ $componentLabels[$result['weakest']] }}</strong>
             @else
-                No tasks, sales targets, or ratings recorded for {{ $periods[$period] ?? $period }}.
+                No tasks, sales targets, ratings or client work recorded for {{ $periods[$period] ?? $period }}.
             @endif
         </div>
     </div>
@@ -214,6 +215,48 @@
                     <div class="sc-metric"><span class="k">Complaints (≤2)</span><span class="v">{{ $c['satisfaction']['complaints'] }}</span></div>
                 @else
                     <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">No client ratings recorded for this period.</div>
+                @endif
+            </div>
+        </div>
+    </div>
+
+    {{-- Client care: adding clients and looking after your own --}}
+    <div class="col-12">
+        <div class="card section-card">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                <h6 class="fw-bold mb-0"><i class="bi bi-person-heart me-1"></i>Client Care</h6>
+                @isset($result['weights_used']['client_care'])
+                    <span class="sc-weight">weight {{ $result['weights_used']['client_care'] }}%</span>
+                @endisset
+            </div>
+            <div class="card-body">
+                @php $cc = $c['clientCare'] ?? null; @endphp
+                @if ($cc)
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <div class="sc-metric"><span class="k">Score</span><span class="v">{{ $cc['score'] }}</span></div>
+                            <div class="sc-metric"><span class="k">Activity</span><span class="v">{{ $cc['points'] }} / {{ $cc['target_points'] }} pts ({{ $cc['activity_pct'] }}%)</span></div>
+                            <div class="sc-metric"><span class="k">Coverage</span><span class="v">{{ $cc['coverage_pct'] !== null ? $cc['coverage_pct'] . '%' : '—' }}</span></div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="sc-metric"><span class="k">Clients added</span><span class="v">{{ $cc['clients_added'] }}</span></div>
+                            <div class="sc-metric"><span class="k">Upkeep days</span><span class="v">{{ $cc['upkeep_days'] }}</span></div>
+                            <div class="sc-metric"><span class="k">Clients worked on</span><span class="v">{{ $cc['clients_maintained'] }}</span></div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="sc-metric"><span class="k">Their clients</span><span class="v">{{ $cc['clients_total'] }}</span></div>
+                            <div class="sc-metric"><span class="k">Active</span><span class="v">{{ $cc['clients_active'] }}</span></div>
+                            <div class="sc-metric"><span class="k">Active and looked after</span><span class="v">{{ $cc['active_maintained'] }} of {{ $cc['clients_active'] }}</span></div>
+                        </div>
+                    </div>
+                    <div class="sc-formula mt-2">
+                        Points: {{ \App\Services\Performance\PerformanceCalculationService::CLIENT_ADDED_POINTS }} per client added by hand (imports don't count), 1 per day of real work on one of their own clients —
+                        edits, status changes, notes, product or project updates, documents, meetings, brands, ticket replies, portal accounts —
+                        at most {{ \App\Services\Performance\PerformanceCalculationService::UPKEEP_DAYS_CAP_PER_CLIENT }} days per client.
+                        Score = average of coverage and activity (activity alone with no active clients). Viewing a client never counts.
+                    </div>
+                @else
+                    <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">No clients of their own, none added and no client upkeep this period.</div>
                 @endif
             </div>
         </div>

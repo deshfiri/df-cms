@@ -1,7 +1,9 @@
 <?php
 
 use App\Models\Conversation;
+use App\Models\FlowItem;
 use App\Models\User;
+use App\Services\FlowService;
 use App\Models\WhatsAppConversation;
 use Illuminate\Support\Facades\Broadcast;
 
@@ -20,6 +22,14 @@ Broadcast::channel('conversation.{conversationId}', function (User $user, $conve
     }
 
     return $conversation->hasParticipant($user->id) || $user->can('monitor chats');
+});
+
+// One workflow item — who claimed it, live, for everyone looking at it. Same
+// rule as opening the item page.
+Broadcast::channel('flow-item.{itemId}', function (User $user, $itemId) {
+    $item = FlowItem::find($itemId);
+
+    return $item !== null && app(FlowService::class)->canView($user, $item);
 });
 
 // App-wide presence — drives online indicators and the chat page's "Online now"

@@ -89,7 +89,8 @@ class PerformanceTaskCreditTest extends TestCase
         $this->create($manager, $anika);   // still pending
 
         $this->actingAs($anika);
-        $this->tasks->submitForReview($done, $anika);
+        $this->tasks->changeWorkingStatus($done, $anika, 'In Progress');
+        $this->tasks->submitForReview($done->fresh(), $anika);
         $this->actingAs($manager);
         $this->tasks->review($done->fresh(), $manager, true);
 
@@ -216,6 +217,7 @@ class PerformanceTaskCreditTest extends TestCase
 
         $this->travelTo(Carbon::parse('2026-09-15 18:00:00'));
         $this->actingAs($anika);
+        $this->tasks->changeWorkingStatus($task->fresh(), $anika, 'In Progress');
         $this->tasks->submitForReview($task->fresh(), $anika);
         $this->actingAs($manager);
         $this->tasks->review($task->fresh(), $manager, true);

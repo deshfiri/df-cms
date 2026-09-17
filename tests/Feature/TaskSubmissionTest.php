@@ -38,14 +38,50 @@ class TaskSubmissionTest extends TestCase
         $this->anika   = tap(User::factory()->create(['is_active' => true]))->givePermissionTo('view tasks')->fresh();
     }
 
-    private function task(array $attributes = []): Task
+    /** A task assigned to Anika — started, unless asked otherwise, since only started work can be handed in. */
+    private function task(array $attributes = [], bool $started = true): Task
     {
         $this->actingAs($this->manager);
 
-        return app(TaskService::class)->create($attributes + [
+        $task = app(TaskService::class)->create($attributes + [
             'title' => 'Poster', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other',
             'assigned_to' => $this->anika->id,
         ]);
+
+        if ($started) {
+            $this->actingAs($this->anika);
+            $task = app(TaskService::class)->changeWorkingStatus($task, $this->anika, 'In Progress');
+        }
+
+        return $task;
+    }
+
+    public function test_work_must_be_started_before_it_can_be_submitted(): void
+    {
+        $task = $this->task(started: false);
+
+        $this->submit($task, ['note' => 'Done already'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['status' => 'Start work on this task before submitting it.']);
+        $this->assertSame('Pending', $task->fresh()->status);
+
+        // The list offers the button, but disabled, saying why.
+        $row = $this->actingAs($this->anika)
+            ->getJson(route('tasks.index'), ['X-Requested-With' => 'XMLHttpRequest'])
+            ->json('data.0');
+        $this->assertStringContainsString('disabled', $row['actions']);
+        $this->assertStringContainsString('Start work on this task before submitting it.', $row['actions']);
+        $this->assertStringNotContainsString('task-submit', $row['actions']);
+
+        // Put on hold straight from Pending is still not started.
+        $this->actingAs($this->anika);
+        app(TaskService::class)->changeWorkingStatus($task->fresh(), $this->anika, 'On Hold');
+        $this->submit($task)->assertUnprocessable()->assertJsonValidationErrors('status');
+
+        // Once started — even if paused afterwards — it can be handed in.
+        app(TaskService::class)->changeWorkingStatus($task->fresh(), $this->anika, 'In Progress');
+        app(TaskService::class)->changeWorkingStatus($task->fresh(), $this->anika, 'On Hold');
+        $this->submit($task)->assertOk();
     }
 
     private function submit(Task $task, array $data = [], ?User $as = null)
@@ -70,7 +106,7 @@ class TaskSubmissionTest extends TestCase
         $activity = TaskActivity::where('task_id', $task->id)->where('event', 'submitted')->sole();
         $this->assertSame($this->anika->id, $activity->user_id);
         $this->assertSame(['note' => 'Final version'], $activity->meta);
-        $this->assertSame(['submitted' => 4], TaskInvolvement::where('task_id', $task->id)->where('user_id', $this->anika->id)->value('breakdown'));
+        $this->assertSame(['started' => 2, 'submitted' => 4], TaskInvolvement::where('task_id', $task->id)->where('user_id', $this->anika->id)->value('breakdown'));
     }
 
     public function test_only_the_assignee_may_submit_and_is_told_why(): void
@@ -81,7 +117,7 @@ class TaskSubmissionTest extends TestCase
             ->assertForbidden()
             ->assertJson(['message' => 'Only the person this task is assigned to can submit it.']);
 
-        $this->assertSame('Pending', $task->fresh()->status);
+        $this->assertSame('In Progress', $task->fresh()->status);
     }
 
     public function test_a_task_cannot_be_submitted_twice(): void
@@ -99,7 +135,7 @@ class TaskSubmissionTest extends TestCase
     public function test_the_locked_row_refuses_a_submission_that_raced_past_the_policy(): void
     {
         $task  = $this->task();
-        $stale = $task->fresh();            // loaded while still Pending
+        $stale = $task->fresh();            // loaded while still In Progress
         $this->submit($task)->assertOk();   // another tab submits first
 
         $this->actingAs($this->anika);
@@ -123,7 +159,7 @@ class TaskSubmissionTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['files' => 'This task needs a file with the submission.']);
 
-        $this->assertSame('Pending', $task->fresh()->status);
+        $this->assertSame('In Progress', $task->fresh()->status);
         $this->assertSame(0, TaskActivity::where('task_id', $task->id)->where('event', 'submitted')->count());
     }
 
@@ -144,7 +180,7 @@ class TaskSubmissionTest extends TestCase
         $this->assertSame($attachments->pluck('id')->all(), $submitted->meta['attachment_ids']);
 
         $mine = TaskInvolvement::where('task_id', $task->id)->where('user_id', $this->anika->id)->sole();
-        $this->assertSame(['attachment_added' => 4, 'submitted' => 4], $mine->breakdown);
+        $this->assertSame(['started' => 2, 'attachment_added' => 4, 'submitted' => 4], $mine->breakdown);
     }
 
     public function test_a_file_already_added_by_the_assignee_satisfies_the_requirement(): void
@@ -189,7 +225,7 @@ class TaskSubmissionTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['files.0' => 'Each file can be up to 20 MB.']);
 
-        $this->assertSame('Pending', $task->fresh()->status);
+        $this->assertSame('In Progress', $task->fresh()->status);
         $this->assertSame(0, TaskAttachment::where('task_id', $task->id)->count());
     }
 
@@ -209,5 +245,54 @@ class TaskSubmissionTest extends TestCase
         ])->assertOk();
 
         $this->assertFalse($task->fresh()->requires_attachment);
+    }
+
+    // ── Nobody assigns work to themselves ────────────────────────────────
+
+    public function test_nobody_can_assign_a_task_to_themselves(): void
+    {
+        $payload = ['title' => 'My errand', 'priority' => 'Low', 'status' => 'Pending', 'type' => 'Other'];
+
+        $this->actingAs($this->manager)->postJson(route('tasks.store'), $payload + ['assigned_to' => $this->manager->id])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['assigned_to' => 'You can\'t assign a task to yourself.']);
+        $this->assertSame(0, Task::where('title', 'My errand')->count());
+
+        // Reassigning someone else's task to yourself is refused too.
+        $task = $this->task(started: false);
+        $this->actingAs($this->manager)->putJson(route('tasks.update', $task), $payload + ['assigned_to' => $this->manager->id])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('assigned_to');
+        $this->assertSame($this->anika->id, $task->fresh()->assigned_to);
+
+        // The form offers yourself only as a disabled choice.
+        $this->actingAs($this->manager)->get(route('tasks.index'))
+            ->assertSee('(you — can\'t assign to yourself)', false);
+    }
+
+    public function test_an_older_task_already_assigned_to_you_can_still_be_edited(): void
+    {
+        $legacy = Task::create([
+            'title' => 'Old errand', 'priority' => 'Low', 'status' => 'Pending', 'type' => 'Other',
+            'assigned_to' => $this->manager->id, 'created_by' => $this->manager->id,
+        ]);
+
+        $this->actingAs($this->manager)->putJson(route('tasks.update', $legacy), [
+            'title' => 'Old errand, renamed', 'priority' => 'Low', 'status' => 'Pending', 'type' => 'Other',
+            'assigned_to' => $this->manager->id,
+        ])->assertOk();
+
+        $this->assertSame('Old errand, renamed', $legacy->fresh()->title);
+    }
+
+    public function test_auto_assignment_never_picks_the_creator(): void
+    {
+        \App\Models\PerformanceSetting::current()->update(['auto_assign_enabled' => true]);
+        User::query()->whereKeyNot($this->manager->id)->update(['is_active' => false]);
+
+        $this->actingAs($this->manager);
+        $task = app(TaskService::class)->create(['title' => 'Anyone', 'priority' => 'Low', 'status' => 'Pending', 'type' => 'Other']);
+
+        $this->assertNull($task->assigned_to, 'With nobody else available it stays unassigned rather than landing on its creator.');
     }
 }

@@ -71,6 +71,7 @@ class GeneratePerformanceSnapshots extends Command
                     'revision_score'        => $score['scores']['revision'],
                     'sales_score'           => $score['scores']['sales'],
                     'satisfaction_score'    => $score['scores']['satisfaction'],
+                    'client_care_score'     => $score['scores']['client_care'],
                     'weights_used'          => $score['weights_used'],
                     'component_details'     => $score['components'],
                     'final_score'           => $score['final_score'],

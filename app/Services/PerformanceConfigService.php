@@ -70,6 +70,7 @@ class PerformanceConfigService
                 'revision_weight'        => $data['revision_weight'],
                 'sales_weight'           => $data['sales_weight'],
                 'satisfaction_weight'    => $data['satisfaction_weight'],
+                'client_care_weight'     => $data['client_care_weight'] ?? 0,
                 'updated_by'             => Auth::id(),
             ]);
             $config->save();

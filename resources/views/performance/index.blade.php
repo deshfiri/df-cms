@@ -107,6 +107,7 @@
                         <th>Quality</th>
                         <th>Sales</th>
                         <th>Satisfaction</th>
+                        <th>Clients</th>
                         <th>Final</th>
                         <th>Level</th>
                     </tr>
@@ -130,6 +131,7 @@
                             <td>{!! $pct($row['scores']['revision']) !!}</td>
                             <td>{!! $pct($row['scores']['sales']) !!}</td>
                             <td>{!! $pct($row['scores']['satisfaction']) !!}</td>
+                            <td>{!! $pct($row['scores']['client_care'] ?? null) !!}</td>
                             <td data-order="{{ $row['final_score'] ?? -1 }}" class="perf-score">
                                 {{ $row['final_score'] !== null ? number_format($row['final_score'], 1) : '—' }}
                             </td>
@@ -159,7 +161,7 @@
             lengthChange: false,
             info: false,
             language: { search: '', searchPlaceholder: 'Search employee…' },
-            columnDefs: [{ orderable: false, targets: [9] }],
+            columnDefs: [{ orderable: false, targets: [10] }],
         });
     });
 </script>

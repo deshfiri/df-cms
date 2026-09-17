@@ -130,20 +130,26 @@ class RealtimeNotificationTest extends TestCase
         );
     }
 
-    public function test_taking_a_task_yourself_is_not_news(): void
+    /** Nobody may assign a task to themselves any more — so there is nothing to announce. */
+    public function test_assigning_a_task_to_yourself_is_refused_and_announces_nothing(): void
     {
         Notification::fake();
 
         $me = $this->user();
         $this->actingAs($me);
 
-        app(TaskService::class)->create([
-            'title'       => 'My own errand',
-            'assigned_to' => $me->id,
-            'priority'    => 'Low',
-            'status'      => 'Pending',
-            'client_id'   => $this->client()->id,
-        ]);
+        try {
+            app(TaskService::class)->create([
+                'title'       => 'My own errand',
+                'assigned_to' => $me->id,
+                'priority'    => 'Low',
+                'status'      => 'Pending',
+                'client_id'   => $this->client()->id,
+            ]);
+            $this->fail('A self-assigned task was created.');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertArrayHasKey('assigned_to', $e->errors());
+        }
 
         Notification::assertNothingSent();
     }

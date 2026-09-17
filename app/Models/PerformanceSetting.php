@@ -14,7 +14,7 @@ class PerformanceSetting extends Model
         'overload_threshold_pct', 'busy_threshold_pct', 'available_threshold_pct',
         'strict_workload_limit', 'auto_assign_enabled', 'count_cancelled_against_kpi',
         'revision_rate_alert_pct', 'kpi_drop_alert_points', 'overdue_alert_count',
-        'updated_by',
+        'client_care_target_points', 'updated_by',
     ];
 
     protected function casts(): array

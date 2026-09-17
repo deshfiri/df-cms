@@ -50,7 +50,12 @@
                         <select id="taskAssigned" class="form-select form-select-sm task-select2">
                             <option value="">Unassigned</option>
                             @foreach($users as $u)
-                            <option value="{{ $u->id }}">{{ $u->name }}</option>
+                                {{-- Nobody assigns a task to themselves (enforced in TaskService). --}}
+                                @if((int) $u->id === (int) auth()->id())
+                                    <option value="{{ $u->id }}" disabled>{{ $u->name }} (you — can't assign to yourself)</option>
+                                @else
+                                    <option value="{{ $u->id }}">{{ $u->name }}</option>
+                                @endif
                             @endforeach
                         </select>
                     </div>

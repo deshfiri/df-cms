@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\FlowItemClaimed;
 use App\Exceptions\FlowException;
 use App\Models\Flow;
 use App\Models\FlowItem;
@@ -321,9 +322,39 @@ class FlowService
             throw new FlowException('Only a user assigned to this stage can claim it.');
         }
 
-        $item->update(['assigned_to' => $user->id]);
+        // Only if still unclaimed at this stage, in one statement: two people
+        // pressing Claim together must not both walk away owning it.
+        $won = FlowItem::whereKey($item->id)
+            ->whereNull('assigned_to')
+            ->where('current_stage_id', $item->current_stage_id)
+            ->update(['assigned_to' => $user->id, 'updated_at' => now()]);
 
-        return $item->fresh(['assignee']);
+        if ($won === 0) {
+            $holder = $item->fresh(['assignee'])?->assignee;
+            throw new FlowException($holder
+                ? "{$holder->name} claimed this item a moment ago."
+                : 'This item changed while you were looking at it. Refresh and try again.');
+        }
+
+        $claimed = $item->fresh(['assignee']);
+        $this->announceClaim($claimed, $user);
+
+        return $claimed;
+    }
+
+    /**
+     * Tell anyone with the item open. A websocket being down must never undo
+     * or fail the claim itself, so a broadcast problem is reported, not thrown.
+     */
+    private function announceClaim(FlowItem $item, User $user): void
+    {
+        DB::afterCommit(function () use ($item, $user) {
+            try {
+                event(new FlowItemClaimed($item, $user));
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        });
     }
 
     /** Return a claimed item to the pool — the claimer or an admin. */

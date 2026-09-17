@@ -94,8 +94,13 @@ class TaskPolicy
     }
 
     /**
-     * Only the person holding the task hands it back for review. Denials carry
-     * a reason, which the AJAX response shows instead of a bare "unauthorized".
+     * Only the person holding the task hands it back for review, and only while
+     * it is still theirs to hand in. Denials carry a reason, which the AJAX
+     * response shows instead of a bare "unauthorized".
+     *
+     * Allowed here does not mean submittable right now: a task not yet started
+     * shows its Submit button disabled ("Start work first"), and TaskService
+     * refuses it with that reason — see Task::submitBlocker().
      */
     public function submit(User $user, Task $task): Response
     {
@@ -103,10 +108,8 @@ class TaskPolicy
             return Response::deny('Only the person this task is assigned to can submit it.');
         }
 
-        if (!in_array($task->status, Task::$submittableStatuses, true)) {
-            return Response::deny($task->status === Task::STATUS_SUBMITTED
-                ? 'This task has already been submitted and is waiting for review.'
-                : "This task is {$task->status} and can no longer be submitted.");
+        if (in_array($task->status, Task::$settledStatuses, true)) {
+            return Response::deny($task->submitBlocker());
         }
 
         return Response::allow();

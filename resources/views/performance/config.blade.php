@@ -4,11 +4,12 @@
 @php
     $g = $global; // global KPI weight config or null
     $gw = [
-        'task_completion_weight' => $g->task_completion_weight ?? 25,
-        'on_time_weight'         => $g->on_time_weight ?? 25,
-        'revision_weight'        => $g->revision_weight ?? 20,
+        'task_completion_weight' => $g->task_completion_weight ?? 20,
+        'on_time_weight'         => $g->on_time_weight ?? 20,
+        'revision_weight'        => $g->revision_weight ?? 15,
         'sales_weight'           => $g->sales_weight ?? 15,
         'satisfaction_weight'    => $g->satisfaction_weight ?? 15,
+        'client_care_weight'     => $g->client_care_weight ?? 15,
     ];
 @endphp
 
@@ -81,7 +82,7 @@
                 <form id="globalWeightForm">
                     <input type="hidden" name="scope_type" value="global">
                     <div class="wt-grid mb-3">
-                        @foreach (['task_completion_weight' => 'Task Completion', 'on_time_weight' => 'On-Time', 'revision_weight' => 'Quality', 'sales_weight' => 'Sales', 'satisfaction_weight' => 'Satisfaction'] as $field => $label)
+                        @foreach (['task_completion_weight' => 'Task Completion', 'on_time_weight' => 'On-Time', 'revision_weight' => 'Quality', 'sales_weight' => 'Sales', 'satisfaction_weight' => 'Satisfaction', 'client_care_weight' => 'Client Care'] as $field => $label)
                             <div class="wt-field">
                                 <label>{{ $label }}</label>
                                 <input type="number" min="0" max="100" name="{{ $field }}" value="{{ $gw[$field] }}" class="form-control form-control-sm wt-input">
@@ -105,7 +106,7 @@
                 <div class="table-responsive">
                     <table class="table table-hover mb-0" style="font-size:.85rem">
                         <thead>
-                            <tr><th class="ps-3">Scope</th><th>Task</th><th>On-time</th><th>Quality</th><th>Sales</th><th>Satisfaction</th><th class="pe-3">Actions</th></tr>
+                            <tr><th class="ps-3">Scope</th><th>Task</th><th>On-time</th><th>Quality</th><th>Sales</th><th>Satisfaction</th><th>Client care</th><th class="pe-3">Actions</th></tr>
                         </thead>
                         <tbody>
                             @forelse ($overrides as $ov)
@@ -120,17 +121,18 @@
                                     <td>{{ $c->revision_weight }}</td>
                                     <td>{{ $c->sales_weight }}</td>
                                     <td>{{ $c->satisfaction_weight }}</td>
+                                    <td>{{ $c->client_care_weight }}</td>
                                     <td class="pe-3">
                                         <button class="btn btn-sm btn-outline-secondary btn-ov-edit"
                                             data-scope-type="{{ $c->scope_type }}" data-scope-value="{{ $c->scope_value }}"
                                             data-task="{{ $c->task_completion_weight }}" data-ontime="{{ $c->on_time_weight }}"
                                             data-revision="{{ $c->revision_weight }}" data-sales="{{ $c->sales_weight }}"
-                                            data-satisfaction="{{ $c->satisfaction_weight }}"><i class="bi bi-pencil"></i></button>
+                                            data-satisfaction="{{ $c->satisfaction_weight }}" data-clientcare="{{ $c->client_care_weight }}"><i class="bi bi-pencil"></i></button>
                                         <button class="btn btn-sm btn-outline-danger btn-ov-delete" data-id="{{ $c->id }}"><i class="bi bi-trash"></i></button>
                                     </td>
                                 </tr>
                             @empty
-                                <tr><td colspan="7" class="text-center py-4" style="color:var(--text3)">No overrides — everyone uses the global weights.</td></tr>
+                                <tr><td colspan="8" class="text-center py-4" style="color:var(--text3)">No overrides — everyone uses the global weights.</td></tr>
                             @endforelse
                         </tbody>
                     </table>
@@ -183,6 +185,20 @@
                                 <div class="col-4">
                                     <label style="font-size:.72rem;color:var(--text2);font-weight:600">Overdue count</label>
                                     <input type="number" min="0" max="1000" name="overdue_alert_count" value="{{ $settings->overdue_alert_count }}" class="form-control form-control-sm">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="cfg-section-title">Client care</div>
+                            <div class="row g-2">
+                                <div class="col-5">
+                                    <label for="client_care_target_points" style="font-size:.72rem;color:var(--text2);font-weight:600">Monthly target (points)</label>
+                                    <input type="number" min="1" max="10000" id="client_care_target_points" name="client_care_target_points" value="{{ $settings->client_care_target_points ?? 20 }}" class="form-control form-control-sm">
+                                </div>
+                                <div class="col-7 cfg-help" style="padding-top:1.3rem">
+                                    {{ \App\Services\Performance\PerformanceCalculationService::CLIENT_ADDED_POINTS }} points per client added by hand, 1 per day of real work on one of your clients
+                                    (at most {{ \App\Services\Performance\PerformanceCalculationService::UPKEEP_DAYS_CAP_PER_CLIENT }} days per client a month).
+                                    Reaching the target is 100% activity; the score also counts how many of your active clients were looked after.
                                 </div>
                             </div>
                         </div>
@@ -304,7 +320,7 @@
                     </div>
                 </div>
                 <div class="wt-grid mb-2" id="ovWeights">
-                    @foreach (['task' => 'Task', 'ontime' => 'On-time', 'revision' => 'Quality', 'sales' => 'Sales', 'satisfaction' => 'Satisfaction'] as $k => $label)
+                    @foreach (['task' => 'Task', 'ontime' => 'On-time', 'revision' => 'Quality', 'sales' => 'Sales', 'satisfaction' => 'Satisfaction', 'clientcare' => 'Client care'] as $k => $label)
                         <div class="wt-field">
                             <label>{{ $label }}</label>
                             <input type="number" min="0" max="100" id="ov_{{ $k }}" value="20" class="form-control form-control-sm ov-wt">
@@ -429,7 +445,7 @@ $(function () {
 
     $('#btnAddOverride').on('click', function () {
         $('#ovScopeType').val('department'); toggleOvScope();
-        $('.ov-wt').each(function (i) { $(this).val([20, 20, 20, 20, 20][i]); });
+        $('.ov-wt').each(function (i) { $(this).val([20, 20, 15, 15, 15, 15][i]); });
         ovRecompute();
         new bootstrap.Modal('#overrideModal').show();
     });
@@ -441,6 +457,7 @@ $(function () {
         $('#ov_task').val(t.data('task')); $('#ov_ontime').val(t.data('ontime'));
         $('#ov_revision').val(t.data('revision')); $('#ov_sales').val(t.data('sales'));
         $('#ov_satisfaction').val(t.data('satisfaction'));
+        $('#ov_clientcare').val(t.data('clientcare') || 0);
         ovRecompute();
         new bootstrap.Modal('#overrideModal').show();
     });
@@ -452,6 +469,7 @@ $(function () {
             task_completion_weight: $('#ov_task').val(), on_time_weight: $('#ov_ontime').val(),
             revision_weight: $('#ov_revision').val(), sales_weight: $('#ov_sales').val(),
             satisfaction_weight: $('#ov_satisfaction').val(),
+            client_care_weight: $('#ov_clientcare').val(),
         }).done(() => window.location.reload()).fail(fail);
     });
     $(document).on('click', '.btn-ov-delete', function () {

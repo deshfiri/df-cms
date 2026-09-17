@@ -97,11 +97,12 @@ class AttachmentPreviewTest extends TestCase
     public function test_non_images_and_svg_are_never_served_inline(): void
     {
         $manager = $this->user('view tasks', 'manage tasks');
+        $anika   = $this->user();
 
-        [$task, $pdf] = $this->taskWithFile($manager, $manager, UploadedFile::fake()->create('brief.pdf', 10, 'application/pdf'));
+        [$task, $pdf] = $this->taskWithFile($manager, $anika, UploadedFile::fake()->create('brief.pdf', 10, 'application/pdf'));
         $this->actingAs($manager)->get(route('tasks.attachments.preview', [$task, $pdf]))->assertStatus(415);
 
-        [$svgTask, $svg] = $this->taskWithFile($manager, $manager, UploadedFile::fake()->createWithContent('x.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'));
+        [$svgTask, $svg] = $this->taskWithFile($manager, $anika,UploadedFile::fake()->createWithContent('x.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'));
         $svg->forceFill(['mime_type' => 'image/svg+xml'])->save();
         $this->assertFalse($svg->isPreviewableImage());
         $this->actingAs($manager)->get(route('tasks.attachments.preview', [$svgTask, $svg]))->assertStatus(415);
@@ -113,8 +114,9 @@ class AttachmentPreviewTest extends TestCase
     public function test_a_file_from_another_task_is_not_found(): void
     {
         $manager = $this->user('view tasks', 'manage tasks');
-        [$task] = $this->taskWithFile($manager, $manager, UploadedFile::fake()->image('a.png'));
-        [, $other] = $this->taskWithFile($manager, $manager, UploadedFile::fake()->image('b.png'));
+        $anika   = $this->user();
+        [$task] = $this->taskWithFile($manager, $anika, UploadedFile::fake()->image('a.png'));
+        [, $other] = $this->taskWithFile($manager, $anika, UploadedFile::fake()->image('b.png'));
 
         $this->actingAs($manager)->get(route('tasks.attachments.preview', [$task, $other]))->assertNotFound();
     }

@@ -23,8 +23,12 @@ class Task extends Model
 
     public static array $statuses = ['Pending', 'In Progress', 'On Hold', 'Submitted', 'Completed', 'Cancelled', 'Overdue'];
 
-    /** Statuses an assignee may submit from. */
-    public static array $submittableStatuses = ['Pending', 'In Progress', 'On Hold'];
+    /**
+     * Statuses an assignee may submit from — once work has started. A task
+     * still Pending has not been worked on, so there is nothing to hand in:
+     * the assignee presses Start work first. See submitBlocker().
+     */
+    public static array $submittableStatuses = ['In Progress', 'On Hold'];
 
     /**
      * Statuses an assignee may move their own task between while working on it.
@@ -122,6 +126,26 @@ class Task extends Model
                 $task->completion_date = null;
             }
         });
+    }
+
+    /**
+     * Why this task can't be submitted right now, or null when it can.
+     *
+     * The one rule, shared by the policy (who sees the button), the service
+     * (checked again under a row lock) and the page (what the disabled button
+     * says). In Progress counts as started even without a recorded start —
+     * older tasks were moved there before starts were timestamped.
+     */
+    public function submitBlocker(): ?string
+    {
+        return match (true) {
+            $this->status === self::STATUS_SUBMITTED => 'This task has already been submitted and is waiting for review.',
+            in_array($this->status, ['Completed', 'Cancelled'], true) => "This task is {$this->status} and can no longer be submitted.",
+            $this->status === 'Pending',
+            $this->status === 'On Hold' && $this->started_at === null => 'Start work on this task before submitting it.',
+            !in_array($this->status, self::$submittableStatuses, true) => "This task is {$this->status} and can't be submitted.",
+            default => null,
+        };
     }
 
     /** True when the deadline carries a time, not just a day. */
@@ -272,6 +296,44 @@ class Task extends Model
             $q->where('assigned_to', $user->id)
               ->orWhere('created_by', $user->id);
         });
+    }
+
+    /**
+     * What is waiting on this person, for the sidebar badge — in one query.
+     *
+     *   open       assigned to them and not yet handed in, finished or cancelled
+     *   overdue    of those, past the deadline (same rule as scopeOverdue)
+     *   to_review  handed in to them by someone they assigned it to
+     *   total      open + to_review — everything they have to act on
+     *
+     * @return array{open:int, overdue:int, to_review:int, total:int}
+     */
+    public static function pendingCountsFor(User $user): array
+    {
+        $settled      = self::$settledStatuses;
+        $placeholders = implode(',', array_fill(0, count($settled), '?'));
+        $id           = (int) $user->id;
+
+        $row = static::query()
+            ->where(fn ($q) => $q->where('assigned_to', $id)->orWhere('created_by', $id))
+            ->selectRaw("COALESCE(SUM(CASE WHEN assigned_to = ? AND status NOT IN ({$placeholders}) THEN 1 ELSE 0 END), 0) AS open_count", [$id, ...$settled])
+            ->selectRaw(
+                "COALESCE(SUM(CASE WHEN assigned_to = ? AND status NOT IN ({$placeholders}) AND (due_at < ? OR (due_at IS NULL AND due_date < ?)) THEN 1 ELSE 0 END), 0) AS overdue_count",
+                [$id, ...$settled, now()->toDateTimeString(), today()->toDateString()]
+            )
+            ->selectRaw('COALESCE(SUM(CASE WHEN created_by = ? AND assigned_to <> ? AND status = ? THEN 1 ELSE 0 END), 0) AS review_count', [$id, $id, self::STATUS_SUBMITTED])
+            ->toBase()
+            ->first();
+
+        $open     = (int) ($row->open_count ?? 0);
+        $toReview = (int) ($row->review_count ?? 0);
+
+        return [
+            'open'      => $open,
+            'overdue'   => (int) ($row->overdue_count ?? 0),
+            'to_review' => $toReview,
+            'total'     => $open + $toReview,
+        ];
     }
 
     public function scopeStatus($query, string $status)

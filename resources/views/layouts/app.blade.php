@@ -373,9 +373,17 @@
                  or 'manage tasks', and checking only the first hid this from
                  anyone granted the stronger one on its own. --}}
             @can('viewAny', App\Models\Task::class)
+                @php
+                    $taskNav = App\Models\Task::pendingCountsFor(auth()->user());
+                    $taskNavTitle = $taskNav['open'] . ' to do' . ($taskNav['overdue'] ? ' (' . $taskNav['overdue'] . ' overdue)' : '') . ' · ' . $taskNav['to_review'] . ' to review';
+                @endphp
                 <a href="{{ route('tasks.index') }}" class="sb-link {{ request()->routeIs('tasks.*') ? 'active' : '' }}"
-                    title="Tasks" data-bs-toggle="tooltip" data-bs-placement="right">
+                    title="Tasks — {{ $taskNavTitle }}" data-bs-toggle="tooltip" data-bs-placement="right">
                     <i class="bi bi-list-check"></i><span class="sb-lbl">Tasks</span>
+                    {{-- What is waiting on you: open tasks plus work handed in for your review.
+                         Red while anything of yours is overdue. Kept live by refreshTaskBadge(). --}}
+                    <span id="taskNavBadge" data-url="{{ route('tasks.nav-count') }}" title="{{ $taskNavTitle }}"
+                        style="{{ $taskNav['total'] ? 'display:inline-flex' : 'display:none' }};margin-left:auto;background:{{ $taskNav['overdue'] ? 'var(--c-red)' : 'var(--primary)' }};color:#fff;font-size:.6rem;font-weight:700;border-radius:999px;padding:0 5px;min-width:16px;height:16px;align-items:center;justify-content:center">{{ $taskNav['total'] ?: '' }}</span>
                 </a>
             @endcan
             @if($flowParticipant)
@@ -968,6 +976,10 @@
                         var q = document.getElementById('flowQueueBadge');
                         if (q) { q.textContent = (parseInt(q.textContent || '0', 10) || 0) + 1; q.style.display = 'inline-flex'; }
                     }
+                    // A task assigned, handed in or ruled on → recount the Tasks badge.
+                    if (n && n.type && /Task(Assigned|Submitted|Reviewed)/.test(n.type) && window.refreshTaskBadge) {
+                        window.refreshTaskBadge();
+                    }
                 });
         } catch (err) {
             console.warn('Realtime (Reverb/Echo) unavailable:', err);
@@ -975,6 +987,40 @@
     @endif
     </script>
     <script src="{{ App\Support\ShellAsset::url('js/shell-b.js') }}"></script>
+    <script>
+    // ── Tasks badge ──────────────────────────────────────────────────────
+    // Recounted from the server, never incremented locally, so it can't drift:
+    // when a task changes on this page, when a task notification arrives, and
+    // every 90 seconds while the tab is visible.
+    (function () {
+        var badge = document.getElementById('taskNavBadge');
+        if (!badge) return;
+        var busy = false;
+
+        window.refreshTaskBadge = function () {
+            if (busy) return;
+            busy = true;
+            fetch(badge.dataset.url, { headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (c) {
+                    if (!c) return;
+                    var title = c.open + ' to do' + (c.overdue ? ' (' + c.overdue + ' overdue)' : '') + ' · ' + c.to_review + ' to review';
+                    badge.textContent = c.total || '';
+                    badge.style.display = c.total ? 'inline-flex' : 'none';
+                    badge.style.background = c.overdue ? 'var(--c-red)' : 'var(--primary)';
+                    badge.title = title;
+                    var link = badge.closest('a');
+                    if (link) link.setAttribute('title', 'Tasks — ' + title);
+                })
+                .catch(function () {})
+                .finally(function () { busy = false; });
+        };
+
+        if (window.jQuery) jQuery(document).on('task:changed task:saved', function () { setTimeout(window.refreshTaskBadge, 300); });
+        setInterval(function () { if (!document.hidden) window.refreshTaskBadge(); }, 90000);
+        document.addEventListener('visibilitychange', function () { if (!document.hidden) window.refreshTaskBadge(); });
+    })();
+    </script>
 
     {{-- App-wide audio calling. Included here so an incoming call reaches the
          user on any page, and before @stack('scripts') so its JS is queued. --}}

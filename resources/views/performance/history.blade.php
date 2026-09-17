@@ -71,6 +71,7 @@
                             <th>Quality</th>
                             <th>Sales</th>
                             <th>Satisfaction</th>
+                            <th>Clients</th>
                             <th>Final</th>
                             <th>Level</th>
                             <th class="pe-3">Team rank</th>
@@ -86,6 +87,7 @@
                                 <td>{!! $pct($s->revision_score) !!}</td>
                                 <td>{!! $pct($s->sales_score) !!}</td>
                                 <td>{!! $pct($s->satisfaction_score) !!}</td>
+                                <td>{!! $pct($s->client_care_score) !!}</td>
                                 <td class="fw-bold">{{ number_format((float) $s->final_score, 1) }}</td>
                                 <td><span class="spill {{ $levelSpill($s->performance_level) }}">{{ $s->performance_level }}</span></td>
                                 <td class="pe-3">{{ $s->rank_department ?? '—' }}</td>
@@ -103,7 +105,7 @@
 <script>
     $(function () {
         if ($('#histTable').length) {
-            $('#histTable').DataTable({ order: [], paging: true, pageLength: 25, lengthChange: false, info: false, language: { search: '', searchPlaceholder: 'Search employee…' }, columnDefs: [{ orderable: false, targets: [8] }] });
+            $('#histTable').DataTable({ order: [], paging: true, pageLength: 25, lengthChange: false, info: false, language: { search: '', searchPlaceholder: 'Search employee…' }, columnDefs: [{ orderable: false, targets: [9] }] });
         }
     });
 </script>
