@@ -32,7 +32,11 @@ class DatabaseSeeder extends Seeder
             'manage categories',
             'view reports',
             'view tasks',
+            // Create tasks, and edit or delete the ones you created.
             'manage tasks',
+            // See and manage every task — oversight. Without it you see only
+            // tasks you created or are assigned.
+            'manage all tasks',
             'manage-meetings',
             'view file-manager',
             'manage file-manager',
@@ -112,6 +116,7 @@ class DatabaseSeeder extends Seeder
             }
         }
         $roles['Manager'][] = 'create chat groups';
+        $roles['Manager'][] = 'manage all tasks';
         array_push($roles['Manager'], 'request refunds', 'approve refunds', 'process refunds');
         array_push($roles['Accounts'], 'request refunds', 'process refunds');
 

@@ -26,7 +26,8 @@ class UserController extends Controller
         abort_unless($request->user()->can('manage users'), 403);
 
         if ($request->ajax() && $request->has('draw')) {
-            return DataTables::of(User::with('roles'))
+            // Newest first until a column is picked to sort by.
+            return DataTables::of(User::with('roles')->when(!$request->filled('order'), fn ($q) => $q->latest('id')))
                 ->addColumn('roles_badges', fn ($u) => $u->roles->map(fn ($r) => '<span class="badge bg-info">' . e($r->name) . '</span>')->implode(' '))
                 ->addColumn('status_badge', fn ($u) => $u->is_active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-danger">Inactive</span>')
                 ->addColumn('actions', fn ($u) => $request->user()->can('manage users')

@@ -323,9 +323,10 @@ class ClientController extends Controller
         }
 
         // Global search handled here (bypasses Yajra column-based SQL search which fails on relations)
-        $searchTerm = $request->input('search.value');
-        if (!empty(trim($searchTerm))) {
-            $query->search(trim($searchTerm));
+        // An empty search box arrives as null (ConvertEmptyStringsToNull).
+        $searchTerm = trim((string) $request->input('search.value'));
+        if ($searchTerm !== '') {
+            $query->search($searchTerm);
         }
 
         // Counted before the status pill and the "no update" pill narrow it, so
@@ -352,6 +353,9 @@ class ClientController extends Controller
 
         return DataTables::of($query)
             ->addIndexColumn()
+            // DFID in natural order — "DF100" after "DF99", not before it — with
+            // the id breaking ties. The list opens on this, newest DFID first.
+            ->orderColumn('dfid_number', 'LENGTH(dfid_number) $1, dfid_number $1, clients.id $1')
             ->addColumn('dfid', fn ($c) => '<span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);font-family:monospace;font-size:.68rem">' . e($c->dfid_number) . '</span>')
             ->addColumn('client', fn ($c) => '<div style="font-size:.8rem;font-weight:600;color:var(--text)">' . e($c->client_name) . '</div>'
                 . ($c->brand_name ? '<div style="font-size:.71rem;color:var(--text3)">' . e($c->brand_name) . '</div>' : ''))

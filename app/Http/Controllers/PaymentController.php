@@ -197,7 +197,7 @@ class PaymentController extends Controller
                 return $html;
             })
             ->rawColumns(['client', 'category_name', 'charge', 'status_badge', 'actions'])
-            ->orderColumn('date_fmt', 'payment_date $1')
+            ->orderColumn('date_fmt', 'payment_date $1, payments.id $1')
             ->with(['counts' => $counts])
             ->make(true);
     }

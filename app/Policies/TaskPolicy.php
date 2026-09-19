@@ -11,11 +11,15 @@ use Illuminate\Auth\Access\Response;
  * Who may see and act on a task.
  *
  * The rule, in one place:
- *  - "manage tasks" (admins and whoever a role grants it to) sees and manages
- *    every task;
- *  - everyone else with "view tasks" sees only tasks they created or that are
- *    assigned to them — and manages none of them beyond their own work on it
- *    (start/pause, submit, review what they asked for).
+ *  - "manage all tasks" (admins and whoever is granted it) sees and manages
+ *    every task — oversight;
+ *  - everyone else sees only tasks they created or that are assigned to them.
+ *    With "manage tasks" they may also create tasks, and edit or delete the
+ *    ones they created; the assignee's part is their own work on it
+ *    (start/pause, submit), and the creator reviews what they asked for.
+ *
+ * "manage tasks" used to mean oversight too, which opened every task to the
+ * Sales and Support teams that hold it to hand out work.
  *
  * Every check uses can(), never hasPermissionTo(): the latter throws when a
  * permission row has not been seeded, turning a missing grant into a server
@@ -23,13 +27,15 @@ use Illuminate\Auth\Access\Response;
  */
 class TaskPolicy
 {
+    public const OVERSIGHT = 'manage all tasks';
+
     public function __construct(
         private readonly TaskDelegationService $delegation,
     ) {}
 
     public function viewAny(User $user): bool
     {
-        return $user->canAny(['view tasks', 'manage tasks']);
+        return $user->canAny(['view tasks', 'manage tasks', self::OVERSIGHT]);
     }
 
     /**
@@ -47,7 +53,7 @@ class TaskPolicy
         }
 
         // Oversight, and what lets a manager clear a stalled review queue.
-        if ($user->can('manage tasks')) {
+        if ($user->can(self::OVERSIGHT)) {
             return true;
         }
 
@@ -55,30 +61,41 @@ class TaskPolicy
     }
 
     /**
-     * 'manage tasks' as before, plus stage workers who have somebody to
+     * 'manage tasks' (or oversight), plus stage workers who have somebody to
      * delegate to. What they may put in `assigned_to` is then narrowed to
      * their next stage — see TaskDelegationService.
      */
     public function create(User $user): bool
     {
-        return $user->can('manage tasks') || $this->delegation->canDelegate($user);
+        return $user->canAny(['manage tasks', self::OVERSIGHT]) || $this->delegation->canDelegate($user);
     }
 
-    /** The full edit — title, brief, deadline, assignee — is management's. */
+    /**
+     * The full edit — title, brief, deadline, assignee: oversight on any task,
+     * or 'manage tasks' on a task you created. Being assigned a task is not a
+     * licence to rewrite it.
+     */
     public function update(User $user, Task $task): bool
     {
-        return $user->can('manage tasks');
+        return $user->can(self::OVERSIGHT)
+            || ($user->can('manage tasks') && $this->created($user, $task));
     }
 
     public function delete(User $user, Task $task): bool
     {
-        return $user->can('manage tasks');
+        return $this->update($user, $task);
+    }
+
+    /** Removing someone else's comment or file on a task: oversight only. */
+    public function moderate(User $user, Task $task): bool
+    {
+        return $user->can(self::OVERSIGHT);
     }
 
     /**
      * The assignee moves their own task between the working statuses.
      *
-     * Separate from update(), which is the full edit and needs 'manage tasks'.
+     * Separate from update(), which is the full edit.
      * Someone holding a task must be able to say they have started it without
      * also being able to retitle it, move its deadline, or hand it to someone
      * else — so this is its own, much narrower ability.
@@ -116,20 +133,24 @@ class TaskPolicy
     }
 
     /**
-     * Whoever asked for the work decides whether it is done. Someone with
-     * 'manage tasks' can also clear a review so nothing gets stuck behind a
-     * person who has left or is away.
+     * Whoever asked for the work decides whether it is done. Oversight can
+     * also clear a review so nothing gets stuck behind a person who has left
+     * or is away.
      */
     public function review(User $user, Task $task): bool
     {
         return $task->status === Task::STATUS_SUBMITTED
-            && ((int) $task->created_by === (int) $user->id || $user->can('manage tasks'));
+            && ($this->created($user, $task) || $user->can(self::OVERSIGHT));
     }
 
     /** Created it, or holds it. */
     private function isParty(User $user, Task $task): bool
     {
-        return (int) $task->assigned_to === (int) $user->id
-            || (int) $task->created_by === (int) $user->id;
+        return (int) $task->assigned_to === (int) $user->id || $this->created($user, $task);
+    }
+
+    private function created(User $user, Task $task): bool
+    {
+        return (int) $task->created_by === (int) $user->id;
     }
 }

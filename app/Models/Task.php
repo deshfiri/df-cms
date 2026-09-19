@@ -274,9 +274,10 @@ class Task extends Model
      * whoever is doing it — not a public record. Holding 'view tasks' means you
      * can use the module, not that you can read everyone else's workload.
      *
-     * 'manage tasks' is the deliberate exception: managers need oversight, and
-     * TaskPolicy::review() already lets them clear a review queue so work never
-     * gets stuck behind someone who has left.
+     * 'manage all tasks' is the deliberate exception: oversight — admins and
+     * whoever is granted it see everything, and TaskPolicy::review() lets them
+     * clear a review queue so work never gets stuck behind someone who has left.
+     * Plain 'manage tasks' (handing out work) does not open anyone else's tasks.
      *
      * This is the single definition of task visibility. Every listing must go
      * through it, so authorization happens in SQL rather than after the rows
@@ -288,7 +289,7 @@ class Task extends Model
         // row does not exist, and this scope runs on the dashboard for every
         // user — including on an installation where it was never seeded.
         // can() also covers Super Admin through Gate::before.
-        if ($user->can('manage tasks')) {
+        if ($user->can('manage all tasks')) {
             return $query;
         }
 

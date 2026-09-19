@@ -43,7 +43,8 @@ class ClientCorrectionRequestController extends Controller
 
     private function dataTable(Request $request): JsonResponse
     {
-        $query = ClientCorrectionRequest::query()->with(['client:id,client_name', 'submittedBy:id,name']);
+        // Newest first — no column in this list is sortable, so this is the order.
+        $query = ClientCorrectionRequest::query()->with(['client:id,client_name', 'submittedBy:id,name'])->latest('id');
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);

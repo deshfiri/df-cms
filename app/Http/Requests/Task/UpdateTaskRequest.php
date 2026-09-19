@@ -10,7 +10,8 @@ class UpdateTaskRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()->can('manage tasks');
+        // Oversight on any task, or 'manage tasks' on one you created — TaskPolicy::update.
+        return $this->user()->can('update', $this->route('task'));
     }
 
     public function rules(): array

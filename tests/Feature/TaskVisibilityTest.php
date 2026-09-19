@@ -15,9 +15,10 @@ use Tests\TestCase;
 /**
  * Who sees which tasks, and who may manage them.
  *
- * Admins and anyone granted "manage tasks" see and manage every task. Everyone
- * else sees only the tasks they created or that were assigned to them, and
- * cannot edit or delete even those — their part is doing the work.
+ * Admins and anyone granted "manage all tasks" see and manage every task.
+ * Everyone else sees only the tasks they created or that were assigned to
+ * them. "manage tasks" lets them create tasks and edit or delete the ones they
+ * created — it does not open anyone else's.
  */
 class TaskVisibilityTest extends TestCase
 {
@@ -31,7 +32,7 @@ class TaskVisibilityTest extends TestCase
         Notification::fake();
         Storage::fake('local');
 
-        foreach (['view tasks', 'manage tasks'] as $name) {
+        foreach (['view tasks', 'manage tasks', 'manage all tasks'] as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'web']);
         }
     }
@@ -59,7 +60,7 @@ class TaskVisibilityTest extends TestCase
     {
         $me        = $this->user('view tasks');
         $colleague = $this->user('view tasks');
-        $manager   = $this->user('view tasks', 'manage tasks');
+        $manager   = $this->user('view tasks', 'manage tasks', 'manage all tasks');
 
         return [
             $me, $colleague, $manager,
@@ -85,11 +86,66 @@ class TaskVisibilityTest extends TestCase
         $this->assertSame(['Assigned to me', 'Created by me'], $this->titlesListedFor($me));
     }
 
-    public function test_someone_with_manage_tasks_lists_everything(): void
+    public function test_someone_with_manage_all_tasks_lists_everything(): void
     {
         [, , $manager] = $this->world();
 
         $this->assertSame(['Assigned to me', 'Created by me', 'Somebody else'], $this->titlesListedFor($manager));
+    }
+
+    /**
+     * The reported problem: Sales and Support hold 'manage tasks' to hand out
+     * work, and it used to open every task in the company to them.
+     */
+    public function test_manage_tasks_alone_does_not_open_anyone_elses_tasks(): void
+    {
+        [$me, $colleague, $manager] = $this->world();
+        $lead = $this->user('view tasks', 'manage tasks');
+        $this->task($lead, $manager, 'Given to the lead');
+        $this->task($colleague, $lead, 'Handed out by the lead');
+        $private = $this->task($me, $colleague, 'Between two others');
+
+        $this->assertSame(['Given to the lead', 'Handed out by the lead'], $this->titlesListedFor($lead));
+        $this->actingAs($lead)->getJson(route('tasks.show', $private))->assertForbidden();
+        $this->actingAs($lead)->getJson(route('tasks.index'), self::AJAX)->assertJsonPath('counts.total', 2);
+    }
+
+    public function test_manage_tasks_edits_and_deletes_only_what_you_created(): void
+    {
+        [$me, $colleague, $manager] = $this->world();
+        $lead = $this->user('view tasks', 'manage tasks');
+        $handedOut = $this->task($colleague, $lead, 'Handed out by the lead');
+        $givenToLead = $this->task($lead, $manager, 'Given to the lead');
+
+        $payload = ['title' => 'Renamed', 'priority' => 'High', 'status' => 'Pending', 'type' => 'Other', 'assigned_to' => $colleague->id];
+
+        $this->actingAs($lead)->putJson(route('tasks.update', $handedOut), $payload)->assertOk();
+        $this->assertSame('Renamed', $handedOut->fresh()->title);
+
+        // Being assigned a task is not a licence to rewrite or delete it.
+        $this->actingAs($lead)->putJson(route('tasks.update', $givenToLead), $payload)->assertForbidden();
+        $this->actingAs($lead)->deleteJson(route('tasks.destroy', $givenToLead))->assertForbidden();
+
+        // The list offers Edit/Delete only where they would work.
+        $rows = collect($this->actingAs($lead)->getJson(route('tasks.index'), self::AJAX)->json('data'))->keyBy('title');
+        $this->assertStringContainsString('task-edit', $rows['Renamed']['actions']);
+        $this->assertStringNotContainsString('task-edit', $rows['Given to the lead']['actions']);
+        $this->assertStringNotContainsString('task-delete', $rows['Given to the lead']['actions']);
+
+        $this->actingAs($lead)->deleteJson(route('tasks.destroy', $handedOut))->assertOk();
+    }
+
+    public function test_the_list_opens_newest_first(): void
+    {
+        [, , $manager] = $this->world();
+        $newest = $this->task(null, $manager, 'Newest');
+
+        $rows = $this->actingAs($manager)
+            ->getJson(route('tasks.index', ['order' => [['column' => 0, 'dir' => 'desc']], 'columns' => [['data' => 'number', 'name' => 'id', 'orderable' => 'true', 'searchable' => 'false']]]), self::AJAX)
+            ->json('data');
+
+        $this->assertSame('Newest', $rows[0]['title']);
+        $this->assertStringContainsString('#' . $newest->id, $rows[0]['number']);
     }
 
     public function test_the_filter_counts_only_count_what_you_can_see(): void
@@ -120,7 +176,7 @@ class TaskVisibilityTest extends TestCase
 
     // ── Managing ─────────────────────────────────────────────────────────
 
-    public function test_only_management_may_edit_or_delete_even_your_own_tasks(): void
+    public function test_without_manage_tasks_you_cannot_edit_or_delete_even_your_own_tasks(): void
     {
         [$me, , $manager, $assigned, $created] = $this->world();
 

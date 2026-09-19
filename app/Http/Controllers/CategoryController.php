@@ -22,7 +22,8 @@ class CategoryController extends Controller
         abort_unless($request->user()->can('manage categories'), 403);
 
         if ($request->ajax() && $request->has('draw')) {
-            return DataTables::of(Category::withCount('clients'))
+            // Newest first until a column is picked to sort by.
+            return DataTables::of(Category::withCount('clients')->when(!$request->filled('order'), fn ($q) => $q->latest('id')))
                 ->addColumn('status_badge', fn ($c) => $c->status ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-danger">Inactive</span>')
                 ->addColumn('actions', fn ($c) => $request->user()->can('manage categories')
                     ? '<button class="btn btn-sm btn-warning btn-edit" data-id="' . $c->id . '" data-name="' . e($c->name) . '" data-status="' . $c->status . '"><i class="bi bi-pencil"></i></button> <button class="btn btn-sm btn-danger btn-delete" data-id="' . $c->id . '"><i class="bi bi-trash"></i></button>'

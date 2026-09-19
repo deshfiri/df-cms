@@ -116,7 +116,7 @@ const table = $('#userTable').DataTable({
         { data: 'status_badge' },
         { data: 'actions', orderable: false, className: 'pe-3' }
     ],
-    order: [[0, 'asc']], pageLength: 25,
+    order: [], pageLength: 25,   // newest first (server default)
 });
 
 $('.select2').select2({ theme: 'bootstrap-5', width: '100%' });

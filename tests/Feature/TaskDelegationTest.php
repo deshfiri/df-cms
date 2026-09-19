@@ -282,7 +282,8 @@ class TaskDelegationTest extends TestCase
         $designer = $this->stageWorker(0);
         $builder  = $this->stageWorker(1);
         $manager  = User::factory()->create(['is_active' => true]);
-        $manager->givePermissionTo('manage tasks');
+        \Spatie\Permission\Models\Permission::firstOrCreate(['name' => 'manage all tasks', 'guard_name' => 'web']);
+        $manager->givePermissionTo('manage all tasks');
 
         $task = $this->delegatedTask($designer, $builder);
         $this->actingAs($builder)->postJson(route('tasks.submit', $task))->assertOk();

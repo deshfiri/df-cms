@@ -24,7 +24,7 @@ class InternalTaskTest extends TestCase
         parent::setUp();
         Notification::fake();
 
-        foreach (['view tasks', 'manage tasks'] as $name) {
+        foreach (['view tasks', 'manage tasks', 'manage all tasks'] as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'web']);
         }
     }
@@ -32,7 +32,7 @@ class InternalTaskTest extends TestCase
     private function manager(): User
     {
         $user = User::factory()->create(['is_active' => true]);
-        $user->givePermissionTo(['view tasks', 'manage tasks']);
+        $user->givePermissionTo(['view tasks', 'manage tasks', 'manage all tasks']);
 
         return $user->fresh();
     }

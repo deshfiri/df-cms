@@ -29,10 +29,10 @@ class TaskPageTest extends TestCase
         parent::setUp();
         Notification::fake();
         Storage::fake('local');
-        foreach (['view tasks', 'manage tasks', 'view performance'] as $name) {
+        foreach (['view tasks', 'manage tasks', 'manage all tasks', 'view performance'] as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'web']);
         }
-        $this->manager = tap(User::factory()->create(['is_active' => true, 'name' => 'Maya Manager']))->givePermissionTo(['view tasks', 'manage tasks'])->fresh();
+        $this->manager = tap(User::factory()->create(['is_active' => true, 'name' => 'Maya Manager']))->givePermissionTo(['view tasks', 'manage tasks', 'manage all tasks'])->fresh();
         $this->anika   = tap(User::factory()->create(['is_active' => true, 'name' => 'Anika Assignee']))->givePermissionTo('view tasks')->fresh();
         $this->tasks   = app(TaskService::class);
     }

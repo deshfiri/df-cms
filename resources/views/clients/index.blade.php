@@ -243,7 +243,8 @@ $(function () {
             { data: 'payment_status',      orderable: false,  searchable: false },
             { data: 'actions',             orderable: false,  searchable: false },
         ],
-        order: [[5, 'desc']],
+        // By DFID, highest first.
+        order: [[2, 'desc']],
         pageLength: 25,
         language: {
             processing: '<div class="d-flex align-items-center gap-2 justify-content-center py-3"><div class="spinner-border spinner-border-sm" style="color:var(--primary)"></div><span style="font-size:.77rem;color:var(--text3)">Loading…</span></div>'

@@ -120,10 +120,11 @@ class TaskController extends Controller
                 'review'   => $me->can('review', $task),
                 'update'   => $canUpdate,
                 'delete'   => $me->can('delete', $task),
-                'manage'   => $me->can('manage tasks'),
+                // Removing others' files and comments, and adding to a closed task.
+                'manage'   => $me->can('moderate', $task),
                 // Work shares are performance data: shown to those who manage
                 // tasks or read performance, not to everyone on the task.
-                'shares'   => $me->canAny(['manage tasks', 'view performance']),
+                'shares'   => $me->canAny(['manage all tasks', 'view performance']),
             ],
             'awaitingSubmissionFile' => $task->requires_attachment && !$this->service->hasSubmissionFile($task),
             // Only needed for the edit dialog.
@@ -263,7 +264,7 @@ class TaskController extends Controller
     {
         $this->authorize('view', $task);
         abort_if((int) $comment->task_id !== (int) $task->id, 404);
-        abort_unless($comment->user_id === auth()->id() || auth()->user()->can('manage tasks'), 403, "Cannot delete another user's comment.");
+        abort_unless((int) $comment->user_id === (int) auth()->id() || auth()->user()->can('moderate', $task), 403, "Cannot delete another user's comment.");
 
         $this->service->deleteComment($comment);
 
@@ -316,7 +317,7 @@ class TaskController extends Controller
         // Having uploaded to a task you can no longer see is not a way back in.
         $this->authorize('view', $task);
         abort_if((int) $attachment->task_id !== (int) $task->id, 404);
-        abort_unless((int) $attachment->user_id === (int) auth()->id() || auth()->user()->can('manage tasks'), 403, "Cannot delete another user's attachment.");
+        abort_unless((int) $attachment->user_id === (int) auth()->id() || auth()->user()->can('moderate', $task), 403, "Cannot delete another user's attachment.");
 
         $this->service->deleteAttachment($attachment);
 
@@ -359,10 +360,9 @@ class TaskController extends Controller
                 ->where('status', Task::STATUS_SUBMITTED);
         }
 
-        $canManage = $me->can('manage tasks');
-
         return DataTables::of($query)
-            ->addIndexColumn()
+            // The task number, sortable (the list opens newest first on it).
+            ->addColumn('number', fn (Task $t) => '<span style="font-family:monospace;color:var(--text3)">#' . $t->id . '</span>')
             ->addColumn('title_link', fn (Task $t) => '<a class="task-title-link" href="' . e(route('tasks.show', $t)) . '">' . e($t->title) . '</a>'
                 . ($t->requires_attachment ? ' <i class="bi bi-paperclip" style="color:var(--text3);font-size:.72rem" title="Submission needs a file"></i>' : ''))
             ->addColumn('client', fn (Task $t) => e($t->client->client_name ?? '-'))
@@ -378,7 +378,7 @@ class TaskController extends Controller
                     ? '<time class="local-dt" datetime="' . e($t->due_at->toIso8601String()) . '">' . e($t->due_at->format('d M Y, H:i')) . '</time>'
                     : e($t->due_date?->format('d M Y') ?? '-');
             })
-            ->addColumn('actions', function (Task $t) use ($canManage, $me) {
+            ->addColumn('actions', function (Task $t) use ($me) {
                 $html = '<a href="' . e(route('tasks.show', $t)) . '" class="btn btn-sm px-2 py-1" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="Open"><i class="bi bi-box-arrow-up-right"></i></a> ';
 
                 // Start / pause, for the person actually holding the task. Shown
@@ -406,14 +406,17 @@ class TaskController extends Controller
                     $html .= '<button class="btn btn-sm px-2 py-1 task-review" data-id="' . $t->id . '" data-title="' . e($t->title) . '" style="background:var(--c-yellow-bg);border:1px solid var(--c-yellow);color:var(--c-yellow)" title="Review submission"><i class="bi bi-clipboard-check"></i></button> ';
                 }
 
-                if ($canManage) {
-                    $html .= '<button class="btn btn-sm px-2 py-1 task-edit" data-id="' . $t->id . '" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="Edit"><i class="bi bi-pencil"></i></button> '
-                        . '<button class="btn btn-sm px-2 py-1 task-delete" data-id="' . $t->id . '" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#dc2626" title="Delete"><i class="bi bi-trash"></i></button>';
+                // Per task: oversight edits anything, everyone else only what they created.
+                if ($me->can('update', $t)) {
+                    $html .= '<button class="btn btn-sm px-2 py-1 task-edit" data-id="' . $t->id . '" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="Edit"><i class="bi bi-pencil"></i></button> ';
+                }
+                if ($me->can('delete', $t)) {
+                    $html .= '<button class="btn btn-sm px-2 py-1 task-delete" data-id="' . $t->id . '" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#dc2626" title="Delete"><i class="bi bi-trash"></i></button>';
                 }
 
                 return $html;
             })
-            ->rawColumns(['title_link', 'priority_badge', 'status_badge', 'due', 'actions'])
+            ->rawColumns(['number', 'title_link', 'priority_badge', 'status_badge', 'due', 'actions'])
             // Ride along with the table so the filter pills stay true after every
             // refresh — no second request, and never out of step with the rows.
             ->with(['counts' => $counts])

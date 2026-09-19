@@ -16,11 +16,11 @@
         <h4 class="page-title mb-0"><i class="bi bi-list-check me-2"></i>Tasks</h4>
         <div style="font-size:.7rem;color:var(--text3);margin-top:2px">{{ $overdueCount }} overdue</div>
     </div>
-    @can('manage tasks')
+    @canany(['manage tasks', 'manage all tasks'])
     <button class="btn btn-sm btn-primary" id="newTaskBtn" data-bs-toggle="modal" data-bs-target="#taskModal">
         <i class="bi bi-plus-lg me-1"></i>New Task
     </button>
-    @endcan
+    @endcanany
 </div>
 
 {{-- Filter pills --}}
@@ -156,7 +156,8 @@ $(function () {
     window.tTable = $('#tasksTable').DataTable({
         processing: true,
         serverSide: true,
-        order: [[6, 'asc']],
+        // Newest first.
+        order: [[0, 'desc']],
         ajax: {
             url: '{{ route("tasks.index") }}',
             data: function (d) {
@@ -168,7 +169,7 @@ $(function () {
             }
         },
         columns: [
-            { data: 'DT_RowIndex', orderable: false, searchable: false },
+            { data: 'number', name: 'id', searchable: false },
             { data: 'title_link', name: 'title' },
             { data: 'client', orderable: false, searchable: false },
             { data: 'assigned', orderable: false, searchable: false },

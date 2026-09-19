@@ -230,6 +230,11 @@ class FlowController extends Controller
             $query->where('status', FlowItem::STATUS_OPEN)->whereNotIn('current_stage_id', $assignedStageIds);
         }
 
+        // Newest first until someone picks a column to sort by.
+        if (!$request->filled('order')) {
+            $query->orderByDesc('flow_items.id');
+        }
+
         return DataTables::of($query)
             ->addColumn('item', function (FlowItem $i) {
                 return '<div style="font-weight:600;color:var(--text)">' . e($i->title) . '</div>'

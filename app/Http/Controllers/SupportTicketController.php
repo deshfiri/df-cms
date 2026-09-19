@@ -84,7 +84,8 @@ class SupportTicketController extends Controller
 
     private function dataTable(Request $request): JsonResponse
     {
-        $query = SupportTicket::query()->with(['client:id,client_name', 'assignedTo:id,name']);
+        // Newest first — no column in this list is sortable, so this is the order.
+        $query = SupportTicket::query()->with(['client:id,client_name', 'assignedTo:id,name'])->latest('id');
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);

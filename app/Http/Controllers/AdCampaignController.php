@@ -204,7 +204,9 @@ class AdCampaignController extends Controller
             ->withSum('dailyReports as sales_sum', 'sales')
             ->withSum('dailyReports as leads_sum', 'leads')
             ->withSum('dailyReports as orders_sum', 'orders')
-            ->with(['client:id,client_name,dfid_number', 'assignedUser:id,name', 'brand:id,name']);
+            ->with(['client:id,client_name,dfid_number', 'assignedUser:id,name', 'brand:id,name'])
+            // Newest first — no column in this list is sortable, so this is the order.
+            ->latest('ad_campaigns.id');
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
