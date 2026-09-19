@@ -19,6 +19,8 @@ class NotificationController extends Controller
             'url'        => $n->data['url'] ?? '#',
             'read'       => $n->read_at !== null,
             'created_at' => $n->created_at->diffForHumans(),
+            // Which alert sound it plays (Settings → Sounds).
+            'sound'      => \App\Services\SoundSettings::eventForNotification($n->type),
         ]);
 
         return response()->json([

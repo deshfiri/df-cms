@@ -539,6 +539,16 @@
                 data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-gear"></i><span class="sb-lbl">Settings</span>
             </a>
+            @else
+                {{-- Someone given just the sound settings reaches them here. --}}
+                @can('manage sound settings')
+                    <div class="sb-section">Administration</div>
+                    <a href="{{ route('settings.sounds') }}"
+                        class="sb-link {{ request()->routeIs('settings.*') ? 'active' : '' }}" title="Settings"
+                        data-bs-toggle="tooltip" data-bs-placement="right">
+                        <i class="bi bi-gear"></i><span class="sb-lbl">Settings</span>
+                    </a>
+                @endcan
             @endrole
         </nav>
     </aside>
@@ -667,6 +677,11 @@
                     @role('Super Admin')
                     <li><a class="dropdown-item" href="{{ route('settings.index') }}"><i
                                 class="bi bi-gear me-2"></i>Settings</a></li>
+                    @else
+                        @can('manage sound settings')
+                        <li><a class="dropdown-item" href="{{ route('settings.sounds') }}"><i
+                                    class="bi bi-gear me-2"></i>Settings</a></li>
+                        @endcan
                     @endrole
                     <li>
                         <form method="POST" action="{{ route('logout') }}">
@@ -821,10 +836,8 @@
         // multi-line array literal as a directive argument.
         $dfcpConfig = [
             'csrf'   => csrf_token(),
-            'sounds' => [
-                'message'      => asset('sounds/message_alert.mp3'),
-                'notification' => asset('sounds/notification.mp3'),
-            ],
+            // Which sound plays for what — Settings → Sounds.
+            'sounds' => app(App\Services\SoundSettings::class)->forBrowser(),
             'routes' => [
                 'notifications.index'    => route('notifications.index'),
                 'notifications.read-all' => route('notifications.read-all'),

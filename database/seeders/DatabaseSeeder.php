@@ -71,6 +71,8 @@ class DatabaseSeeder extends Seeder
             'manage whatsapp numbers',
             'manage whatsapp templates',
             'manage whatsapp settings',
+            // Settings → Sounds: which alert sound plays for what, for everyone.
+            'manage sound settings',
         ];
 
         foreach ($permissions as $perm) {

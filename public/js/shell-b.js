@@ -79,11 +79,14 @@
         function loadNotifications() {
             $.get(window.DFCP.routes['notifications.index']).done(function (r) {
                 if (lastUnread !== null && r.unread_count > lastUnread) {
-                    if (window.AppSound) window.AppSound.notification();
+                    var newest = (r.notifications || [])[0];
+
+                    // Tasks, workflow items and meetings can each have their own
+                    // sound (Settings → Sounds); the server says which applies.
+                    if (window.AppSound) window.AppSound.play((newest && newest.sound) || 'notification');
 
                     // Also surface it at OS level, so it reaches the user with
                     // the browser minimised.
-                    var newest = (r.notifications || [])[0];
                     if (newest && window.AppNotify) {
                         window.AppNotify.notify({
                             title: newest.title || 'New notification',

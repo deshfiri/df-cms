@@ -10,78 +10,171 @@
  */
 
 /*
- * Alert sounds. Two distinct cues so people can tell them apart without looking:
- * message_alert for chat, notification for everything else (bell items).
- * Per-user on/off, remembered in localStorage, toggled from the profile menu.
+ * Alert sounds. What plays for each event (chat message, task, workflow item,
+ * meeting, incoming call, anything else in the bell) and how loud is set for
+ * everyone in Settings → Sounds and arrives in window.DFCP.sounds:
+ *
+ *   enabled  false when an admin has switched sounds off for the whole app
+ *   events   { message: { on, src, tone, volume, loop }, … }
+ *
+ * Each event plays either a clip (src) or a tone synthesised here (tone), so
+ * the built-in tones cost no download. On top of that each person can mute
+ * everything for themselves from the profile menu, remembered in localStorage.
  */
         window.AppSound = (function () {
             var KEY = 'dfcp_sound', LEGACY_KEY = 'dfcp_chat_sound';
-            var src = {
-                message:      window.DFCP.sounds.message,
-                notification: window.DFCP.sounds.notification,
-            };
+            var conf = (window.DFCP && window.DFCP.sounds) || {};
+            var events = conf.events || {};
             var cache = {};
 
+            function allowed() { return conf.enabled !== false; }
+
             function enabled() {
-                var v = localStorage.getItem(KEY);
-                // Carry over the preference from when this was chat-only.
-                if (v === null) { v = localStorage.getItem(LEGACY_KEY); }
+                var v = null;
+                try {
+                    v = localStorage.getItem(KEY);
+                    // Carry over the preference from when this was chat-only.
+                    if (v === null) { v = localStorage.getItem(LEGACY_KEY); }
+                } catch (e) {}
                 return v !== 'off';
             }
-            function setEnabled(on) { localStorage.setItem(KEY, on ? 'on' : 'off'); }
+            function setEnabled(on) { try { localStorage.setItem(KEY, on ? 'on' : 'off'); } catch (e) {} }
 
-            function audio(kind) {
-                if (!cache[kind]) {
-                    var a = new Audio(src[kind]);
+            // ── Synthesised tones ─────────────────────────────────────────
+            // Each note: f (Hz, or several for a chord), at / dur (seconds),
+            // wave, peak gain at full volume, and optionally `to`, a pitch glide.
+            var TONES = {
+                chime:  [{ f: 880, at: 0, dur: 0.4, gain: 0.28 }, { f: 1318.5, at: 0.16, dur: 0.6, gain: 0.24 }],
+                ping:   [{ f: 1568, at: 0, dur: 0.7, gain: 0.26 }],
+                pop:    [{ f: 620, to: 180, at: 0, dur: 0.14, wave: 'triangle', gain: 0.45 }],
+                triple: [0, 0.15, 0.3].map(function (at) { return { f: 1000, at: at, dur: 0.09, wave: 'square', gain: 0.08 }; }),
+                ring:   [{ f: [440, 480], at: 0, dur: 0.45, gain: 0.12 }, { f: [440, 480], at: 0.6, dur: 0.45, gain: 0.12 }],
+            };
+            var TONE_REPEAT_MS = 2600;   // how often a looping tone (the call ringtone) repeats
+            var actx = null;
+
+            function context() {
+                try {
+                    if (!actx) {
+                        var Ctx = window.AudioContext || window.webkitAudioContext;
+                        if (!Ctx) return null;
+                        actx = new Ctx();
+                    }
+                    if (actx.state === 'suspended') { actx.resume(); }
+                    return actx;
+                } catch (e) { return null; }
+            }
+
+            function synth(name, volume) {
+                var notes = TONES[name], c = notes && context();
+                if (!c || !(volume > 0)) return;
+                try {
+                    var t0 = c.currentTime + 0.02;
+                    notes.forEach(function (n) {
+                        [].concat(n.f).forEach(function (freq) {
+                            var o = c.createOscillator(), g = c.createGain();
+                            var start = t0 + n.at, end = start + n.dur;
+                            o.type = n.wave || 'sine';
+                            o.frequency.setValueAtTime(freq, start);
+                            if (n.to) { o.frequency.exponentialRampToValueAtTime(n.to, end); }
+                            // Exponential ramps cannot reach zero, hence the floor.
+                            g.gain.setValueAtTime(0.0001, start);
+                            g.gain.exponentialRampToValueAtTime(Math.max(0.0002, n.gain * volume), start + 0.012);
+                            g.gain.exponentialRampToValueAtTime(0.0001, end);
+                            o.connect(g); g.connect(c.destination);
+                            o.start(start); o.stop(end + 0.05);
+                        });
+                    });
+                } catch (e) {}
+            }
+
+            // ── Recorded clips ────────────────────────────────────────────
+            function audio(src) {
+                if (!cache[src]) {
+                    var a = new Audio(src);
                     a.preload = 'auto';
-                    a.volume = 0.6;
-                    cache[kind] = a;
+                    cache[src] = a;
                 }
-                return cache[kind];
+                return cache[src];
+            }
+
+            function playClip(src, volume, reuse) {
+                try {
+                    var a = reuse ? audio(src) : new Audio(src);
+                    a.volume = Math.max(0, Math.min(1, volume));
+                    a.currentTime = 0;
+                    var p = a.play();
+                    // Autoplay still blocked (no gesture yet) — stay silent, never throw.
+                    if (p && p.catch) { p.catch(function () {}); }
+                    return a;
+                } catch (e) { return null; }
             }
 
             // Browsers refuse audio until the user has interacted with the page, so
-            // prime both clips silently on the first click — after that .play() works.
+            // prime every clip silently on the first click — after that .play()
+            // works. The same click unlocks the tone synthesiser.
             document.addEventListener('click', function () {
-                Object.keys(src).forEach(function (kind) {
-                    var a = audio(kind);
+                if (!allowed()) return;
+                var seen = {};
+                Object.keys(events).forEach(function (kind) {
+                    var src = events[kind] && events[kind].src;
+                    if (!src || seen[src] || !events[kind].on) return;
+                    seen[src] = true;
+                    var a = audio(src);
                     a.muted = true;
                     var p = a.play();
                     var reset = function () { try { a.pause(); a.currentTime = 0; } catch (e) {} a.muted = false; };
                     if (p && p.then) { p.then(reset).catch(reset); } else { reset(); }
                 });
+                if (Object.keys(events).some(function (k) { return events[k] && events[k].tone; })) { context(); }
             }, { once: true });
 
+            /** Play one event's sound, if it has one and nobody has muted it. */
             function play(kind) {
-                if (!enabled() || !src[kind]) return;
-                try {
-                    var a = audio(kind);
-                    a.currentTime = 0;
-                    var p = a.play();
-                    // Autoplay still blocked (no gesture yet) — stay silent, never throw.
-                    if (p && p.catch) { p.catch(function () {}); }
-                } catch (e) {}
+                var e = events[kind] || events.notification;
+                if (!allowed() || !enabled() || !e || !e.on) return;
+                if (e.tone) { synth(e.tone, e.volume); }
+                else if (e.src) { playClip(e.src, e.volume, true); }
+            }
+
+            /**
+             * Play a sound as configured on the settings page, ignoring the mutes:
+             * spec is { src, tone, volume }. Used by Settings → Sounds' Test buttons.
+             */
+            function preview(spec) {
+                if (!spec) return;
+                var volume = spec.volume == null ? 0.6 : spec.volume;
+                if (spec.tone) { synth(spec.tone, volume); }
+                else if (spec.src) { playClip(spec.src, volume, false); }
             }
 
             // ── Call tones ────────────────────────────────────────────────
             // Kept inside this module rather than as a second audio system, so
-            // the one "Alert sounds" switch governs everything that makes noise.
-            var ringEl = null, ringCtx = null, ringbackTimer = null;
+            // the same switches govern everything that makes noise.
+            var ringEl = null, ringTimer = null, ringbackTimer = null;
 
-            /** Loop a clip until stopped — the incoming-call ringtone. */
+            /** Repeat the incoming-call sound until stopped. */
             function startRing() {
                 stopRing();
-                if (!enabled()) return;
+                var e = events.call;
+                if (!allowed() || !enabled() || !e || !e.on) return;
+                if (e.tone) {
+                    synth(e.tone, e.volume);
+                    ringTimer = setInterval(function () { synth(e.tone, e.volume); }, TONE_REPEAT_MS);
+                    return;
+                }
+                if (!e.src) return;
                 try {
-                    var a = new Audio(src.notification);
+                    var a = new Audio(e.src);
                     a.loop = true;
-                    a.volume = 0.55;
+                    a.volume = Math.max(0, Math.min(1, e.volume));
                     ringEl = a;
                     var p = a.play();
                     if (p && p.catch) { p.catch(function () {}); }
-                } catch (e) {}
+                } catch (err) {}
             }
             function stopRing() {
+                if (ringTimer) { clearInterval(ringTimer); ringTimer = null; }
                 if (!ringEl) return;
                 try { ringEl.pause(); ringEl.currentTime = 0; } catch (e) {}
                 ringEl = null;
@@ -90,17 +183,17 @@
             /** Outgoing ringback: a synthesised two-tone burst every 3s. */
             function startRingback() {
                 stopRingback();
-                if (!enabled()) return;
+                if (!allowed() || !enabled()) return;
                 var beep = function () {
                     try {
-                        if (!ringCtx) { ringCtx = new (window.AudioContext || window.webkitAudioContext)(); }
-                        if (ringCtx.state === 'suspended') { ringCtx.resume(); }
-                        var t = ringCtx.currentTime;
+                        var c = context();
+                        if (!c) return;
+                        var t = c.currentTime;
                         [440, 480].forEach(function (freq) {
-                            var o = ringCtx.createOscillator(), g = ringCtx.createGain();
+                            var o = c.createOscillator(), g = c.createGain();
                             o.type = 'sine';
                             o.frequency.value = freq;
-                            o.connect(g); g.connect(ringCtx.destination);
+                            o.connect(g); g.connect(c.destination);
                             g.gain.setValueAtTime(0.0001, t);
                             g.gain.exponentialRampToValueAtTime(0.05, t + 0.02);
                             g.gain.exponentialRampToValueAtTime(0.0001, t + 1.0);
@@ -116,9 +209,11 @@
             }
 
             return {
+                allowed: allowed,
                 enabled: enabled,
                 setEnabled: setEnabled,
                 play: play,
+                preview: preview,
                 message: function () { play('message'); },
                 notification: function () { play('notification'); },
                 startRing: startRing,
@@ -260,7 +355,13 @@
 
         document.addEventListener('DOMContentLoaded', function () {
             var s = document.getElementById('soundToggle');
-            if (s) {
+            if (s && !window.AppSound.allowed()) {
+                // Switched off for everyone in Settings → Sounds.
+                s.checked = false;
+                s.disabled = true;
+                var row = s.closest('label');
+                if (row) { row.title = 'Sounds are turned off for everyone by an administrator'; }
+            } else if (s) {
                 s.checked = window.AppSound.enabled();
                 s.addEventListener('change', function () {
                     window.AppSound.setEnabled(s.checked);

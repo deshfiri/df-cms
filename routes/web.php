@@ -25,6 +25,8 @@ use App\Http\Controllers\BrandIntegrationController;
 use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\MarketingController;
 use App\Http\Controllers\ChatSettingsController;
+use App\Http\Controllers\SoundSettingsController;
+use App\Http\Controllers\AlertSoundController;
 use App\Http\Controllers\MetaSettingsController;
 use App\Http\Controllers\StorageSettingsController;
 use App\Http\Controllers\WhatsApp\WhatsAppInboxController;
@@ -517,6 +519,14 @@ Route::middleware(['auth'])->group(function () {
     Route::post('settings/chat', [ChatSettingsController::class, 'update'])->name('settings.chat.update');
     Route::post('settings/chat/preview', [ChatSettingsController::class, 'preview'])->name('settings.chat.preview');
     Route::post('settings/chat/run', [ChatSettingsController::class, 'runNow'])->name('settings.chat.run');
+
+    // Alert sounds for everyone ("manage sound settings"; gated in the controller).
+    Route::get('settings/sounds', [SoundSettingsController::class, 'index'])->name('settings.sounds');
+    Route::post('settings/sounds', [SoundSettingsController::class, 'update'])->name('settings.sounds.update');
+    // An uploaded sound, by event — any signed-in user's browser may need to play it.
+    // Not under /sounds, which is the folder of built-in clips in public/.
+    Route::get('alert-sounds/{event}', [AlertSoundController::class, 'show'])
+        ->where('event', '[a-z]+')->name('sounds.play');
 
     // WhatsApp Meta app credentials (Super Admin only; gated in the controller).
     // Per-number access tokens live encrypted on whatsapp_accounts, never here.

@@ -19,14 +19,18 @@
         default      => 'Local',
     };
 
+    // 'can' is the permission a page checks; an item without one is a Super
+    // Admin page. Kept in step with each controller's own gate, so nobody is
+    // shown a link that answers 403.
     $groups = [
         'Workspace' => [
             'general'    => ['label' => 'General',        'icon' => 'bi-sliders',      'route' => 'settings.index',   'hint' => 'Name, logo, theme'],
             'storage'    => ['label' => 'Storage & CDN',  'icon' => 'bi-hdd-network',  'route' => 'settings.storage', 'hint' => 'Where files are kept'],
             'chat'       => ['label' => 'Chat',           'icon' => 'bi-chat-dots',    'route' => 'settings.chat',    'hint' => 'Attachment retention'],
+            'sounds'     => ['label' => 'Sounds',         'icon' => 'bi-volume-up',    'route' => 'settings.sounds',  'hint' => 'Alert tones and volume', 'can' => 'manage sound settings'],
         ],
         'Integrations' => [
-            'whatsapp'   => ['label' => 'WhatsApp',       'icon' => 'bi-whatsapp',     'route' => 'settings.whatsapp', 'hint' => 'Customer messaging'],
+            'whatsapp'   => ['label' => 'WhatsApp',       'icon' => 'bi-whatsapp',     'route' => 'settings.whatsapp', 'hint' => 'Customer messaging', 'can' => 'manage whatsapp settings'],
             'google'     => ['label' => 'Google Meet',    'icon' => 'bi-camera-video', 'route' => 'settings.google',  'hint' => 'Meeting links'],
             'meta'       => ['label' => 'Meta Marketing', 'icon' => 'bi-meta',         'route' => 'settings.meta',    'hint' => 'Ad account sync'],
         ],
@@ -34,17 +38,18 @@
             'payment-categories' => ['label' => 'Payment Categories', 'icon' => 'bi-wallet2', 'route' => 'payment-categories.index', 'hint' => 'What clients are billed for', 'can' => 'manage payments'],
         ],
         'Access' => [
-            'users'      => ['label' => 'Users',          'icon' => 'bi-people',       'route' => 'users.index',      'hint' => 'Staff accounts'],
+            'users'      => ['label' => 'Users',          'icon' => 'bi-people',       'route' => 'users.index',      'hint' => 'Staff accounts', 'can' => 'manage users'],
             'roles'      => ['label' => 'Roles',          'icon' => 'bi-shield-lock',  'route' => 'roles.index',      'hint' => 'Permissions'],
-            'categories' => ['label' => 'Categories',     'icon' => 'bi-tags',         'route' => 'categories.index', 'hint' => 'Client categories'],
+            'categories' => ['label' => 'Categories',     'icon' => 'bi-tags',         'route' => 'categories.index', 'hint' => 'Client categories', 'can' => 'manage categories'],
         ],
     ];
 
     // Drop what this person can't open, then any group left empty, so nobody
     // sees a heading with nothing under it.
+    $navUser = auth()->user();
     $groups = array_filter(array_map(
         fn (array $items) => array_filter($items, fn (array $item) => Route::has($item['route'])
-            && (empty($item['can']) || auth()->user()?->can($item['can']))),
+            && ($navUser?->hasRole('Super Admin') || (!empty($item['can']) && $navUser?->can($item['can'])))),
         $groups,
     ));
 @endphp
