@@ -47,7 +47,7 @@ class SidebarVisibilityTest extends TestCase
     public function test_manage_clients_alone_shows_the_clients_menu(): void
     {
         $this->actingAs($this->userWith('manage clients'))
-            ->get(route('dashboard'))
+            ->get(route('my-work'))
             ->assertOk()
             ->assertSee(route('clients.index'), false);
     }
@@ -55,7 +55,7 @@ class SidebarVisibilityTest extends TestCase
     public function test_view_clients_alone_shows_the_clients_menu(): void
     {
         $this->actingAs($this->userWith('view clients'))
-            ->get(route('dashboard'))
+            ->get(route('my-work'))
             ->assertOk()
             ->assertSee(route('clients.index'), false);
     }
@@ -63,7 +63,7 @@ class SidebarVisibilityTest extends TestCase
     public function test_neither_permission_hides_the_clients_menu(): void
     {
         $this->actingAs($this->userWith())
-            ->get(route('dashboard'))
+            ->get(route('my-work'))
             ->assertOk()
             ->assertDontSee(route('clients.index'), false);
     }
@@ -81,7 +81,7 @@ class SidebarVisibilityTest extends TestCase
     public function test_manage_tasks_alone_shows_the_tasks_menu(): void
     {
         $this->actingAs($this->userWith('manage tasks'))
-            ->get(route('dashboard'))
+            ->get(route('my-work'))
             ->assertOk()
             ->assertSee(route('tasks.index'), false);
     }
@@ -96,7 +96,7 @@ class SidebarVisibilityTest extends TestCase
     public function test_neither_task_permission_hides_the_tasks_menu(): void
     {
         $this->actingAs($this->userWith())
-            ->get(route('dashboard'))
+            ->get(route('my-work'))
             ->assertOk()
             ->assertDontSee(route('tasks.index'), false);
     }
@@ -106,7 +106,7 @@ class SidebarVisibilityTest extends TestCase
     public function test_manage_ads_alone_shows_the_ads_menu(): void
     {
         $this->actingAs($this->userWith('manage ads'))
-            ->get(route('dashboard'))
+            ->get(route('my-work'))
             ->assertOk()
             ->assertSee(route('ads.index'), false);
     }
@@ -114,7 +114,7 @@ class SidebarVisibilityTest extends TestCase
     public function test_neither_ads_permission_hides_the_ads_menu(): void
     {
         $this->actingAs($this->userWith())
-            ->get(route('dashboard'))
+            ->get(route('my-work'))
             ->assertOk()
             ->assertDontSee(route('ads.index'), false);
     }
@@ -130,7 +130,7 @@ class SidebarVisibilityTest extends TestCase
     {
         $worker = $this->userWith('submit-stage', 'view clients', 'view ads', 'export clients', 'view file-manager');
 
-        $this->actingAs($worker)->get(route('dashboard'))
+        $this->actingAs($worker)->get(route('my-work'))
             ->assertOk()
             ->assertSee(route('clients.index'), false)
             ->assertSee(route('ads.index'), false)
@@ -143,7 +143,7 @@ class SidebarVisibilityTest extends TestCase
     public function test_a_stage_worker_is_still_offered_nothing_they_lack(): void
     {
         $this->actingAs($this->userWith('submit-stage'))
-            ->get(route('dashboard'))
+            ->get(route('my-work'))
             ->assertOk()
             ->assertDontSee(route('clients.index'), false)
             ->assertDontSee(route('ads.index'), false)

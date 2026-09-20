@@ -24,7 +24,7 @@ class MyWorkStatsTest extends TestCase
     {
         parent::setUp();
         Notification::fake();
-        foreach (['view tasks', 'manage tasks'] as $name) {
+        foreach (['view tasks', 'manage tasks', 'view dashboard'] as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'web']);
         }
         // Thursday 17 Sep 2026, 02:00 UTC — already 08:00 in Dhaka.
@@ -198,7 +198,7 @@ class MyWorkStatsTest extends TestCase
      */
     public function test_the_team_dashboard_carries_the_panel(): void
     {
-        $this->actingAs($this->user())->get(route('dashboard'))
+        $this->actingAs($this->user('view tasks', 'view dashboard'))->get(route('dashboard'))
             ->assertOk()
             ->assertSee('id="myWorkPanel"', false)
             ->assertSee(route('my-work.stats'), false);

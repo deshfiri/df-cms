@@ -63,7 +63,7 @@ class EmployeeRequestTest extends TestCase
         $approver = tap(User::factory()->create())->givePermissionTo('manage requests');
 
         foreach ([User::factory()->create(), $this->makeUser('Accounts'), $approver->fresh()] as $user) {
-            $this->actingAs($user)->get(route('dashboard'))
+            $this->actingAs($user)->get(route('my-work'))
                 ->assertOk()
                 ->assertSee(route('requests.index'), false);
         }
@@ -75,7 +75,7 @@ class EmployeeRequestTest extends TestCase
         Permission::firstOrCreate(['name' => 'submit-stage', 'guard_name' => 'web']);
         $worker = tap(User::factory()->create())->givePermissionTo('submit-stage');
 
-        $this->actingAs($worker->fresh())->get(route('dashboard'))
+        $this->actingAs($worker->fresh())->get(route('my-work'))
             ->assertOk()
             ->assertSee(route('requests.index'), false)
             ->assertSee(route('my-work'), false);

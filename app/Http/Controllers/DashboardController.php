@@ -57,6 +57,14 @@ class DashboardController extends Controller
     {
         $user = Auth::user();
 
+        // The dashboard reports on the company — clients, money, everyone's
+        // output. Without 'view dashboard' there is nothing here for you, so
+        // your own work is the landing page instead. Granted per role in
+        // Settings → Roles; the menu link follows the same permission.
+        if (!$user->can('view dashboard')) {
+            return redirect()->route('my-work');
+        }
+
         if (!$user->hasRole(['Super Admin', 'Manager'])) {
             return $this->departmentDashboard($user);
         }

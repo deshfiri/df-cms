@@ -32,7 +32,9 @@ class MyWorkDashboardTest extends TestCase
         Notification::fake();
         $this->flow = app(FlowService::class);
 
-        foreach (['submit-stage', 'view tasks', 'manage tasks', 'manage workflows'] as $name) {
+        // 'view dashboard' is what the department dashboard now takes — without
+        // it /dashboard lands on My Work instead.
+        foreach (['submit-stage', 'view tasks', 'manage tasks', 'manage workflows', 'view dashboard'] as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'web']);
         }
         Role::firstOrCreate(['name' => 'Design', 'guard_name' => 'web']);
@@ -43,7 +45,7 @@ class MyWorkDashboardTest extends TestCase
     {
         $user = User::factory()->create(['is_active' => true]);
         $user->assignRole('Design');
-        $user->givePermissionTo(['submit-stage', 'view tasks']);
+        $user->givePermissionTo(['submit-stage', 'view tasks', 'view dashboard']);
 
         return $user->fresh();
     }

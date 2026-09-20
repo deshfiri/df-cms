@@ -16,6 +16,9 @@ class DatabaseSeeder extends Seeder
     {
         // ── Permissions ────────────────────────────────────────────────────
         $permissions = [
+            // The company dashboard — clients, money, everyone's output.
+            // Without it, staff land on their own work instead.
+            'view dashboard',
             'view clients',
             'manage clients',
             'delete clients',
@@ -93,7 +96,7 @@ class DatabaseSeeder extends Seeder
             // WhatsApp: a Manager runs the inbox (sees every brand, assigns work,
             // manages numbers and templates) but not the Meta app credentials,
             // which stay with Super Admin like every other integration secret.
-            'Manager' => ['view clients', 'manage clients', 'delete clients', 'manage payments', 'view payments', 'manage products', 'manage documents', 'manage-workflow', 'approve-stage', 'import clients', 'export clients', 'view reports', 'view tasks', 'manage tasks', 'manage-meetings', 'manage requests', 'view ads', 'manage ads', 'view performance', 'manage performance', 'view reviews', 'view whatsapp', 'reply whatsapp', 'assign whatsapp', 'view all whatsapp', 'manage whatsapp numbers', 'manage whatsapp templates', 'view workflows'],
+            'Manager' => ['view dashboard', 'view clients', 'manage clients', 'delete clients', 'manage payments', 'view payments', 'manage products', 'manage documents', 'manage-workflow', 'approve-stage', 'import clients', 'export clients', 'view reports', 'view tasks', 'manage tasks', 'manage-meetings', 'manage requests', 'view ads', 'manage ads', 'view performance', 'manage performance', 'view reviews', 'view whatsapp', 'reply whatsapp', 'assign whatsapp', 'view all whatsapp', 'manage whatsapp numbers', 'manage whatsapp templates', 'view workflows'],
             'Sales' => ['view clients', 'manage clients', 'submit-stage', 'approve-stage', 'view tasks', 'manage tasks', 'manage-meetings'],
             'Document' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks'],
             'Design' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks'],

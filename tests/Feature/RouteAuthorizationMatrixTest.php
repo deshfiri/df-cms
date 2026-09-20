@@ -32,7 +32,7 @@ class RouteAuthorizationMatrixTest extends TestCase
      * @var array<string,string>
      */
     private const OPEN_TO_ALL_STAFF = [
-        'dashboard'                 => 'Landing page; content is scoped per user',
+        'dashboard'                 => 'Landing page; needs "view dashboard" to report on the company, and redirects to My Work without it',
         'chat.index'                => 'Everyone can chat',
         'chat.conversations'        => 'Only the signed-in user\'s own conversations',
         'chat.users'                => 'Directory for starting a chat; names only',

@@ -103,13 +103,14 @@ class SidebarAuthorizationTest extends TestCase
         $this->actingAs($user)->get(route('meetings.all'))->assertOk();
     }
 
-    public function test_stage_workers_are_still_redirected_away_from_the_client_list(): void
+    public function test_a_stage_worker_holding_view_clients_can_open_the_client_list(): void
     {
-        // Department workers hold 'view clients' but work only from My Work,
-        // so they are redirected rather than forbidden.
+        // They used to be redirected away from a page their permission allows,
+        // while the menu link was hidden to match. Both are gone: the
+        // permission decides, so the menu and the page agree.
         $this->actingAs($this->user('view clients', 'submit-stage'))
             ->get(route('clients.index'))
-            ->assertRedirect(route('dashboard'));
+            ->assertOk();
     }
 
     public function test_global_search_will_not_return_clients_without_permission(): void

@@ -24,7 +24,7 @@ class ResponseCompressionTest extends TestCase
     {
         $response = $this->actingAs($this->user())
             ->withHeaders(['Accept-Encoding' => 'gzip, deflate'])
-            ->get(route('dashboard'));
+            ->get(route('my-work'));
 
         $response->assertOk();
         $this->assertSame('gzip', $response->headers->get('Content-Encoding'));
@@ -40,7 +40,7 @@ class ResponseCompressionTest extends TestCase
     {
         $response = $this->actingAs($this->user())
             ->withHeaders(['Accept-Encoding' => 'identity'])
-            ->get(route('dashboard'));
+            ->get(route('my-work'));
 
         $response->assertOk();
         $this->assertNull($response->headers->get('Content-Encoding'));
@@ -54,7 +54,7 @@ class ResponseCompressionTest extends TestCase
 
         $response = $this->actingAs($this->user())
             ->withHeaders(['Accept-Encoding' => 'gzip'])
-            ->get(route('dashboard'));
+            ->get(route('my-work'));
 
         $response->assertOk();
         $this->assertNull($response->headers->get('Content-Encoding'));

@@ -33,14 +33,10 @@ class ClientController extends Controller
         // holding no client permission at all.
         $this->authorize('viewAny', Client::class);
 
-        // Stage/department workers have no full client list — they work only from
-        // their My Work queue and open clients from there. Block the list (page
-        // and its DataTables ajax) even by direct URL.
-        if ($request->user()->can('submit-stage') && !$request->user()->hasRole(['Super Admin', 'Manager'])) {
-            abort_if($request->ajax(), 403);
-
-            return redirect()->route('dashboard');
-        }
+        // Department workers used to be bounced from here even holding
+        // 'view clients', which made the permission mean nothing and the menu
+        // link dead. Client visibility is now decided by the permission alone;
+        // to keep a role off this list, take 'view clients' away in Roles.
 
         if ($request->ajax()) {
             return $this->dataTable($request);

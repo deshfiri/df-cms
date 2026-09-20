@@ -310,10 +310,12 @@
             {{-- Always "Dashboard": department workers land on a work-queue
                  version of it, but calling that "My Work" put the same name on
                  two different menu items. --}}
-            <a href="{{ route('dashboard') }}" class="sb-link {{ request()->routeIs('dashboard') ? 'active' : '' }}"
-                title="Dashboard" data-bs-toggle="tooltip" data-bs-placement="right">
-                <i class="bi bi-speedometer2"></i><span class="sb-lbl">Dashboard</span>
-            </a>
+            @can('view dashboard')
+                <a href="{{ route('dashboard') }}" class="sb-link {{ request()->routeIs('dashboard') ? 'active' : '' }}"
+                    title="Dashboard" data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-speedometer2"></i><span class="sb-lbl">Dashboard</span>
+                </a>
+            @endcan
             {{-- Everyone has their own work page, whatever their dashboard is. --}}
             <a href="{{ route('my-work') }}" class="sb-link {{ request()->routeIs('my-work') ? 'active' : '' }}"
                 title="My Work" data-bs-toggle="tooltip" data-bs-placement="right">

@@ -61,7 +61,7 @@ class TaskNavBadgeTest extends TestCase
         $this->task($this->me, $this->boss, 'Pending', ['due_date' => '2026-09-01']);
         $this->task($this->me, $this->boss, 'Pending');
 
-        $this->actingAs($this->me)->get(route('dashboard'))
+        $this->actingAs($this->me)->get(route('my-work'))
             ->assertOk()
             ->assertSee('id="taskNavBadge"', false)
             ->assertSee('display:inline-flex', false)

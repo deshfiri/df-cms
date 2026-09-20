@@ -99,7 +99,7 @@ class WorkflowTrackerTest extends TestCase
     public function test_the_sidebar_offers_it_to_a_watcher(): void
     {
         $this->actingAs($this->user('view workflows'))
-            ->get(route('dashboard'))
+            ->get(route('my-work'))
             ->assertSee(route('workflows.items'), false);
     }
 
