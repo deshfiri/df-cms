@@ -76,6 +76,75 @@
         // and so alerts still make a noise when Reverb is unreachable.
         var lastUnread = null;
 
+        /*
+         * Unread notifications in the tab title, so they are noticed from
+         * another tab: a steady "(3)" while this tab is on screen, alternating
+         * with a worded alert while it is not. It only clears when the
+         * notifications are actually read — that is where the count comes from.
+         */
+        var notifTitle = (function () {
+            var base = document.title, applied = base, unread = 0, timer = null, worded = false;
+
+            function paint() {
+                // A page that set its own title since we last wrote one wins.
+                if (document.title !== applied) { base = document.title; }
+
+                applied = unread === 0
+                    ? base
+                    : (worded
+                        ? '🔔 ' + unread + (unread === 1 ? ' new notification' : ' new notifications')
+                        : '(' + unread + ') ' + base);
+                document.title = applied;
+            }
+
+            function set(count) {
+                unread = count > 0 ? count : 0;
+                worded = false;
+                paint();
+
+                if (unread && !timer) {
+                    timer = setInterval(function () {
+                        worded = document.hidden ? !worded : false;
+                        paint();
+                    }, 2000);
+                } else if (!unread && timer) {
+                    clearInterval(timer);
+                    timer = null;
+                }
+            }
+
+            // Back on this tab: drop the wording, keep the count.
+            document.addEventListener('visibilitychange', function () {
+                if (!document.hidden && worded) { worded = false; paint(); }
+            });
+
+            return { set: set };
+        })();
+
+        function esc(text) { return $('<span>').text(text == null ? '' : text).html(); }
+
+        function markNotificationRead(id) {
+            return $.post(window.DFCP.urls['notifications'] + '/' + encodeURIComponent(id) + '/read');
+        }
+
+        /**
+         * Open a notification: record the read first, since following the link
+         * unloads this page and would cancel the request in flight. Never let a
+         * slow or failed request hold the click.
+         */
+        function openNotification(id, url) {
+            var went = false;
+            var go = function () {
+                if (went) return;
+                went = true;
+                if (url && url !== '#') { window.location.href = url; }
+                else { loadNotifications(); }
+            };
+
+            markNotificationRead(id).always(go);
+            setTimeout(go, 1500);
+        }
+
         function loadNotifications() {
             $.get(window.DFCP.routes['notifications.index']).done(function (r) {
                 if (lastUnread !== null && r.unread_count > lastUnread) {
@@ -92,24 +161,28 @@
                             title: newest.title || 'New notification',
                             body: newest.message || '',
                             tag: 'notif-' + newest.id,
-                            url: newest.url,
+                            // Clicking the desktop popup counts as reading it too.
+                            onClick: function () { openNotification(newest.id, newest.url); },
                         });
                     }
                 }
                 lastUnread = r.unread_count;
 
                 $('#notifBadge').toggleClass('d-none', r.unread_count === 0).text(r.unread_count);
+                notifTitle.set(r.unread_count);
                 if (!r.notifications.length) {
                     $('#notifList').html('<div class="text-center py-4 text-muted" style="font-size:.78rem">No notifications yet.</div>');
                     return;
                 }
                 var html = '';
                 r.notifications.forEach(function (n) {
-                    html += '<a href="' + n.url + '" class="d-block px-3 py-2 notif-item" data-id="' + n.id + '" '
+                    // Titles and messages carry client, task and person names —
+                    // escaped here rather than trusted as markup.
+                    html += '<a href="' + esc(n.url) + '" class="d-block px-3 py-2 notif-item" data-id="' + esc(n.id) + '" '
                         + 'style="text-decoration:none;border-bottom:1px solid var(--border);' + (n.read ? '' : 'background:rgba(var(--primary-rgb),.05)') + '">'
-                        + '<div style="font-size:.78rem;font-weight:600;color:var(--text)">' + n.title + '</div>'
-                        + '<div style="font-size:.72rem;color:var(--text2)">' + n.message + '</div>'
-                        + '<div style="font-size:.66rem;color:var(--text3)" class="mt-1">' + n.created_at + '</div>'
+                        + '<div style="font-size:.78rem;font-weight:600;color:var(--text)">' + esc(n.title) + '</div>'
+                        + '<div style="font-size:.72rem;color:var(--text2)">' + esc(n.message) + '</div>'
+                        + '<div style="font-size:.66rem;color:var(--text3)" class="mt-1">' + esc(n.created_at) + '</div>'
                         + '</a>';
                 });
                 $('#notifList').html(html);
@@ -118,8 +191,18 @@
         loadNotifications();
         setInterval(loadNotifications, 60000);
 
-        $(document).on('click', '.notif-item', function () {
-            $.post(window.DFCP.urls['notifications'] + '/' + $(this).data('id') + '/read');
+        $(document).on('click', '.notif-item', function (e) {
+            var id = $(this).data('id'), url = $(this).attr('href');
+
+            // Opening in a new tab or window: leave the browser to it, and just
+            // record that it was read.
+            if (e.ctrlKey || e.metaKey || e.shiftKey || e.which === 2) {
+                markNotificationRead(id).always(loadNotifications);
+                return;
+            }
+
+            e.preventDefault();
+            openNotification(id, url);
         });
 
         $('#notifMarkAll').on('click', function (e) {
