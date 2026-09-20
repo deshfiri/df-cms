@@ -73,6 +73,8 @@ class DatabaseSeeder extends Seeder
             'manage whatsapp settings',
             // Settings → Sounds: which alert sound plays for what, for everyone.
             'manage sound settings',
+            // Settings → Document Types: the list clients' documents are filed under.
+            'manage document types',
         ];
 
         foreach ($permissions as $perm) {
@@ -119,6 +121,7 @@ class DatabaseSeeder extends Seeder
         }
         $roles['Manager'][] = 'create chat groups';
         $roles['Manager'][] = 'manage all tasks';
+        $roles['Manager'][] = 'manage document types';
         array_push($roles['Manager'], 'request refunds', 'approve refunds', 'process refunds');
         array_push($roles['Accounts'], 'request refunds', 'process refunds');
 

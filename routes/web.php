@@ -26,6 +26,7 @@ use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\MarketingController;
 use App\Http\Controllers\ChatSettingsController;
 use App\Http\Controllers\SoundSettingsController;
+use App\Http\Controllers\DocumentTypeController;
 use App\Http\Controllers\AlertSoundController;
 use App\Http\Controllers\MetaSettingsController;
 use App\Http\Controllers\StorageSettingsController;
@@ -519,6 +520,12 @@ Route::middleware(['auth'])->group(function () {
     Route::post('settings/chat', [ChatSettingsController::class, 'update'])->name('settings.chat.update');
     Route::post('settings/chat/preview', [ChatSettingsController::class, 'preview'])->name('settings.chat.preview');
     Route::post('settings/chat/run', [ChatSettingsController::class, 'runNow'])->name('settings.chat.run');
+
+    // What a client's documents are filed under ("manage document types").
+    Route::get('settings/document-types', [DocumentTypeController::class, 'index'])->name('document-types.index');
+    Route::post('settings/document-types', [DocumentTypeController::class, 'store'])->name('document-types.store');
+    Route::put('settings/document-types/{documentType}', [DocumentTypeController::class, 'update'])->name('document-types.update');
+    Route::delete('settings/document-types/{documentType}', [DocumentTypeController::class, 'destroy'])->name('document-types.destroy');
 
     // Alert sounds for everyone ("manage sound settings"; gated in the controller).
     Route::get('settings/sounds', [SoundSettingsController::class, 'index'])->name('settings.sounds');

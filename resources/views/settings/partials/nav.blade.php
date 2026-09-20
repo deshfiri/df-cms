@@ -28,6 +28,7 @@
             'storage'    => ['label' => 'Storage & CDN',  'icon' => 'bi-hdd-network',  'route' => 'settings.storage', 'hint' => 'Where files are kept'],
             'chat'       => ['label' => 'Chat',           'icon' => 'bi-chat-dots',    'route' => 'settings.chat',    'hint' => 'Attachment retention'],
             'sounds'     => ['label' => 'Sounds',         'icon' => 'bi-volume-up',    'route' => 'settings.sounds',  'hint' => 'Alert tones and volume', 'can' => 'manage sound settings'],
+            'document-types' => ['label' => 'Document Types', 'icon' => 'bi-folder2-open', 'route' => 'document-types.index', 'hint' => 'What client files are filed under', 'can' => 'manage document types'],
         ],
         'Integrations' => [
             'whatsapp'   => ['label' => 'WhatsApp',       'icon' => 'bi-whatsapp',     'route' => 'settings.whatsapp', 'hint' => 'Customer messaging', 'can' => 'manage whatsapp settings'],

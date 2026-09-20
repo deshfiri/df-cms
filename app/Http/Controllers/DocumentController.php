@@ -10,6 +10,7 @@ use App\Services\DocumentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DocumentController extends Controller
@@ -37,7 +38,9 @@ class DocumentController extends Controller
         $this->authorize('update', $client);
         $request->validate([
             'file'             => ['required', 'file', 'max:20480', 'mimes:pdf,jpg,jpeg,png,webp,gif,doc,docx,xlsx,xls,csv,zip'],
-            'document_type_id' => ['required', 'exists:document_types,id'],
+            // Only a type that is still switched on — a retired one stays on the
+            // documents already filed under it, but nothing new joins them.
+            'document_type_id' => ['required', Rule::exists('document_types', 'id')->where('is_active', true)],
             'title'            => ['required', 'string', 'max:200'],
             'description'      => ['nullable', 'string', 'max:1000'],
             'remarks'          => ['nullable', 'string', 'max:500'],

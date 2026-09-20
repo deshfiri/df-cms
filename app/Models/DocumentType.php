@@ -35,4 +35,21 @@ class DocumentType extends Model
     {
         return $query->where('is_active', true)->orderBy('sort_order');
     }
+
+    /** The order Settings → Document Types and every picker shows them in. */
+    public function scopeOrdered($query)
+    {
+        return $query->orderBy('sort_order')->orderBy('name');
+    }
+
+    /**
+     * Whether anything is filed under this type.
+     *
+     * A type in use is deactivated rather than deleted, so old documents keep
+     * their label — the database refuses the delete anyway.
+     */
+    public function isInUse(): bool
+    {
+        return $this->documents()->exists();
+    }
 }
