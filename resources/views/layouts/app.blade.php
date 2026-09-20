@@ -297,22 +297,22 @@
         </div>
 
         <nav class="sb-nav">
-            {{-- Department workers land on a work-queue dashboard (see
-                 dashboard-department), so their first menu item is named for it.
-                 It changes that label only: every other link below is decided by
-                 what the person may actually open. Hiding a link someone holds
-                 the permission for only made the menu lie about their access —
-                 to give a role less, take the permission away in Roles. --}}
-            @php $isStageUser = auth()->user()->can('submit-stage') && !auth()->user()->hasRole(['Super Admin', 'Manager']); @endphp
+            {{-- Every link below is decided by what the person may actually
+                 open. Department workers used to get a cut-down menu instead,
+                 which only made it lie about their access — to give a role less,
+                 take the permission away in Roles. --}}
             @php
                 $flowNav = app(\App\Services\FlowService::class)->navSummary(auth()->user());
                 $flowParticipant = $flowNav['participant'];
                 $flowQueueCount = $flowNav['count'];
             @endphp
             <div class="sb-section">Menu</div>
+            {{-- Always "Dashboard": department workers land on a work-queue
+                 version of it, but calling that "My Work" put the same name on
+                 two different menu items. --}}
             <a href="{{ route('dashboard') }}" class="sb-link {{ request()->routeIs('dashboard') ? 'active' : '' }}"
-                title="{{ $isStageUser ? 'My Work' : 'Dashboard' }}" data-bs-toggle="tooltip" data-bs-placement="right">
-                <i class="bi {{ $isStageUser ? 'bi-clipboard-check' : 'bi-speedometer2' }}"></i><span class="sb-lbl">{{ $isStageUser ? 'My Work' : 'Dashboard' }}</span>
+                title="Dashboard" data-bs-toggle="tooltip" data-bs-placement="right">
+                <i class="bi bi-speedometer2"></i><span class="sb-lbl">Dashboard</span>
             </a>
             {{-- Everyone has their own work page, whatever their dashboard is. --}}
             <a href="{{ route('my-work') }}" class="sb-link {{ request()->routeIs('my-work') ? 'active' : '' }}"
