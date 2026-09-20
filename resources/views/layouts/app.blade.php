@@ -297,7 +297,12 @@
         </div>
 
         <nav class="sb-nav">
-            {{-- Stage/department workers get a minimal, work-queue-only menu (see dashboard-department). --}}
+            {{-- Department workers land on a work-queue dashboard (see
+                 dashboard-department), so their first menu item is named for it.
+                 It changes that label only: every other link below is decided by
+                 what the person may actually open. Hiding a link someone holds
+                 the permission for only made the menu lie about their access —
+                 to give a role less, take the permission away in Roles. --}}
             @php $isStageUser = auth()->user()->can('submit-stage') && !auth()->user()->hasRole(['Super Admin', 'Manager']); @endphp
             @php
                 $flowNav = app(\App\Services\FlowService::class)->navSummary(auth()->user());
@@ -309,14 +314,11 @@
                 title="{{ $isStageUser ? 'My Work' : 'Dashboard' }}" data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi {{ $isStageUser ? 'bi-clipboard-check' : 'bi-speedometer2' }}"></i><span class="sb-lbl">{{ $isStageUser ? 'My Work' : 'Dashboard' }}</span>
             </a>
-            @unless($isStageUser)
-            {{-- Everyone has their own work; for stage workers the dashboard above already is it. --}}
+            {{-- Everyone has their own work page, whatever their dashboard is. --}}
             <a href="{{ route('my-work') }}" class="sb-link {{ request()->routeIs('my-work') ? 'active' : '' }}"
                 title="My Work" data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-person-workspace"></i><span class="sb-lbl">My Work</span>
             </a>
-            @endunless
-            @unless($isStageUser)
             {{-- Gated on the policy, not on a bare permission name. ClientPolicy
                  admits either 'view clients' or 'manage clients', and checking
                  only the first hid this menu from anyone granted the stronger
@@ -327,7 +329,6 @@
                     <i class="bi bi-people"></i><span class="sb-lbl">Clients</span>
                 </a>
             @endcan
-            @endunless
             @can('view payments')
                 <a href="{{ route('payments.index') }}"
                     class="sb-link {{ request()->routeIs('payments.*') ? 'active' : '' }}" title="Payments"
@@ -342,7 +343,6 @@
                     <i class="bi bi-arrow-counterclockwise"></i><span class="sb-lbl">Refunds</span>
                 </a>
             @endcan
-            @unless($isStageUser)
             {{-- Matches AdCampaignPolicy, and the Marketing link further down
                  which already used @canany for the same pair. --}}
             @canany(['view ads', 'manage ads'])
@@ -352,7 +352,6 @@
                     <i class="bi bi-megaphone"></i><span class="sb-lbl">Ads</span>
                 </a>
             @endcanany
-            @endunless
 
             {{-- The all-meetings list exposes client names, so it follows client visibility. --}}
             @can('viewAny', App\Models\Client::class)
@@ -408,15 +407,13 @@
                     <i class="bi bi-diagram-2"></i><span class="sb-lbl">Workflows</span>
                 </a>
             @endcan
-            @unless($isStageUser)
-            @canany(['view requests', 'create requests', 'manage requests'])
+            {{-- Open to everyone: asking the company for something is part of
+                 having a login. 'manage requests' decides who answers them. --}}
             <a href="{{ route('requests.index') }}"
                 class="sb-link {{ request()->routeIs('requests.*') ? 'active' : '' }}" title="Requests"
                 data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-inbox"></i><span class="sb-lbl">Requests</span>
             </a>
-            @endcanany
-            @endunless
             {{-- Deliberately open — outside the stage-user trim, since department
                  staff are exactly who this is for: anyone may post a review or
                  report. Reading other people's is gated by 'view reviews', both
@@ -469,7 +466,6 @@
                 </a>
             @endcanany
 
-            @unless($isStageUser)
             @canany(['import clients', 'export clients', 'manage-workflow', 'view file-manager'])
                 <div class="sb-section">Operations</div>
             @endcanany
@@ -496,7 +492,6 @@
                     <i class="bi bi-folder2-open"></i><span class="sb-lbl">File Manager</span>
                 </a>
             @endcan
-            @endunless
 
             {{-- Approving changes is a manager job, not an admin one, so it sits
                  under Management. Only genuinely Super Admin-only tools carry the

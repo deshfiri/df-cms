@@ -17,12 +17,58 @@ class RoleController extends Controller
         });
     }
 
+    /**
+     * Permission name => the group it is listed under, matched on the first
+     * keyword that appears in the name. Order matters: the first match wins.
+     *
+     * Anything unmatched falls into "Other", so a new permission always shows
+     * up on this page rather than disappearing.
+     */
+    private const GROUPS = [
+        'Clients'      => ['client'],
+        'Payments'     => ['payment', 'refund', 'invoice'],
+        'Tasks'        => ['task'],
+        'Workflow'     => ['workflow', 'stage'],
+        'Requests'     => ['request'],
+        'Documents'    => ['document', 'file-manager', 'product'],
+        'Marketing'    => ['ads', 'campaign'],
+        'WhatsApp'     => ['whatsapp'],
+        'Chat'         => ['chat'],
+        'Performance'  => ['performance', 'review', 'report'],
+        'Meetings'     => ['meeting'],
+        'Data'         => ['import', 'export'],
+        'Settings'     => ['setting', 'user', 'categor', 'sound'],
+    ];
+
     public function index()
     {
-        $roles       = Role::with('permissions')->withCount('users')->orderBy('name')->get();
-        $permissions = Permission::orderBy('name')->get()->groupBy(fn ($p) => explode(':', $p->name)[0] ?? 'General');
+        $roles = Role::with('permissions')->withCount('users')->orderBy('name')->get();
 
-        return view('roles.index', compact('roles', 'permissions'));
+        // Grouped by what they govern. This used to split on a ":" that no
+        // permission name contains, so every single one became its own heading
+        // and the list was impossible to read.
+        $permissions = Permission::orderBy('name')->get()
+            ->groupBy(fn (Permission $p) => self::groupFor($p->name))
+            ->sortKeys();
+
+        return view('roles.index', [
+            'roles'           => $roles,
+            'permissions'     => $permissions,
+            'permissionTotal' => $permissions->flatten()->count(),
+        ]);
+    }
+
+    private static function groupFor(string $name): string
+    {
+        foreach (self::GROUPS as $group => $keywords) {
+            foreach ($keywords as $keyword) {
+                if (str_contains($name, $keyword)) {
+                    return $group;
+                }
+            }
+        }
+
+        return 'Other';
     }
 
     public function store(Request $request): JsonResponse

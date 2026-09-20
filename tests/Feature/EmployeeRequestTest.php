@@ -20,19 +20,19 @@ class EmployeeRequestTest extends TestCase
     {
         parent::setUp();
 
-        foreach (['manage requests', 'view requests', 'create requests'] as $name) {
-            Permission::firstOrCreate(['name' => $name, 'guard_name' => 'web']);
-        }
+        Permission::firstOrCreate(['name' => 'manage requests', 'guard_name' => 'web']);
     }
 
-    /** Roles in these tests hold the request seats a seeded install gives them. */
+    /** 'manage requests' is the only permission requests still take. */
     private function makeUser(?string $role = null): User
     {
         $user = User::factory()->create();
         if ($role) {
             Role::firstOrCreate(['name' => $role, 'guard_name' => 'web']);
             $user->assignRole($role);
-            $user->givePermissionTo($role === 'Manager' ? ['manage requests'] : ['view requests', 'create requests']);
+            if ($role === 'Manager') {
+                $user->givePermissionTo('manage requests');
+            }
         }
 
         return $user;
@@ -40,61 +40,67 @@ class EmployeeRequestTest extends TestCase
 
     // ── Who may use requests at all ──────────────────────────────────────
 
-    public function test_a_role_without_request_permissions_cannot_see_or_file_them(): void
+    public function test_anyone_signed_in_can_open_the_page_and_file_one(): void
     {
+        // No role, no permissions: asking for something is part of having a login.
         $nobody = User::factory()->create();
 
-        $this->actingAs($nobody)->get(route('requests.index'))->assertForbidden();
-        $this->actingAs($nobody)->getJson(route('requests.index'), ['X-Requested-With' => 'XMLHttpRequest'])->assertForbidden();
-        $this->actingAs($nobody)
-            ->postJson(route('requests.store'), ['subject' => 'Laptop', 'message' => 'Please'])
-            ->assertForbidden();
-
-        $this->assertSame(0, EmployeeRequest::count());
-    }
-
-    public function test_view_only_lets_you_follow_requests_but_not_file_one(): void
-    {
-        $watcher = User::factory()->create();
-        $watcher->givePermissionTo('view requests');
-
-        $this->actingAs($watcher)->get(route('requests.index'))
-            ->assertOk()
-            ->assertDontSee('data-bs-target="#newRequestModal"', false);
-
-        $this->actingAs($watcher)
-            ->postJson(route('requests.store'), ['subject' => 'Laptop', 'message' => 'Please'])
-            ->assertForbidden();
-    }
-
-    public function test_create_lets_you_file_and_offers_the_button(): void
-    {
-        $filer = $this->makeUser('Sales');
-
-        $this->actingAs($filer)->get(route('requests.index'))
+        $this->actingAs($nobody)->get(route('requests.index'))
             ->assertOk()
             ->assertSee('data-bs-target="#newRequestModal"', false);
+
+        $this->actingAs($nobody)->getJson(route('requests.index'), ['X-Requested-With' => 'XMLHttpRequest'])->assertOk();
+
+        $this->actingAs($nobody)
+            ->postJson(route('requests.store'), ['subject' => 'Laptop', 'message' => 'Please'])
+            ->assertOk();
+
+        $this->assertDatabaseHas('employee_requests', ['subject' => 'Laptop', 'requested_by' => $nobody->id]);
     }
 
-    public function test_the_sidebar_only_offers_requests_to_those_who_may_use_them(): void
+    public function test_the_sidebar_offers_requests_to_everyone(): void
     {
-        $this->actingAs(User::factory()->create())
-            ->get(route('dashboard'))
-            ->assertDontSee(route('requests.index'), false);
+        $approver = tap(User::factory()->create())->givePermissionTo('manage requests');
 
-        $this->actingAs($this->makeUser('Accounts'))
-            ->get(route('dashboard'))
-            ->assertSee(route('requests.index'), false);
+        foreach ([User::factory()->create(), $this->makeUser('Accounts'), $approver->fresh()] as $user) {
+            $this->actingAs($user)->get(route('dashboard'))
+                ->assertOk()
+                ->assertSee(route('requests.index'), false);
+        }
     }
 
-    public function test_withdrawing_your_own_request_needs_the_right_to_make_one(): void
+    public function test_a_department_worker_gets_the_requests_menu_too(): void
     {
-        $employee = $this->makeUser('Sales');
+        // Stage workers used to be given a trimmed menu that dropped Requests.
+        Permission::firstOrCreate(['name' => 'submit-stage', 'guard_name' => 'web']);
+        $worker = tap(User::factory()->create())->givePermissionTo('submit-stage');
+
+        $this->actingAs($worker->fresh())->get(route('dashboard'))
+            ->assertOk()
+            ->assertSee(route('requests.index'), false)
+            ->assertSee(route('my-work'), false);
+    }
+
+    public function test_withdrawing_your_own_pending_request_needs_nothing_extra(): void
+    {
+        $employee = User::factory()->create();
         $pending  = EmployeeRequest::create(['subject' => 'Still open', 'message' => 'msg', 'requested_by' => $employee->id]);
 
-        $employee->revokePermissionTo('create requests');
+        $this->actingAs($employee)->deleteJson(route('requests.destroy', $pending))->assertOk();
+        $this->assertSoftDeleted('employee_requests', ['id' => $pending->id]);
+    }
 
-        $this->actingAs($employee->fresh())->deleteJson(route('requests.destroy', $pending))->assertForbidden();
+    public function test_you_still_cannot_touch_someone_elses_request(): void
+    {
+        $owner    = User::factory()->create();
+        $stranger = User::factory()->create();
+        $theirs   = EmployeeRequest::create(['subject' => 'Private', 'message' => 'msg', 'requested_by' => $owner->id]);
+
+        $this->actingAs($stranger)->deleteJson(route('requests.destroy', $theirs))->assertForbidden();
+        $this->actingAs($stranger)->postJson(route('requests.respond', $theirs), ['status' => 'Approved'])->assertForbidden();
+
+        $list = $this->actingAs($stranger)->getJson(route('requests.index'), ['X-Requested-With' => 'XMLHttpRequest']);
+        $this->assertFalse(collect($list->json('data'))->pluck('subject')->contains('Private'));
     }
 
     // ── Filing and responding ────────────────────────────────────────────

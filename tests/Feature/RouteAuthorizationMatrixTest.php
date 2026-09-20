@@ -45,6 +45,7 @@ class RouteAuthorizationMatrixTest extends TestCase
         'password.confirm'          => 'Part of the authentication flow',
         'account.edit'              => 'Every staff member manages their own password; acts only on the signed-in user',
         'my-work'                   => 'Every staff member\'s own work page; only ever about the signed-in user',
+        'requests.index'            => 'Anyone may ask the company for something; the list is scoped to your own unless you hold "manage requests"',
         'my-work.stats'             => 'The signed-in user\'s own workload and output, for the My Work panel',
     ];
 

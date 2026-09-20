@@ -28,6 +28,7 @@ class SidebarVisibilityTest extends TestCase
             'view clients', 'manage clients',
             'view tasks', 'manage tasks',
             'view ads', 'manage ads',
+            'submit-stage', 'export clients', 'view file-manager',
         ] as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'web']);
         }
@@ -116,5 +117,36 @@ class SidebarVisibilityTest extends TestCase
             ->get(route('dashboard'))
             ->assertOk()
             ->assertDontSee(route('ads.index'), false);
+    }
+
+    // ── Department workers ───────────────────────────────────────────────
+
+    /**
+     * Someone who works a workflow stage used to be given a cut-down menu that
+     * dropped Clients, Ads, Requests, My Work and the whole Operations section —
+     * permissions they held and pages they could open.
+     */
+    public function test_a_stage_worker_sees_every_menu_their_permissions_allow(): void
+    {
+        $worker = $this->userWith('submit-stage', 'view clients', 'view ads', 'export clients', 'view file-manager');
+
+        $this->actingAs($worker)->get(route('dashboard'))
+            ->assertOk()
+            ->assertSee(route('clients.index'), false)
+            ->assertSee(route('ads.index'), false)
+            ->assertSee(route('file-manager.index'), false)
+            ->assertSee(route('requests.index'), false)
+            ->assertSee(route('my-work'), false)
+            ->assertSee('Export Data');
+    }
+
+    public function test_a_stage_worker_is_still_offered_nothing_they_lack(): void
+    {
+        $this->actingAs($this->userWith('submit-stage'))
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertDontSee(route('clients.index'), false)
+            ->assertDontSee(route('ads.index'), false)
+            ->assertDontSee(route('file-manager.index'), false);
     }
 }

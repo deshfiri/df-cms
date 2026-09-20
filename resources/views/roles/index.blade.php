@@ -40,14 +40,21 @@
                 </div>
             </div>
             <div class="card-body p-3">
-                <p class="small text-muted mb-2 fw-semibold">Permissions:</p>
+                <p class="small text-muted mb-2 fw-semibold">
+                    Permissions:
+                    <span class="text-muted fw-normal">
+                        {{ $role->name === 'Super Admin' ? $permissionTotal : $role->permissions->count() }} of {{ $permissionTotal }}
+                    </span>
+                </p>
                 <div class="permission-matrix" data-role="{{ $role->id }}">
                     @foreach($permissions as $category => $perms)
                     <div class="mb-3">
-                        <div class="text-uppercase small fw-bold text-muted mb-1" style="font-size:.7rem;letter-spacing:.05em">{{ $category }}</div>
+                        <div class="text-uppercase small fw-bold text-muted mb-1" style="font-size:.7rem;letter-spacing:.05em">
+                            {{ $category }} <span class="fw-normal">({{ $perms->count() }})</span>
+                        </div>
                         <div class="d-flex flex-wrap gap-1">
                             @foreach($perms as $perm)
-                            @php $permLabel = explode(':', $perm->name)[1] ?? $perm->name; @endphp
+                            @php $permLabel = $perm->name; @endphp
                             <div class="form-check form-check-inline m-0">
                                 <input class="form-check-input perm-check" type="checkbox"
                                     id="perm-{{ $role->id }}-{{ $perm->id }}"

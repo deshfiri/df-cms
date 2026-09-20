@@ -51,10 +51,6 @@ class DatabaseSeeder extends Seeder
             // Read-only seat on the workflow tracker: see where every item
             // stands without being able to build or change a workflow.
             'view workflows',
-            // Staff requests: open the page and follow your own / file one.
-            // 'manage requests' (above) still sees everyone's and responds.
-            'view requests',
-            'create requests',
             // Start a group conversation in the internal chat.
             'create chat groups',
             // Refunds: ask for one, decide on one (never your own), pay it out.
@@ -112,13 +108,9 @@ class DatabaseSeeder extends Seeder
             'Viewer' => ['view clients', 'view payments', 'view reports'],
         ];
 
-        // Every role could file and follow requests before these permissions
-        // existed; that stays the default. Take it away per role in Settings → Roles.
-        foreach (array_keys($roles) as $roleName) {
-            if ($roleName !== 'Super Admin') {
-                $roles[$roleName] = array_values(array_unique(array_merge($roles[$roleName], ['view requests', 'create requests'])));
-            }
-        }
+        // Filing and following your own requests needs no permission at all —
+        // see EmployeeRequestPolicy. 'manage requests' is what decides who sees
+        // everyone's and answers them.
         $roles['Manager'][] = 'create chat groups';
         $roles['Manager'][] = 'manage all tasks';
         $roles['Manager'][] = 'manage document types';
