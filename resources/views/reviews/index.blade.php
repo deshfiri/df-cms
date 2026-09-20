@@ -13,10 +13,6 @@
 </div>
 
 <div class="card section-card mb-3">
-    <div class="card-header py-3">
-        <h6 class="fw-bold mb-0">My Reviews & Reports</h6>
-        <div style="font-size:.7rem;color:var(--text3)">What you've submitted from this browser &mdash; including anonymous ones, which no one else (not even Super Admin) can trace back to you</div>
-    </div>
     <div class="card-body p-0" id="myReviewList">
         <div class="text-center py-4 small" style="color:var(--text3)">Nothing submitted from this browser yet.</div>
     </div>

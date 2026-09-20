@@ -18,10 +18,6 @@
 @endpush
 
 @section('content')
-<div class="mb-3">
-    <h4 class="page-title mb-0"><i class="bi bi-person-workspace me-2"></i>My Work</h4>
-    <div style="font-size:.7rem;color:var(--text3);margin-top:2px">What's on your plate, and what you've got done.</div>
-</div>
 
 @include('partials.my-work-panel')
 
