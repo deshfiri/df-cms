@@ -13,7 +13,7 @@ use App\Models\User;
 use App\Notifications\TaskAssigned;
 use App\Notifications\TaskReviewed;
 use App\Notifications\TaskSubmitted;
-use App\Services\Storage\StorageSettings;
+use App\Services\Storage\UploadStaging;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -28,7 +28,7 @@ class TaskService
     public function __construct(
         private readonly ActivityLogService       $activityLog,
         private readonly WorkloadService          $workload,
-        private readonly StorageSettings          $storage,
+        private readonly UploadStaging            $uploads,
         private readonly TaskInvolvementService   $involvement,
     ) {}
 
@@ -216,14 +216,20 @@ class TaskService
      * are. Everything is checked against the locked row: a double click or a
      * second tab gets a clear refusal, not a second submission.
      *
+     * Files can also arrive ahead of the hand-in — the submit dialog uploads
+     * them one per request, so a batch never meets the server's size limit for
+     * a single request. Their ids are passed as $attachmentIds and recorded on
+     * the submission, but only those this person added to this task.
+     *
      * @param  array<int,UploadedFile>  $files
+     * @param  array<int,int|string>    $attachmentIds
      */
-    public function submitForReview(Task $task, User $actor, ?string $note = null, array $files = []): Task
+    public function submitForReview(Task $task, User $actor, ?string $note = null, array $files = [], array $attachmentIds = []): Task
     {
         $stored = [];
 
         try {
-            DB::transaction(function () use ($task, $actor, $note, $files, &$stored) {
+            DB::transaction(function () use ($task, $actor, $note, $files, $attachmentIds, &$stored) {
                 $locked = Task::whereKey($task->id)->lockForUpdate()->firstOrFail();
 
                 // Same rule as the policy, against the row as it is now.
@@ -241,6 +247,13 @@ class TaskService
                     $stored[] = $this->uploadAttachment($locked, $file);
                 }
 
+                $handedIn = $attachmentIds
+                    ? TaskAttachment::where('task_id', $locked->id)
+                        ->where('user_id', $actor->id)
+                        ->whereIn('id', array_map('intval', $attachmentIds))
+                        ->pluck('id')->all()
+                    : [];
+
                 $locked->update([
                     'status'       => Task::STATUS_SUBMITTED,
                     'submitted_at' => now(),
@@ -250,7 +263,7 @@ class TaskService
                 $description = 'Submitted for review' . ($note ? ": {$note}" : '');
                 $this->logActivity($locked, 'Submitted', $description, event: 'submitted', meta: array_filter([
                     'note'           => $note,
-                    'attachment_ids' => array_map(fn (TaskAttachment $a) => $a->id, $stored),
+                    'attachment_ids' => array_values(array_unique([...array_map(fn (TaskAttachment $a) => $a->id, $stored), ...$handedIn])),
                 ]));
                 $this->activityLog->log('Task', 'Submitted', $locked->client_id, null, ['title' => $locked->title]);
             });
@@ -412,8 +425,9 @@ class TaskService
         return DB::transaction(function () use ($task, $file) {
             $extension  = strtolower($file->getClientOriginalExtension());
             $storedName = Str::uuid() . ($extension !== '' ? '.' . $extension : '');
-            $disk       = $this->storage->activeDisk();
-            $path       = $file->storeAs('task-attachments/' . $task->id, $storedName, $disk);
+            // Parked on this server and moved to the provider in the background
+            // when there is one — see UploadStaging.
+            [$path, $disk] = $this->uploads->store($file, 'task-attachments/' . $task->id, $storedName);
 
             // storeAs() answers false rather than throwing when the provider
             // refuses the write. Saving the record anyway left an attachment
@@ -440,6 +454,7 @@ class TaskService
                 'mime'          => $attachment->mime_type,
                 'size'          => $attachment->file_size,
             ]);
+            $this->uploads->pushLater($attachment);
 
             return $attachment->load('user:id,name');
         });

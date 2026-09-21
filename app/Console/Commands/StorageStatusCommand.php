@@ -72,6 +72,7 @@ class StorageStatusCommand extends Command
         }
 
         $this->reportUsage();
+        $this->reportWaitingUploads($active);
 
         if ($this->option('test')) {
             $this->newLine();
@@ -92,6 +93,26 @@ class StorageStatusCommand extends Command
         $this->newLine();
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Uploads parked on this server for a queue worker to move (UploadStaging).
+     * They work where they are, but without a worker they never reach the
+     * provider — the other way files quietly stay local.
+     */
+    private function reportWaitingUploads(string $active): void
+    {
+        if (config('queue.default') !== 'database' || !Schema::hasTable('jobs')) {
+            return;
+        }
+
+        $waiting = DB::table('jobs')->where('payload', 'like', '%PushUploadToProvider%')->count();
+
+        if ($waiting) {
+            $this->newLine();
+            $this->warn("  {$waiting} upload(s) are on this server waiting to be copied to {$active}.");
+            $this->line('  They open and download fine meanwhile. A queue worker moves them: php artisan queue:work');
+        }
     }
 
     /** Where the files that already exist are actually living. */

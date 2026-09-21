@@ -9,7 +9,7 @@ use App\Models\FlowItemAttachment;
 use App\Models\FlowItemComment;
 use App\Models\User;
 use App\Services\FlowService;
-use App\Services\Storage\StorageSettings;
+use App\Services\Storage\UploadStaging;
 use App\Services\Storage\StoredFileResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,7 +30,7 @@ class FlowItemController extends Controller
 {
     public function __construct(
         private readonly FlowService $flow,
-        private readonly StorageSettings $storage,
+        private readonly UploadStaging $uploads,
     ) {}
 
     public function queue(Request $request)
@@ -304,8 +304,9 @@ class FlowItemController extends Controller
             $file      = $request->file('file');
             $extension = strtolower($file->getClientOriginalExtension());
             $stored    = Str::uuid() . ($extension !== '' ? '.' . $extension : '');
-            $disk      = $this->storage->activeDisk();
-            $path      = $file->storeAs('flow-attachments/' . $item->id, $stored, $disk);
+            // Parked on this server and moved to the provider in the background
+            // when there is one — see UploadStaging.
+            [$path, $disk] = $this->uploads->store($file, 'flow-attachments/' . $item->id, $stored);
 
             // storeAs() answers false rather than throwing when the provider
             // refuses the write. Saving the row anyway left an attachment that
@@ -329,7 +330,8 @@ class FlowItemController extends Controller
             $payload['body'] = $data['body'];
         }
 
-        FlowItemAttachment::create($payload);
+        $attachment = FlowItemAttachment::create($payload);
+        $this->uploads->pushLater($attachment);
 
         return response()->json(['success' => true]);
     }

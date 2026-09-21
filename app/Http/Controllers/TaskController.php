@@ -206,12 +206,17 @@ class TaskController extends Controller
             'note'    => ['nullable', 'string', 'max:1000'],
             'files'   => ['nullable', 'array', 'max:10'],
             'files.*' => ['file', 'max:20480'],
+            // Files the submit dialog already uploaded, one request each.
+            'attachment_ids'   => ['nullable', 'array', 'max:100'],
+            'attachment_ids.*' => ['integer'],
         ], [
             'files.max'   => 'Hand in up to 10 files at a time.',
             'files.*.max' => 'Each file can be up to 20 MB.',
         ]);
 
-        $updated = $this->service->submitForReview($task, $request->user(), $data['note'] ?? null, $request->file('files', []));
+        $updated = $this->service->submitForReview(
+            $task, $request->user(), $data['note'] ?? null, $request->file('files', []), $data['attachment_ids'] ?? [],
+        );
 
         return response()->json([
             'success' => true,

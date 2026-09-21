@@ -162,7 +162,7 @@
 <div class="card section-card mb-3">
     <div class="card-header py-3 d-flex justify-content-between align-items-center">
         <h6 class="fw-bold mb-0">Attachments <span style="font-size:.7rem;color:var(--text3);font-weight:400">— files, links &amp; notes; they travel to the next stage</span></h6>
-        <span style="font-size:.72rem;color:var(--text3)">{{ $item->attachments->count() }}</span>
+        <span style="font-size:.72rem;color:var(--text3)" id="attCount">{{ $item->attachments->count() }}</span>
     </div>
     <div class="card-body">
         @if($canAttach)
@@ -173,11 +173,12 @@
                     <button type="button" class="btn btn-outline-primary att-kind" data-kind="note"><i class="bi bi-sticky me-1"></i>Note</button>
                 </div>
                 <input type="text" id="attTitle" class="form-control form-control-sm mb-2" placeholder="Label (optional) — e.g. Logo v2" maxlength="150">
-                <div id="attFileWrap"><input type="file" id="attFile" class="form-control form-control-sm"></div>
-                @include('partials.dropzone')
+                {{-- Files upload as soon as they are picked; the label goes with a single file. --}}
+                <div id="attFileWrap"><input type="file" id="attFile" class="form-control form-control-sm" multiple></div>
+                @include('partials.upload-queue')
                 <div id="attUrlWrap" class="d-none"><input type="url" id="attUrl" class="form-control form-control-sm" placeholder="https://… (video, Drive, Figma, etc.)"></div>
                 <div id="attNoteWrap" class="d-none"><textarea id="attBody" class="form-control form-control-sm" rows="2" placeholder="Type anything…" maxlength="5000"></textarea></div>
-                <div class="text-end mt-2"><button class="btn btn-sm btn-primary" id="attAdd"><i class="bi bi-plus-lg me-1"></i>Add</button></div>
+                <div class="text-end mt-2 d-none" id="attAddWrap"><button class="btn btn-sm btn-primary" id="attAdd"><i class="bi bi-plus-lg me-1"></i>Add</button></div>
             </div>
         @endif
 
@@ -393,21 +394,47 @@
     $('.att-kind').on('click', function () {
         attKind = $(this).data('kind');
         $('.att-kind').removeClass('active'); $(this).addClass('active');
+        // The upload queue lives inside the file wrap, so a batch in progress
+        // stays in view only on the File tab — it keeps going either way.
         $('#attFileWrap').toggleClass('d-none', attKind !== 'file');
         $('#attUrlWrap').toggleClass('d-none', attKind !== 'link');
         $('#attNoteWrap').toggleClass('d-none', attKind !== 'note');
+        // Files go up the moment they are picked; only links and notes need Add.
+        $('#attAddWrap').toggleClass('d-none', attKind === 'file');
     });
-    makeDropzone('#attFile', { hint: 'Any file type · up to 50 MB — use a link for larger video' });
+
+    // Re-reads this page and swaps the list in, instead of reloading — a
+    // reload would cut off any upload still running.
+    function refreshAttachments() {
+        return fetch(location.pathname, { headers: { Accept: 'text/html' }, credentials: 'same-origin' })
+            .then(r => r.ok ? r.text() : Promise.reject(r))
+            .then(function (html) {
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                ['#attList', '#attCount'].forEach(function (sel) {
+                    const fresh = doc.querySelector(sel), here = document.querySelector(sel);
+                    if (fresh && here) here.innerHTML = fresh.innerHTML;
+                });
+            })
+            .catch(() => location.reload());
+    }
+
+    makeUploadQueue('#attFile', {
+        url: '/flow-items/' + ITEM + '/attachments',
+        // A label names one file; picked together, each file keeps its own name.
+        data: (file, count) => ({ kind: 'file', title: count === 1 ? $.trim($('#attTitle').val()) : '' }),
+        maxBytes: {{ \App\Support\UploadLimit::bytes(51200) }},
+        hint: @json('Any file type · up to ' . \App\Support\UploadLimit::label(\App\Support\UploadLimit::bytes(51200)) . ' each — use a link for larger video'),
+        onSettled: function () {
+            $('#attTitle').val('');
+            refreshAttachments();
+        },
+    });
 
     $('#attAdd').on('click', function () {
         const fd = new FormData();
         fd.append('kind', attKind);
         fd.append('title', $('#attTitle').val());
-        if (attKind === 'file') {
-            const f = $('#attFile')[0].files[0];
-            if (!f) { Swal.fire('Pick a file first', '', 'info'); return; }
-            fd.append('file', f);
-        } else if (attKind === 'link') {
+        if (attKind === 'link') {
             const u = $.trim($('#attUrl').val());
             if (!u) { Swal.fire('Enter a URL', '', 'info'); return; }
             fd.append('url', u);
@@ -418,8 +445,12 @@
         }
         const $btn = $(this).prop('disabled', true);
         $.ajax({ url: '/flow-items/' + ITEM + '/attachments', type: 'POST', data: fd, processData: false, contentType: false })
-            .done(() => location.reload())
-            .fail(x => { $btn.prop('disabled', false); Swal.fire('Error', x.responseJSON?.message || 'Upload failed', 'error'); });
+            .done(function () {
+                $('#attTitle, #attUrl, #attBody').val('');
+                refreshAttachments();
+            })
+            .fail(x => Swal.fire('Error', x.responseJSON?.message || 'Could not add it', 'error'))
+            .always(() => $btn.prop('disabled', false));
     });
     @endif
 

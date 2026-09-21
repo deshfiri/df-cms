@@ -75,7 +75,9 @@
         zone.innerHTML =
             '<div class="dzone-idle">'
             + '<i class="bi bi-cloud-arrow-up dzone-icon"></i>'
-            + '<div class="dzone-text">' + (options.text || 'Drag &amp; drop a file here, or <u>browse</u>') + '</div>'
+            + '<div class="dzone-text">' + (options.text || (el.multiple
+                ? 'Drag &amp; drop files here, or <u>browse</u> — several at once is fine'
+                : 'Drag &amp; drop a file here, or <u>browse</u>')) + '</div>'
             + (options.hint ? '<div class="dzone-hint">' + options.hint + '</div>' : '')
             + '</div>'
             + '<div class="dzone-picked" hidden></div>';
@@ -88,13 +90,15 @@
         const picked = zone.querySelector('.dzone-picked');
 
         function show() {
-            const file = el.files && el.files[0];
+            const files = el.files ? Array.from(el.files) : [];
+            const file = files[0];
             idle.hidden = !!file;
             picked.hidden = !file;
             if (file) {
+                const total = files.reduce((sum, f) => sum + f.size, 0);
                 picked.innerHTML = '<i class="bi bi-file-earmark-check"></i>'
-                    + '<span>' + $('<div>').text(file.name).html() + '</span>'
-                    + '<span style="color:var(--text3)">' + human(file.size) + '</span>'
+                    + '<span>' + (files.length > 1 ? files.length + ' files' : $('<div>').text(file.name).html()) + '</span>'
+                    + '<span style="color:var(--text3)">' + human(total) + '</span>'
                     + '<button type="button" class="dzone-clear" title="Remove"><i class="bi bi-x-lg"></i></button>';
             }
         }
@@ -134,9 +138,9 @@
             const files = e.dataTransfer && e.dataTransfer.files;
             if (!files || !files.length) return;
 
-            // One file per input, matching what the browse dialog allows here.
+            // As many files as the browse dialog would allow for this input.
             const transfer = new DataTransfer();
-            transfer.items.add(files[0]);
+            Array.from(el.multiple ? files : [files[0]]).forEach(f => transfer.items.add(f));
             el.files = transfer.files;
 
             show();

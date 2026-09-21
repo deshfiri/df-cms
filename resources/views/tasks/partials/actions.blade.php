@@ -10,6 +10,7 @@
     each page decides what to refresh. Every rule is enforced by the server —
     these only decide what to offer.
 --}}
+@include('partials.upload-queue')
 @push('scripts')
 <script>
 /** Anything a user typed — a filename, a comment — goes into the page as text, never markup. */
@@ -60,41 +61,60 @@ $(document).on('click', '.task-progress', function () {
 });
 
 // ── Submit the task (assignee) ───────────────────────────────────────────
+// Files go up through the upload queue as soon as they are picked — one per
+// request, so any number of them fits under the server's per-request limit —
+// and join the task's files as they land. Submit waits for them, then hands
+// in their ids with the note.
+var TASK_UPLOAD_MAX = {{ \App\Support\UploadLimit::bytes(20480) }};
+var TASK_UPLOAD_HINT = {{ Js::from('Any file type · up to ' . \App\Support\UploadLimit::label(\App\Support\UploadLimit::bytes(20480)) . ' each · added to the task as they upload') }};
+
 $(document).on('click', '.task-submit', function () {
     var id = $(this).data('id');
     var title = $(this).data('title');
     var requires = String($(this).data('requires')) === '1';
+    var uploadedIds = [];
+    var queue = null;
 
     Swal.fire({
         title: 'Submit task',
         html: '<div class="mb-2" style="font-size:.85rem"><strong>' + escHtml(title) + '</strong></div>'
             + '<div style="font-size:.8rem;color:var(--text3)" class="mb-2">It goes to whoever asked for it. They accept it or send it back.</div>'
             + '<textarea id="submitNote" class="form-control form-control-sm mb-2" rows="2" maxlength="1000" placeholder="Anything they should know (optional)"></textarea>'
-            + '<div class="text-start" style="font-size:.78rem;color:var(--text2)">'
+            + '<div class="text-start mb-1" style="font-size:.78rem;color:var(--text2)">'
             +   (requires
                     ? '<i class="bi bi-paperclip me-1"></i><strong>A file is required.</strong> Attach your work here, unless you already added it to the task.'
-                    : '<i class="bi bi-paperclip me-1"></i>Files <span style="color:var(--text3)">(optional, up to 10 · 20 MB each)</span>')
+                    : '<i class="bi bi-paperclip me-1"></i>Files <span style="color:var(--text3)">(optional)</span>')
             + '</div>'
-            + '<input type="file" id="submitFiles" class="form-control form-control-sm mt-1" multiple>',
+            + '<input type="file" id="submitFiles" class="form-control form-control-sm" multiple>',
         showCancelButton: true,
         confirmButtonText: '<i class="bi bi-send me-1"></i>Submit',
         showLoaderOnConfirm: true,
-        allowOutsideClick: () => !Swal.isLoading(),
+        allowOutsideClick: () => !Swal.isLoading() && !(queue && queue.busy()),
+        didOpen: function () {
+            queue = makeUploadQueue(document.getElementById('submitFiles'), {
+                url: '/tasks/' + id + '/attachments',
+                maxBytes: TASK_UPLOAD_MAX,
+                hint: TASK_UPLOAD_HINT,
+                onUploaded: function (json) { if (json && json.attachment) uploadedIds.push(json.attachment.id); },
+            });
+        },
+        // Closing the dialog stops what has not landed yet; what has stays on the task.
+        willClose: function () { if (queue && queue.busy()) queue.cancelAll(); },
         preConfirm: function () {
-            const files = Array.from(document.getElementById('submitFiles').files);
-            if (files.length > 10) { Swal.showValidationMessage('Hand in up to 10 files at a time.'); return false; }
-            const tooBig = files.find(f => f.size > 20 * 1024 * 1024);
-            if (tooBig) { Swal.showValidationMessage(tooBig.name + ' is larger than 20 MB.'); return false; }
-
-            const fd = new FormData();
-            fd.append('note', $('#submitNote').val() || '');
-            files.forEach(f => fd.append('files[]', f));
-
-            return $.ajax({ url: '/tasks/' + id + '/submit', type: 'POST', data: fd, processData: false, contentType: false })
-                .catch(function (x) { Swal.showValidationMessage(ajaxMessage(x, 'Could not submit the task.')); });
+            return queue.idle().then(function () {
+                if (queue.failed()) {
+                    Swal.showValidationMessage('Some files did not upload. Try them again or dismiss them first.');
+                    return false;
+                }
+                return $.post('/tasks/' + id + '/submit', { note: $('#submitNote').val() || '', attachment_ids: uploadedIds })
+                    .catch(function (x) { Swal.showValidationMessage(ajaxMessage(x, 'Could not submit the task.')); });
+            });
         },
     }).then(function (r) {
-        if (!r.isConfirmed || !r.value) return;
+        if (!r.isConfirmed || !r.value) {
+            if (uploadedIds.length) $(document).trigger('task:files-changed');
+            return;
+        }
         Swal.fire({ icon: 'success', title: 'Submitted for review', timer: 1400, showConfirmButton: false });
         $(document).trigger('task:changed', [r.value.task]);
     });

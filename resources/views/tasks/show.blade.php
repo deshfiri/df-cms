@@ -51,6 +51,9 @@
     // Files, links and notes in one list, in the order they were shared.
     $shared = $task->attachments->toBase()->concat($task->notes)->sortByDesc('created_at')->values();
 
+    // What one file can really be here — the app allows 20 MB, PHP may allow less.
+    $uploadMax = \App\Support\UploadLimit::bytes(20480);
+
     // An edit that changed who, when or what state also logs those as their own
     // events; the generic "edited" row next to them would only repeat it.
     $activities = $task->activities->filter(function ($a) use ($task, $Involvement) {
@@ -353,7 +356,7 @@
                 @if(!in_array($task->status, ['Completed', 'Cancelled'], true) || $can['manage'])
                     <div class="row g-2 mb-3">
                         <div class="col-md-6 tp-share-col">
-                            <input type="file" id="taskFileInput" class="form-control form-control-sm">
+                            <input type="file" id="taskFileInput" class="form-control form-control-sm" multiple>
                         </div>
                         <div class="col-md-6 tp-share-col">
                             <form id="taskNoteForm" class="tp-note-form">
@@ -366,7 +369,7 @@
                             </form>
                         </div>
                     </div>
-                    @include('partials.dropzone')
+                    @include('partials.upload-queue')
                 @endif
                 @include('partials.file-preview')
 
@@ -794,13 +797,15 @@
     setInterval(() => document.querySelectorAll('time.local-dt[data-format="relative"]').length && localizeTimes(), 60000);
 
     // Resync with the server now and then — someone else may have moved the task.
+    // Not while files are going up: the reload would cut them off.
+    let fileQueue = null;
     setInterval(function () {
         if (document.hidden) return;
         jQuery.getJSON('/tasks/' + TASK_ID, { timer_only: 1 }).done(function (r) {
             const statusChanged = r.status !== @json($task->status);
             timer = r.timer;
             offset = Date.parse(timer.server_now) - Date.now();
-            if (statusChanged && !jQuery('.modal.show, .swal2-container').length) location.reload();
+            if (statusChanged && !jQuery('.modal.show, .swal2-container').length && !(fileQueue && fileQueue.busy())) location.reload();
         });
     }, 60000);
 
@@ -832,37 +837,18 @@
         });
     }
 
+    // Any number of files, uploaded a couple at a time; the list refreshes once
+    // the batch is done (see partials/upload-queue).
     const fileInput = document.getElementById('taskFileInput');
-    if (fileInput) {
-        makeDropzone(fileInput, { hint: 'Any file type · up to 20 MB' });
+    fileQueue = fileInput && makeUploadQueue(fileInput, {
+        url: '/tasks/' + TASK_ID + '/attachments',
+        maxBytes: {{ $uploadMax }},
+        hint: @json('Any file type · up to ' . \App\Support\UploadLimit::label($uploadMax) . ' each'),
+        onSettled: refreshShared,
+    });
 
-        fileInput.addEventListener('change', function () {
-            const file = fileInput.files[0];
-            if (!file) return;
-            if (file.size > 20 * 1024 * 1024) {
-                Swal.fire('File too large', 'Files can be up to 20 MB.', 'warning');
-                fileInput.value = '';
-                fileInput.dispatchEvent(new Event('change'));
-                return;
-            }
-
-            const fd = new FormData();
-            fd.append('file', file);
-            fileInput.disabled = true;
-
-            jQuery.ajax({ url: '/tasks/' + TASK_ID + '/attachments', type: 'POST', data: fd, processData: false, contentType: false })
-                .done(function () {
-                    Swal.fire({ toast: true, position: 'bottom-end', icon: 'success', title: 'File added', showConfirmButton: false, timer: 1500 });
-                    refreshShared();
-                })
-                .fail(x => { if (x.status !== 403) Swal.fire('Upload failed', ajaxMessage(x, 'The file could not be uploaded.'), 'error'); })
-                .always(function () {
-                    fileInput.disabled = false;
-                    fileInput.value = '';
-                    fileInput.dispatchEvent(new Event('change'));
-                });
-        });
-    }
+    // Files handed in from the submit dialog, which was then closed.
+    jQuery(document).on('task:files-changed', refreshShared);
 
     jQuery(document).on('click', '.tp-file-delete', function () {
         const id = this.dataset.id, name = this.dataset.name;
