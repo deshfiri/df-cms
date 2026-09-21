@@ -246,6 +246,55 @@ class FlowEngineTest extends TestCase
         $this->assertCount(1, $this->flow->myQueue($b));
     }
 
+    public function test_releasing_tells_the_rest_of_the_stage_it_is_available_to_claim(): void
+    {
+        $a = $this->user();
+        $b = $this->user();
+        $c = $this->user();
+        $gone = User::factory()->create(['is_active' => false]);
+        $creator = $this->admin();
+        [$flow] = $this->buildFlow($creator, [['Draft', [$a, $b, $c, $gone]]]);
+        $item = $this->flow->createItem($flow, ['title' => 'Poster'], $creator);
+        $this->flow->claim($item->fresh(), $a);
+
+        Notification::fake();
+        $this->flow->release($item->fresh(), $a);
+
+        foreach ([$b, $c] as $mate) {
+            Notification::assertSentTo($mate, FlowItemAwaitingYou::class, function (FlowItemAwaitingYou $n) use ($mate, $a) {
+                $data = $n->toArray($mate);
+
+                return $data['title'] === 'Available to claim'
+                    && str_contains($data['message'], "released by {$a->name}, available to claim");
+            });
+        }
+        Notification::assertNotSentTo($a, FlowItemAwaitingYou::class);     // the releaser knows
+        Notification::assertNotSentTo($gone, FlowItemAwaitingYou::class);  // inactive
+        Notification::assertNotSentTo($creator, FlowItemAwaitingYou::class); // not on the stage
+
+        // Releasing an item nobody holds says nothing.
+        Notification::fake();
+        $this->flow->release($item->fresh(), $a);
+        Notification::assertNothingSent();
+    }
+
+    public function test_an_admin_freeing_a_claim_tells_the_person_who_held_it(): void
+    {
+        $a = $this->user();
+        $b = $this->user();
+        $admin = $this->admin();
+        [$flow] = $this->buildFlow($admin, [['Draft', [$a, $b]]]);
+        $item = $this->flow->createItem($flow, ['title' => 'x'], $admin);
+        $this->flow->claim($item->fresh(), $a);
+
+        Notification::fake();
+        $this->flow->release($item->fresh(), $admin);
+
+        Notification::assertSentTo($a, FlowItemAwaitingYou::class);
+        Notification::assertSentTo($b, FlowItemAwaitingYou::class);
+        Notification::assertNotSentTo($admin, FlowItemAwaitingYou::class);
+    }
+
     public function test_a_hand_off_can_be_addressed_to_one_person_on_the_next_stage(): void
     {
         Notification::fake();

@@ -368,7 +368,7 @@
                 @endif
                 @include('partials.file-preview')
 
-                <div id="taskFiles">
+                <div id="taskFiles" style="background:#EBF2FE;">
                     @forelse($shared as $a)
                         @if($a instanceof \App\Models\TaskNote)
                             <div class="tp-file{{ $a->is_link ? '' : ' tp-note' }}">

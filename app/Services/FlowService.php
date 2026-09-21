@@ -357,7 +357,14 @@ class FlowService
         });
     }
 
-    /** Return a claimed item to the pool — the claimer or an admin. */
+    /**
+     * Return a claimed item to the pool — the claimer or an admin.
+     *
+     * The rest of the stage is told it is up for grabs: while it was claimed it
+     * was hidden from their queues, so without a nudge it would sit there until
+     * someone happened to look. When an admin frees someone else's claim, that
+     * person hears it too — it is no longer theirs.
+     */
     public function release(FlowItem $item, User $user): FlowItem
     {
         if ($item->assigned_to === null) {
@@ -368,6 +375,10 @@ class FlowService
         }
 
         $item->update(['assigned_to' => null]);
+
+        if ($item->isOpen() && $item->currentStage) {
+            $this->notifyStage($item, $item->currentStage, $user, "released by {$user->name}, available to claim", 'Available to claim');
+        }
 
         return $item->fresh();
     }
@@ -569,7 +580,7 @@ class FlowService
     }
 
     /** Notify a stage's active assignees (except the actor) that an item now needs them. */
-    private function notifyStage(FlowItem $item, FlowStage $stage, ?User $except, string $reason): void
+    private function notifyStage(FlowItem $item, FlowStage $stage, ?User $except, string $reason, string $title = 'Work awaiting you'): void
     {
         $recipients = $stage->users()
             ->where('users.is_active', true)
@@ -580,7 +591,7 @@ class FlowService
         // never blocks the others — the DB channel runs first and still persists.
         foreach ($recipients as $recipient) {
             try {
-                $recipient->notify(new FlowItemAwaitingYou($item, $stage, $reason));
+                $recipient->notify(new FlowItemAwaitingYou($item, $stage, $reason, $title));
             } catch (\Throwable $e) {
                 report($e);
             }
