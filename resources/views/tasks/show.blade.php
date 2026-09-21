@@ -140,8 +140,10 @@
     .tp-person { display: inline-flex; align-items: center; gap: .4rem; }
 
     /* Files */
-    .tp-file { display: flex; align-items: center; gap: .6rem; padding: .5rem .6rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); margin-bottom: .4rem; }
-    .tp-file-icon { width: 44px; height: 44px; border-radius: 8px; display: grid; place-items: center; background: var(--surface2); color: var(--primary); font-size: 1.1rem; flex-shrink: 0; }
+    /* Everything shared sits on a light blue tint, apart from the boxes that add it. */
+    .tp-file { display: flex; align-items: center; gap: .6rem; padding: .5rem .6rem; border: 1px solid color-mix(in srgb, var(--c-blue) 25%, transparent); border-radius: var(--radius); background: var(--c-blue-bg); margin-bottom: .4rem; }
+    .tp-file-icon { width: 44px; height: 44px; border-radius: 8px; display: grid; place-items: center; background: var(--surface); color: var(--c-blue); font-size: 1.1rem; flex-shrink: 0; }
+    .tp-file .tp-icon-btn:hover { background: var(--surface); }
     .tp-file-name { font-size: .8rem; font-weight: 600; color: var(--text); text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tp-file-name:hover { color: var(--primary); }
     .tp-file-sub { font-size: .68rem; color: var(--text3); }
@@ -368,10 +370,10 @@
                 @endif
                 @include('partials.file-preview')
 
-                <div id="taskFiles" style="background:#EBF2FE;">
+                <div id="taskFiles">
                     @forelse($shared as $a)
                         @if($a instanceof \App\Models\TaskNote)
-                            <div class="tp-file{{ $a->is_link ? '' : ' tp-note' }}">
+                            <div class="tp-file{{ $a->is_link ? '' : ' tp-note' }}" style="background:#EBF2FE;border:1px solid #C5D2E6;">
                                 <span class="tp-file-icon"><i class="bi {{ $a->is_link ? 'bi-link-45deg' : 'bi-sticky' }}"></i></span>
                                 <div class="flex-grow-1 min-w-0">
                                     @if($a->is_link)

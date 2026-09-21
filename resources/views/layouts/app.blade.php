@@ -997,6 +997,7 @@
     @endif
     </script>
     <script src="{{ App\Support\ShellAsset::url('js/shell-b.js') }}"></script>
+    <script src="{{ App\Support\ShellAsset::url('js/linkify.js') }}"></script>
     <script>
     // ── Tasks badge ──────────────────────────────────────────────────────
     // Recounted from the server, never incremented locally, so it can't drift:
