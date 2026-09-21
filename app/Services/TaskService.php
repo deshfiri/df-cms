@@ -7,6 +7,7 @@ use App\Models\PerformanceSetting;
 use App\Models\Task;
 use App\Models\TaskAttachment;
 use App\Models\TaskComment;
+use App\Models\TaskNote;
 use App\Models\TaskRevision;
 use App\Models\User;
 use App\Notifications\TaskAssigned;
@@ -449,6 +450,32 @@ class TaskService
         Storage::disk($attachment->disk ?: 'local')->delete($attachment->file_path);
         $this->logActivity($attachment->task, 'Attachment Removed', $attachment->original_name, event: 'attachment_removed', meta: ['attachment_id' => $attachment->id]);
         $attachment->delete();
+    }
+
+    /** A link or a note left beside the files. */
+    public function addNote(Task $task, string $body): TaskNote
+    {
+        $note = TaskNote::create([
+            'task_id' => $task->id,
+            'user_id' => Auth::id(),
+            'body'    => $body,
+        ]);
+
+        $this->logActivity($task, $note->is_link ? 'Link Shared' : 'Note Added', $body, event: 'note_added', meta: [
+            'note_id' => $note->id,
+            'kind'    => $note->is_link ? 'link' : 'note',
+        ]);
+
+        return $note->load('user:id,name');
+    }
+
+    public function deleteNote(TaskNote $note): void
+    {
+        $this->logActivity($note->task, $note->is_link ? 'Link Removed' : 'Note Removed', $note->body, event: 'note_removed', meta: [
+            'note_id' => $note->id,
+            'kind'    => $note->is_link ? 'link' : 'note',
+        ]);
+        $note->delete();
     }
 
     /**

@@ -279,6 +279,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('tasks/{task}/attachments/{attachment}/download', [TaskController::class, 'downloadAttachment'])->name('tasks.attachments.download');
     Route::get('tasks/{task}/attachments/{attachment}/preview', [TaskController::class, 'previewAttachment'])->name('tasks.attachments.preview');
     Route::delete('tasks/{task}/attachments/{attachment}', [TaskController::class, 'destroyAttachment'])->name('tasks.attachments.destroy');
+    Route::post('tasks/{task}/notes', [TaskController::class, 'storeNote'])->name('tasks.notes.store');
+    Route::delete('tasks/{task}/notes/{note}', [TaskController::class, 'destroyNote'])->name('tasks.notes.destroy');
 
     // Employee requests (standalone)
     Route::resource('requests', EmployeeRequestController::class)

@@ -311,6 +311,7 @@
                         Share = your work points ÷ all doers' points on the task (the current holder adds {{ \App\Services\TaskInvolvementService::HOLDING_POINTS + 0 }}).
                         Started {{ \App\Services\TaskInvolvementService::WORK_POINTS['started'] + 0 }} · file {{ \App\Services\TaskInvolvementService::WORK_POINTS['attachment_added'] + 0 }} (max {{ \App\Services\TaskInvolvementService::CAPS['attachment_added'] + 0 }})
                         · comment {{ \App\Services\TaskInvolvementService::WORK_POINTS['comment'] + 0 }} (max {{ \App\Services\TaskInvolvementService::CAPS['comment'] + 0 }})
+                        · link or note {{ \App\Services\TaskInvolvementService::WORK_POINTS['note_added'] + 0 }} (max {{ \App\Services\TaskInvolvementService::CAPS['note_added'] + 0 }})
                         · submitted {{ \App\Services\TaskInvolvementService::WORK_POINTS['submitted'] + 0 }}.
                         Creating, reviewing or only holding a task that passed on earns no share. Rates weight each task by its share.
                     </div>

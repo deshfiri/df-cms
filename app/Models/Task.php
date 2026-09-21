@@ -223,6 +223,12 @@ class Task extends Model
         return $this->hasMany(TaskAttachment::class)->latest();
     }
 
+    /** Links and notes shared beside the files. */
+    public function notes(): HasMany
+    {
+        return $this->hasMany(TaskNote::class)->latest();
+    }
+
     public function activities(): HasMany
     {
         return $this->hasMany(TaskActivity::class)->latest();

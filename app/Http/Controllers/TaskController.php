@@ -9,6 +9,7 @@ use App\Models\Label;
 use App\Models\Task;
 use App\Models\TaskAttachment;
 use App\Models\TaskComment;
+use App\Models\TaskNote;
 use App\Models\TaskRevision;
 use App\Models\User;
 use App\Services\Storage\StoredFileResponse;
@@ -104,6 +105,7 @@ class TaskController extends Controller
             'labels',
             'comments.user:id,name,avatar',
             'attachments.user:id,name',
+            'notes.user:id,name',
             'activities.user:id,name',
             'revisions.requestedBy:id,name',
             'involvements.user:id,name,avatar',
@@ -320,6 +322,31 @@ class TaskController extends Controller
         abort_unless((int) $attachment->user_id === (int) auth()->id() || auth()->user()->can('moderate', $task), 403, "Cannot delete another user's attachment.");
 
         $this->service->deleteAttachment($attachment);
+
+        return response()->json(['success' => true]);
+    }
+
+    /** A link or a note shared beside the files — open to anyone on the task, like a file. */
+    public function storeNote(Request $request, Task $task): JsonResponse
+    {
+        $this->authorize('view', $task);
+
+        $data = $request->validate(
+            ['body' => 'required|string|max:2000'],
+            ['body.required' => 'Paste a link or write a note first.'],
+        );
+        $note = $this->service->addNote($task, $data['body']);
+
+        return response()->json(['success' => true, 'note' => $note]);
+    }
+
+    public function destroyNote(Task $task, TaskNote $note): JsonResponse
+    {
+        $this->authorize('view', $task);
+        abort_if((int) $note->task_id !== (int) $task->id, 404);
+        abort_unless((int) $note->user_id === (int) auth()->id() || auth()->user()->can('moderate', $task), 403, "Cannot delete another user's link or note.");
+
+        $this->service->deleteNote($note);
 
         return response()->json(['success' => true]);
     }

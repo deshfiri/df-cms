@@ -31,9 +31,10 @@ use Illuminate\Support\Facades\DB;
  *     resumed work        0.5  (up to 1)
  *     added a file        2    (up to 6)
  *     commented           0.5  (up to 1.5)
+ *     shared a link/note  0.5  (up to 1.5)
  *     submitted the work  4    (up to 8 — a resubmission after rework counts)
  *
- * Comments and files earn work points only for people doing the work: anyone
+ * Comments, files and links earn work points only for people doing the work: anyone
  * who has held the task, or a helper who neither asked for it nor reviewed it.
  * A manager commenting on work they assigned is not doing that work.
  *
@@ -70,6 +71,7 @@ class TaskInvolvementService
         'resumed'          => 0.5,
         'attachment_added' => 2.0,
         'comment'          => 0.5,
+        'note_added'       => 0.5,
         'submitted'        => 4.0,
     ];
 
@@ -78,6 +80,7 @@ class TaskInvolvementService
         'resumed'          => 1.0,
         'attachment_added' => 6.0,
         'comment'          => 1.5,
+        'note_added'       => 1.5,
         'submitted'        => 8.0,
     ];
 
@@ -223,6 +226,7 @@ class TaskInvolvementService
 
                 case 'comment':
                 case 'attachment_added':
+                case 'note_added':
                     // Doing the work, or helping with it — not directing it.
                     $isHelper = $actor
                         && (int) $actor !== (int) $task->created_by

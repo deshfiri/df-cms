@@ -34,13 +34,22 @@
         'comment'            => ['bi-chat-left-text',         'var(--text2)'],
         'attachment_added'   => ['bi-paperclip',              'var(--text2)'],
         'attachment_removed' => ['bi-trash',                  'var(--text3)'],
+        'note_added'         => ['bi-sticky',                 'var(--text2)'],
+        'note_removed'       => ['bi-trash',                  'var(--text3)'],
+        'link_added'         => ['bi-link-45deg',             'var(--text2)'],
+        'link_removed'       => ['bi-trash',                  'var(--text3)'],
     ];
     $eventTitle = [
         'created' => 'created the task', 'updated' => 'edited the task', 'reassigned' => 'reassigned it',
         'status_changed' => 'changed the status', 'due_changed' => 'moved the deadline', 'submitted' => 'submitted the task',
         'approved' => 'accepted the submission', 'returned' => 'sent it back for revision', 'comment' => 'commented',
         'attachment_added' => 'added a file', 'attachment_removed' => 'removed a file',
+        'note_added' => 'left a note', 'note_removed' => 'removed a note',
+        'link_added' => 'shared a link', 'link_removed' => 'removed a link',
     ];
+
+    // Files, links and notes in one list, in the order they were shared.
+    $shared = $task->attachments->toBase()->concat($task->notes)->sortByDesc('created_at')->values();
 
     // An edit that changed who, when or what state also logs those as their own
     // events; the generic "edited" row next to them would only repeat it.
@@ -139,6 +148,20 @@
     .tp-icon-btn { background: none; border: 0; color: var(--text3); padding: .25rem .35rem; border-radius: 6px; line-height: 1; text-decoration: none; }
     .tp-icon-btn:hover { color: var(--primary); background: var(--surface2); }
     .tp-icon-btn.is-danger:hover { color: var(--c-red); }
+
+    /* Links and notes, beside the file drop zone */
+    .tp-share-col { display: flex; }
+    .tp-share-col > .dzone, .tp-share-col > .tp-note-form { flex: 1; min-width: 0; }
+    .tp-share-col > .dzone { display: flex; flex-direction: column; justify-content: center; }
+    .tp-note-form { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: .5rem .6rem; transition: border-color .12s, box-shadow .12s; }
+    .tp-note-form:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(var(--primary-rgb), .12); }
+    .tp-note-form textarea { flex: 1; min-height: 2.8rem; border: 0; outline: 0; resize: none; padding: 0; background: transparent; color: var(--text); font-size: .8rem; }
+    .tp-note-form textarea::placeholder { color: var(--text3); }
+    .tp-note-foot { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-top: .35rem; }
+    .tp-note-hint { font-size: .68rem; color: var(--text3); }
+    .tp-file.tp-note { align-items: flex-start; }
+    .tp-note-body { font-size: .8rem; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+    .tp-note-body a { color: var(--primary); word-break: break-all; }
 
     /* Discussion */
     .tp-comment { display: flex; gap: .6rem; padding: .6rem 0; border-bottom: 1px solid var(--border); }
@@ -321,20 +344,55 @@
 
         <div class="card section-card mb-3">
             <div class="card-header py-2 tp-card-h">
-                <h6><i class="bi bi-paperclip me-1"></i>Files</h6>
-                <span class="tp-count" id="taskFilesCount">{{ $task->attachments->count() }}</span>
+                <h6><i class="bi bi-paperclip me-1"></i>Files &amp; links</h6>
+                <span class="tp-count" id="taskFilesCount">{{ $shared->count() }}</span>
             </div>
             <div class="card-body">
                 @if(!in_array($task->status, ['Completed', 'Cancelled'], true) || $can['manage'])
-                    <div class="mb-3">
-                        <input type="file" id="taskFileInput" class="form-control form-control-sm">
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6 tp-share-col">
+                            <input type="file" id="taskFileInput" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-6 tp-share-col">
+                            <form id="taskNoteForm" class="tp-note-form">
+                                <label for="taskNoteInput" class="visually-hidden">Share a link or leave a note</label>
+                                <textarea id="taskNoteInput" rows="2" maxlength="2000" placeholder="Paste a link or leave a note…"></textarea>
+                                <div class="tp-note-foot">
+                                    <span class="tp-note-hint"><i class="bi bi-link-45deg me-1"></i>Links become clickable · Ctrl+Enter</span>
+                                    <button type="submit" class="btn btn-sm btn-primary py-0 px-2" id="taskNoteSend">Add</button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
                     @include('partials.dropzone')
                 @endif
                 @include('partials.file-preview')
 
                 <div id="taskFiles">
-                    @forelse($task->attachments as $a)
+                    @forelse($shared as $a)
+                        @if($a instanceof \App\Models\TaskNote)
+                            <div class="tp-file{{ $a->is_link ? '' : ' tp-note' }}">
+                                <span class="tp-file-icon"><i class="bi {{ $a->is_link ? 'bi-link-45deg' : 'bi-sticky' }}"></i></span>
+                                <div class="flex-grow-1 min-w-0">
+                                    @if($a->is_link)
+                                        <a href="{{ $a->link_url }}" class="tp-file-name" target="_blank" rel="noopener noreferrer nofollow" title="{{ $a->body }}">{{ $a->body }}</a>
+                                    @else
+                                        <div class="tp-note-body">{!! $a->body_html !!}</div>
+                                    @endif
+                                    <div class="tp-file-sub">
+                                        @if($a->is_link){{ $a->link_host }} · @endif{{ $a->user->name ?? '—' }} ·
+                                        <time class="local-dt" data-format="relative" datetime="{{ $iso($a->created_at) }}">{{ $a->created_at->diffForHumans() }}</time>
+                                    </div>
+                                </div>
+                                @if($a->is_link)
+                                    <a href="{{ $a->link_url }}" class="tp-icon-btn" target="_blank" rel="noopener noreferrer nofollow" title="Open in a new tab"><i class="bi bi-box-arrow-up-right"></i></a>
+                                @endif
+                                @if((int) $a->user_id === (int) $me->id || $can['manage'])
+                                    <button type="button" class="tp-icon-btn is-danger tp-note-delete" data-id="{{ $a->id }}" data-kind="{{ $a->is_link ? 'link' : 'note' }}" data-name="{{ \Illuminate\Support\Str::limit($a->body, 80) }}" title="Remove"><i class="bi bi-x-lg"></i></button>
+                                @endif
+                            </div>
+                            @continue
+                        @endif
                         @php
                             $download = route('tasks.attachments.download', [$task, $a]);
                             $mime = (string) $a->mime_type;
@@ -374,7 +432,7 @@
                             @endif
                         </div>
                     @empty
-                        <div class="text-center py-2 small" style="color:var(--text3)">No files yet.</div>
+                        <div class="text-center py-2 small" style="color:var(--text3)">Nothing shared yet.</div>
                     @endforelse
                 </div>
             </div>
@@ -465,10 +523,12 @@
                     @forelse($activities as $act)
                         @php
                             [$event, $meta] = \App\Services\TaskInvolvementService::eventOf($act);
-                            [$icon, $color] = $eventLook[$event] ?? ['bi-dot', 'var(--text3)'];
+                            // One event for both; what was shared decides how it reads.
+                            $look = ($meta['kind'] ?? null) === 'link' ? str_replace('note_', 'link_', $event) : $event;
+                            [$icon, $color] = $eventLook[$look] ?? ['bi-dot', 'var(--text3)'];
                             $detail = match ($event) {
                                 'status_changed', 'reassigned' => $act->description,
-                                'comment'                      => \Illuminate\Support\Str::limit((string) $act->description, 160),
+                                'comment', 'note_added', 'note_removed' => \Illuminate\Support\Str::limit((string) $act->description, 160),
                                 'attachment_added', 'attachment_removed' => $act->description,
                                 'returned', 'approved'         => $act->description,
                                 'submitted'                    => ($meta['note'] ?? null) ? '“' . \Illuminate\Support\Str::limit($meta['note'], 160) . '”' : null,
@@ -477,7 +537,7 @@
                         @endphp
                         <li>
                             <span class="tp-tl-dot" style="border-color:{{ $color }}"><i class="bi {{ $icon }}" style="color:{{ $color }}"></i></span>
-                            <div class="tp-tl-line"><strong>{{ $act->user->name ?? 'System' }}</strong> {{ $eventTitle[$event] ?? strtolower($act->action) }}</div>
+                            <div class="tp-tl-line"><strong>{{ $act->user->name ?? 'System' }}</strong> {{ $eventTitle[$look] ?? strtolower($act->action) }}</div>
                             @if($event === 'due_changed')
                                 <div class="tp-tl-detail">
                                     <time class="local-dt" datetime="{{ $meta['from'] ?? '' }}">{{ $meta['from'] ?? 'no deadline' }}</time>
@@ -762,7 +822,14 @@
     // Status changes touch the header, the buttons and the counter: reload.
     jQuery(document).on('task:changed task:saved', () => location.reload());
 
-    // ── Files ────────────────────────────────────────────────────────────
+    // ── Files, links and notes ───────────────────────────────────────────
+    // One list and one count for all three.
+    function refreshShared() {
+        return refresh(['#taskFiles', '#taskActivity', '#taskPeople']).then(() => {
+            document.getElementById('taskFilesCount').textContent = document.querySelectorAll('#taskFiles .tp-file').length;
+        });
+    }
+
     const fileInput = document.getElementById('taskFileInput');
     if (fileInput) {
         makeDropzone(fileInput, { hint: 'Any file type · up to 20 MB' });
@@ -784,9 +851,7 @@
             jQuery.ajax({ url: '/tasks/' + TASK_ID + '/attachments', type: 'POST', data: fd, processData: false, contentType: false })
                 .done(function () {
                     Swal.fire({ toast: true, position: 'bottom-end', icon: 'success', title: 'File added', showConfirmButton: false, timer: 1500 });
-                    refresh(['#taskFiles', '#taskActivity', '#taskPeople']).then(() => {
-                        document.getElementById('taskFilesCount').textContent = document.querySelectorAll('#taskFiles .tp-file').length;
-                    });
+                    refreshShared();
                 })
                 .fail(x => { if (x.status !== 403) Swal.fire('Upload failed', ajaxMessage(x, 'The file could not be uploaded.'), 'error'); })
                 .always(function () {
@@ -803,10 +868,40 @@
             .then(function (r) {
                 if (!r.isConfirmed) return;
                 jQuery.ajax({ url: '/tasks/' + TASK_ID + '/attachments/' + id, type: 'DELETE' })
-                    .done(() => refresh(['#taskFiles', '#taskActivity', '#taskPeople']).then(() => {
-                        document.getElementById('taskFilesCount').textContent = document.querySelectorAll('#taskFiles .tp-file').length;
-                    }))
+                    .done(refreshShared)
                     .fail(x => { if (x.status !== 403) Swal.fire('Could not remove the file', ajaxMessage(x, 'Please try again.'), 'error'); });
+            });
+    });
+
+    const noteInput = document.getElementById('taskNoteInput');
+    if (noteInput) {
+        jQuery('#taskNoteForm').on('submit', function (e) {
+            e.preventDefault();
+            const body = noteInput.value.trim();
+            if (!body) { noteInput.focus(); return; }
+            const $send = jQuery('#taskNoteSend').prop('disabled', true);
+
+            jQuery.post('/tasks/' + TASK_ID + '/notes', { body })
+                .done(function () {
+                    noteInput.value = '';
+                    refreshShared();
+                })
+                .fail(x => { if (x.status !== 403) Swal.fire('Could not add it', ajaxMessage(x, 'Please try again.'), 'error'); })
+                .always(() => $send.prop('disabled', false));
+        });
+        noteInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) jQuery('#taskNoteForm').trigger('submit');
+        });
+    }
+
+    jQuery(document).on('click', '.tp-note-delete', function () {
+        const id = this.dataset.id, kind = this.dataset.kind;
+        Swal.fire({ title: 'Remove this ' + kind + '?', text: this.dataset.name, icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545', confirmButtonText: 'Remove' })
+            .then(function (r) {
+                if (!r.isConfirmed) return;
+                jQuery.ajax({ url: '/tasks/' + TASK_ID + '/notes/' + id, type: 'DELETE' })
+                    .done(refreshShared)
+                    .fail(x => { if (x.status !== 403) Swal.fire('Could not remove the ' + kind, ajaxMessage(x, 'Please try again.'), 'error'); });
             });
     });
 
