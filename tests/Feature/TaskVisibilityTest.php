@@ -189,7 +189,14 @@ class TaskVisibilityTest extends TestCase
         $this->assertSoftDeleted($assigned);
     }
 
-    public function test_a_revision_request_is_a_management_call(): void
+    /**
+     * Before anything has been submitted, there is nothing of the assignee's
+     * to send back — only oversight/the creator can reopen it this early.
+     * Once it is their own handed-in work (Submitted or Completed), the
+     * assignee may request a revision on it too — see
+     * TaskWorkflowTest::test_the_assignee_can_send_their_own_submitted_work_back_for_revision().
+     */
+    public function test_a_revision_request_on_unsubmitted_work_is_a_management_call(): void
     {
         [$me, , $manager, $assigned] = $this->world();
 

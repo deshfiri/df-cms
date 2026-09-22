@@ -288,6 +288,89 @@ class TaskWorkflowTest extends TestCase
         $this->assertSame('Completed', $task->fresh()->status);
     }
 
+    // ── Requesting a revision directly ──────────────────────────────────
+    //
+    // Not the accept/reject verdict on a pending review (that stays the
+    // reviewer's alone, see above) — this is either side pulling handed-in
+    // work back to redo it: the reviewer reopening it as a management call,
+    // or now the assignee catching their own mistake and correcting it
+    // before (or after) anyone reviews it. Either way it is the same
+    // TaskRevision row feeding the same quality KPI.
+
+    public function test_the_assignee_can_send_their_own_submitted_work_back_for_revision(): void
+    {
+        $worker = $this->worker();
+        $task   = $this->task($worker, $this->manager(), Task::STATUS_SUBMITTED);
+
+        $this->actingAs($worker)
+            ->postJson(route('tasks.revisions.store', $task), [
+                'reason_category' => 'Employee Mistake',
+                'note'            => 'Found a mistake, redoing this part',
+            ])
+            ->assertOk();
+
+        $this->assertSame('In Progress', $task->fresh()->status);
+        $this->assertDatabaseHas('task_revisions', [
+            'task_id'         => $task->id,
+            'requested_by'    => $worker->id,
+            'reason_category' => 'Employee Mistake',
+        ]);
+    }
+
+    public function test_the_assignee_can_reopen_their_own_completed_task_for_revision(): void
+    {
+        $worker = $this->worker();
+        $task   = $this->task($worker, $this->manager(), 'Completed');
+
+        $this->actingAs($worker)
+            ->postJson(route('tasks.revisions.store', $task), ['reason_category' => 'Employee Mistake'])
+            ->assertOk();
+
+        $this->assertSame('In Progress', $task->fresh()->status);
+    }
+
+    /** Nothing has been handed in yet, so there is nothing to send back. */
+    public function test_the_assignee_cannot_request_a_revision_before_submitting(): void
+    {
+        $worker = $this->worker();
+        $task   = $this->task($worker, $this->manager(), 'In Progress');
+
+        $this->actingAs($worker)
+            ->postJson(route('tasks.revisions.store', $task), ['reason_category' => 'Employee Mistake'])
+            ->assertForbidden();
+    }
+
+    public function test_the_creator_can_still_request_a_revision_directly(): void
+    {
+        $worker  = $this->worker();
+        $manager = $this->manager();
+        $task    = $this->task($worker, $manager, 'Completed');
+
+        $this->actingAs($manager)
+            ->postJson(route('tasks.revisions.store', $task), [
+                'reason_category' => 'Client Requested',
+                'note'            => 'Client asked for a colour change',
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseHas('task_revisions', [
+            'task_id'         => $task->id,
+            'requested_by'    => $manager->id,
+            'reason_category' => 'Client Requested',
+        ]);
+    }
+
+    public function test_a_bystander_cannot_request_a_revision(): void
+    {
+        $worker    = $this->worker();
+        $bystander = $this->worker();
+        $task      = $this->task($worker, $this->manager(), Task::STATUS_SUBMITTED);
+
+        $this->actingAs($bystander)
+            ->postJson(route('tasks.revisions.store', $task), ['reason_category' => 'Employee Mistake'])
+            ->assertForbidden();
+    }
+
     // ── Visibility ───────────────────────────────────────────────────────
 
     /**

@@ -478,16 +478,16 @@
             </div>
         </div>
 
-        @if($task->revisions->isNotEmpty() || $can['update'])
+        @if($task->revisions->isNotEmpty() || $can['requestRevision'])
             <div class="card section-card mb-3">
                 <div class="card-header py-2 tp-card-h">
                     <h6><i class="bi bi-arrow-counterclockwise me-1"></i>Revisions</h6>
-                    @if($can['update'])
+                    @if($can['requestRevision'])
                         <button class="btn btn-sm btn-outline-warning py-0 px-2" id="tpRevisionToggle" style="font-size:.74rem">Request revision</button>
                     @endif
                 </div>
                 <div class="card-body">
-                    @if($can['update'])
+                    @if($can['requestRevision'])
                         <form id="tpRevisionForm" class="p-2 rounded mb-3" style="background:var(--surface2);border:1px solid var(--border)" hidden>
                             <label class="form-label small fw-semibold" for="tpRevisionReason">Reason</label>
                             <select id="tpRevisionReason" class="form-select form-select-sm mb-2">

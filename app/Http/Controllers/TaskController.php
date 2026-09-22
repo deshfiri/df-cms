@@ -117,16 +117,17 @@ class TaskController extends Controller
             'task'  => $task,
             'timer' => $task->timer(),
             'can'   => [
-                'progress' => $me->can('progress', $task),
-                'submit'   => $me->can('submit', $task),
-                'review'   => $me->can('review', $task),
-                'update'   => $canUpdate,
-                'delete'   => $me->can('delete', $task),
+                'progress'        => $me->can('progress', $task),
+                'submit'          => $me->can('submit', $task),
+                'review'          => $me->can('review', $task),
+                'requestRevision' => $me->can('requestRevision', $task),
+                'update'          => $canUpdate,
+                'delete'          => $me->can('delete', $task),
                 // Removing others' files and comments, and adding to a closed task.
-                'manage'   => $me->can('moderate', $task),
+                'manage'          => $me->can('moderate', $task),
                 // Work shares are performance data: shown to those who manage
                 // tasks or read performance, not to everyone on the task.
-                'shares'   => $me->canAny(['manage all tasks', 'view performance']),
+                'shares'          => $me->canAny(['manage all tasks', 'view performance']),
             ],
             'awaitingSubmissionFile' => $task->requires_attachment && !$this->service->hasSubmissionFile($task),
             // Only needed for the edit dialog.
@@ -244,8 +245,9 @@ class TaskController extends Controller
 
     public function storeRevision(Request $request, Task $task): JsonResponse
     {
-        // Reopening finished work is a management call, same as editing it.
-        $this->authorize('update', $task);
+        // Whoever asked for the work, or the person who handed it in, may send
+        // it back for rework — see TaskPolicy::requestRevision().
+        $this->authorize('requestRevision', $task);
 
         $data = $request->validate([
             'reason_category' => ['required', Rule::in(TaskRevision::$reasonCategories)],

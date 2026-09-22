@@ -143,6 +143,24 @@ class TaskPolicy
             && ($this->created($user, $task) || $user->can(self::OVERSIGHT));
     }
 
+    /**
+     * Sending work back for rework: whoever asked for it always could, via
+     * update() — reopening a finished task is a management call. The assignee
+     * can now do the same to their own handed-in work, Submitted or Completed,
+     * to correct it themselves before (or after) anyone else reviews it. Either
+     * way it is recorded the same way, on the same quality KPI — see
+     * TaskService::requestRevision() and PerformanceCalculationService::revisionRate().
+     */
+    public function requestRevision(User $user, Task $task): bool
+    {
+        if ($this->update($user, $task)) {
+            return true;
+        }
+
+        return (int) $task->assigned_to === (int) $user->id
+            && in_array($task->status, [Task::STATUS_SUBMITTED, 'Completed'], true);
+    }
+
     /** Created it, or holds it. */
     private function isParty(User $user, Task $task): bool
     {
