@@ -14,8 +14,8 @@
 
     .mw-row { display: flex; align-items: center; gap: .75rem; padding: .7rem 1rem; border-bottom: 1px solid var(--border); }
     .mw-row:last-child { border-bottom: 0; }
-    .mw-title { font-weight: 600; font-size: .83rem; color: var(--text); text-decoration: none; }
-    a.mw-title:hover { color: var(--primary); }
+    .mw-title { font-weight: 600; font-size: .83rem; color: var(--primary); text-decoration: none; }
+    a.mw-title:hover { color: var(--primary-dark); }
     .mw-meta { font-size: .7rem; color: var(--text3); display: flex; flex-wrap: wrap; gap: .1rem .7rem; margin-top: 1px; }
     .mw-empty { text-align: center; padding: 2.2rem 1rem; color: var(--text3); font-size: .82rem; }
     .mw-empty i { font-size: 1.8rem; display: block; margin-bottom: .4rem; }

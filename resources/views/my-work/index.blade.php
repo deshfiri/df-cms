@@ -9,8 +9,8 @@
 <style>
     .mwk-row { display: flex; align-items: center; gap: .75rem; padding: .65rem 1rem; border-bottom: 1px solid var(--border); }
     .mwk-row:last-child { border-bottom: 0; }
-    .mwk-title { font-weight: 600; font-size: .83rem; color: var(--text); text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    a.mwk-title:hover { color: var(--primary); }
+    .mwk-title { font-weight: 600; font-size: .83rem; color: var(--primary); text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    a.mwk-title:hover { color: var(--primary-dark); }
     .mwk-meta { font-size: .7rem; color: var(--text3); display: flex; flex-wrap: wrap; gap: .1rem .7rem; margin-top: 1px; }
     .mwk-empty { text-align: center; padding: 1.6rem 1rem; color: var(--text3); font-size: .8rem; }
     .mwk-late { color: var(--c-red); font-weight: 600; }

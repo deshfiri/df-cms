@@ -147,8 +147,8 @@
     .tp-file { display: flex; align-items: center; gap: .6rem; padding: .5rem .6rem; border: 1px solid color-mix(in srgb, var(--c-blue) 25%, transparent); border-radius: var(--radius); background: var(--c-blue-bg); margin-bottom: .4rem; }
     .tp-file-icon { width: 44px; height: 44px; border-radius: 8px; display: grid; place-items: center; background: var(--surface); color: var(--c-blue); font-size: 1.1rem; flex-shrink: 0; }
     .tp-file .tp-icon-btn:hover { background: var(--surface); }
-    .tp-file-name { font-size: .8rem; font-weight: 600; color: var(--text); text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .tp-file-name:hover { color: var(--primary); }
+    .tp-file-name { font-size: .8rem; font-weight: 600; color: var(--primary); text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tp-file-name:hover { color: var(--primary-dark); }
     .tp-file-sub { font-size: .68rem; color: var(--text3); }
     .tp-icon-btn { background: none; border: 0; color: var(--text3); padding: .25rem .35rem; border-radius: 6px; line-height: 1; text-decoration: none; }
     .tp-icon-btn:hover { color: var(--primary); background: var(--surface2); }

@@ -17,8 +17,8 @@
     .perf-score { font-weight: 700; }
     .perf-filters .form-select { min-width: 160px; }
     #perfTable td, #perfTable th { vertical-align: middle; }
-    .perf-emp-link { color: var(--text); text-decoration: none; font-weight: 600; }
-    .perf-emp-link:hover { color: var(--primary); }
+    .perf-emp-link { color: var(--primary); text-decoration: none; font-weight: 600; }
+    .perf-emp-link:hover { color: var(--primary-dark); }
     .perf-rank {
         display: inline-flex; align-items: center; justify-content: center;
         width: 26px; height: 26px; border-radius: 50%;

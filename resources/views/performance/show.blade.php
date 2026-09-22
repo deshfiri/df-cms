@@ -50,8 +50,8 @@
     .sc-credit-table th { font-size: .66rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text3); font-weight: 600; background: var(--surface2); border-color: var(--border); white-space: nowrap; }
     .sc-credit-table td { color: var(--text); border-color: var(--border); vertical-align: middle; background: transparent; }
     .sc-credit-table tr.is-uncounted td { color: var(--text3); }
-    .sc-credit-table a { color: var(--text); text-decoration: none; font-weight: 600; }
-    .sc-credit-table a:hover { color: var(--primary); }
+    .sc-credit-table a { color: var(--primary); text-decoration: none; font-weight: 600; }
+    .sc-credit-table a:hover { color: var(--primary-dark); }
     .sc-event { display: inline-block; font-size: .66rem; padding: 1px 6px; margin: 1px 2px 1px 0; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); white-space: nowrap; }
     .sc-share-bar { height: 4px; border-radius: 2px; background: var(--surface2); overflow: hidden; margin-top: 3px; min-width: 60px; }
     .sc-share-bar > span { display: block; height: 100%; background: var(--primary); }

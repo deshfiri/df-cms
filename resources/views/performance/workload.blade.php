@@ -15,8 +15,8 @@
 @push('styles')
 <style>
     #wlTable td, #wlTable th { vertical-align: middle; }
-    .wl-emp-link { color: var(--text); text-decoration: none; font-weight: 600; }
-    .wl-emp-link:hover { color: var(--primary); }
+    .wl-emp-link { color: var(--primary); text-decoration: none; font-weight: 600; }
+    .wl-emp-link:hover { color: var(--primary-dark); }
     .wl-bar { height: 8px; border-radius: 999px; background: var(--surface2); overflow: hidden; min-width: 90px; }
     .wl-bar > span { display: block; height: 100%; border-radius: 999px; }
     .wl-flag { font-size: .68rem; padding: .12rem .5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text2); }

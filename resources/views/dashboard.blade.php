@@ -254,7 +254,7 @@ $topCards = [
                         <div style="font-size:.6rem;color:var(--text3);text-transform:uppercase">{{ $m->scheduled_at->format('M') }}</div>
                     </div>
                     <div class="flex-grow-1 min-w-0">
-                        <a href="{{ route('clients.show', $m->client) }}" class="d-block fw-semibold text-truncate" style="font-size:.78rem;color:var(--text);text-decoration:none">{{ $m->title }}</a>
+                        <a href="{{ route('clients.show', $m->client) }}" class="d-block fw-semibold text-truncate" style="font-size:.78rem;color:var(--primary);text-decoration:none">{{ $m->title }}</a>
                         <div class="text-truncate" style="font-size:.68rem;color:var(--text3)"><i class="bi {{ $m->type_icon }} me-1"></i>{{ $m->client->client_name ?? '—' }}</div>
                     </div>
                     <div class="flex-shrink-0" style="font-size:.66rem;color:var(--text3);white-space:nowrap">{{ $m->scheduled_at->format('h:i A') }}</div>
@@ -388,7 +388,7 @@ $topCards = [
                         @forelse($recent as $c)
                         <tr>
                             <td class="ps-3 py-2">
-                                <a href="{{ route('clients.show', $c) }}" class="fw-semibold d-block lh-1" style="color:var(--text);text-decoration:none">{{ $c->client_name }}</a>
+                                <a href="{{ route('clients.show', $c) }}" class="fw-semibold d-block lh-1" style="color:var(--primary);text-decoration:none">{{ $c->client_name }}</a>
                                 <span style="font-size:.72rem;color:var(--text3)">{{ $c->dfid_number }}</span>
                             </td>
                             <td class="text-center">
