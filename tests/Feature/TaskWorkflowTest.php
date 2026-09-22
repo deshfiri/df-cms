@@ -371,6 +371,75 @@ class TaskWorkflowTest extends TestCase
             ->assertForbidden();
     }
 
+    // Server-side validation on the payload itself — authorization alone is not
+    // enough, since an authorized party (here, the assignee) could still send a
+    // malformed or forged request and it must be refused the same way.
+
+    public function test_a_revision_request_needs_a_reason_category(): void
+    {
+        $worker = $this->worker();
+        $task   = $this->task($worker, $this->manager(), Task::STATUS_SUBMITTED);
+
+        $this->actingAs($worker)
+            ->postJson(route('tasks.revisions.store', $task), ['note' => 'No reason given'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('reason_category');
+
+        $this->assertSame(Task::STATUS_SUBMITTED, $task->fresh()->status);
+        $this->assertDatabaseMissing('task_revisions', ['task_id' => $task->id]);
+    }
+
+    public function test_a_revision_request_rejects_a_reason_category_that_is_not_on_the_list(): void
+    {
+        $worker = $this->worker();
+        $task   = $this->task($worker, $this->manager(), Task::STATUS_SUBMITTED);
+
+        $this->actingAs($worker)
+            ->postJson(route('tasks.revisions.store', $task), ['reason_category' => 'Just Because'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('reason_category');
+
+        $this->assertDatabaseMissing('task_revisions', ['task_id' => $task->id]);
+    }
+
+    public function test_a_revision_request_note_cannot_exceed_the_length_limit(): void
+    {
+        $worker = $this->worker();
+        $task   = $this->task($worker, $this->manager(), Task::STATUS_SUBMITTED);
+
+        $this->actingAs($worker)
+            ->postJson(route('tasks.revisions.store', $task), [
+                'reason_category' => 'Employee Mistake',
+                'note'            => str_repeat('x', 2001),
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('note');
+
+        $this->assertDatabaseMissing('task_revisions', ['task_id' => $task->id]);
+    }
+
+    /**
+     * The rule that reopening a task belongs to the requester or the assignee
+     * is checked against the row as it stands right now, not whatever the
+     * client believes — sending a status alongside the request cannot make an
+     * otherwise-refused request succeed.
+     */
+    public function test_extra_fields_on_the_request_cannot_widen_what_it_is_allowed_to_do(): void
+    {
+        $bystander = $this->worker();
+        $task      = $this->task($this->worker(), $this->manager(), 'In Progress');
+
+        $this->actingAs($bystander)
+            ->postJson(route('tasks.revisions.store', $task), [
+                'reason_category' => 'Employee Mistake',
+                'status'          => Task::STATUS_SUBMITTED,
+                'assigned_to'     => $bystander->id,
+            ])
+            ->assertForbidden();
+
+        $this->assertSame('In Progress', $task->fresh()->status);
+    }
+
     // ── Visibility ───────────────────────────────────────────────────────
 
     /**
