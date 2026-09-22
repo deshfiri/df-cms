@@ -209,6 +209,83 @@ class PaymentController extends Controller
         return '<span class="spill ' . ($map[$status] ?? 'spill-hold') . '">' . e($status) . '</span>';
     }
 
+    /**
+     * AJAX: the global "Charges" table — every charge (invoice) across every
+     * client, with what's billed, received and still due. This is what makes
+     * a client who has paid nothing (Unpaid) or only part of a charge
+     * (Partially Paid) filterable and listable, since a Payment record only
+     * ever exists once money actually changes hands.
+     */
+    public function chargesDataTable(Request $request): JsonResponse
+    {
+        abort_unless($request->user()->can('view payments'), 403);
+
+        $query = Invoice::query()
+            ->with(['client:id,client_name,dfid_number', 'category:id,name'])
+            ->whereHas('client')
+            ->withPaidTotal();
+
+        if ($request->filled('client_id')) {
+            $query->where('client_id', $request->client_id);
+        }
+        if ($request->filled('category_id')) {
+            $request->category_id === 'none'
+                ? $query->whereNull('payment_category_id')
+                : $query->where('payment_category_id', $request->category_id);
+        }
+
+        // Same pattern as the Payments table: counted before the status pill
+        // narrows it, so every pill shows what it would give under the client
+        // and category currently chosen.
+        $byStatus = (clone $query)->reorder()
+            ->select('status')->selectRaw('COUNT(*) as cnt')
+            ->groupBy('status')
+            ->pluck('cnt', 'status');
+
+        $counts = ['total' => (int) $byStatus->sum(), 'status' => $byStatus->map(fn ($n) => (int) $n)];
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        return DataTables::of($query)
+            ->addIndexColumn()
+            ->addColumn('client', fn (Invoice $i) => e($i->client->client_name ?? '—')
+                . ($i->client?->dfid_number ? ' <span class="text-muted small">(' . e($i->client->dfid_number) . ')</span>' : ''))
+            ->addColumn('category_name', fn (Invoice $i) => $i->category
+                ? '<span class="pay-cat">' . e($i->category->name) . '</span>'
+                : '<span style="color:var(--text3)">—</span>')
+            ->addColumn('charge', fn (Invoice $i) => '<span style="font-weight:600">' . e($i->invoice_number) . '</span>'
+                . ($i->title ? '<div style="font-size:.72rem;color:var(--text3)">' . e($i->title) . '</div>' : ''))
+            ->addColumn('status_badge', fn (Invoice $i) => $this->chargeStatusBadge($i))
+            ->addColumn('total_fmt', fn (Invoice $i) => '৳' . number_format((float) $i->total_payable, 2))
+            ->addColumn('paid_fmt', fn (Invoice $i) => '৳' . number_format($i->paid_amount, 2))
+            ->addColumn('due_fmt', fn (Invoice $i) => $i->due_amount > 0 ? '৳' . number_format($i->due_amount, 2) : '—')
+            ->addColumn('due_date_fmt', fn (Invoice $i) => $i->due_date?->format('d M Y') ?? '—')
+            ->addColumn('actions', fn (Invoice $i) => '<a href="' . route('clients.show', $i->client_id) . '#tab-payments" class="btn btn-sm px-2 py-1" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="View Client"><i class="bi bi-eye"></i></a>')
+            ->rawColumns(['client', 'category_name', 'charge', 'status_badge', 'actions'])
+            ->orderColumn('due_date_fmt', 'due_date $1, invoices.id $1')
+            ->with(['counts' => $counts])
+            ->make(true);
+    }
+
+    private function chargeStatusBadge(Invoice $i): string
+    {
+        $map = [
+            'Paid' => 'spill-completed', 'Partially Paid' => 'spill-warning', 'Unpaid' => 'spill-hold',
+            'Overdue' => 'spill-cancelled', 'Cancelled' => 'spill-cancelled',
+            'Refunded' => 'spill-hold', 'Non-Refundable' => 'spill-hold',
+        ];
+
+        $html = '<span class="spill ' . ($map[$i->status] ?? 'spill-hold') . '">' . e($i->status) . '</span>';
+
+        if ($i->isOpen() && $i->due_date !== null && $i->due_date->lt(today())) {
+            $html .= ' <span class="spill spill-cancelled" style="font-size:.6rem">Overdue</span>';
+        }
+
+        return $html;
+    }
+
     /** Record a payment for any client, picked from the modal — used by the standalone Payments page. */
     public function storeAny(Request $request): JsonResponse
     {

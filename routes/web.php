@@ -292,6 +292,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('payments', [PaymentController::class, 'all'])->name('payments.index');
     Route::post('payments', [PaymentController::class, 'storeAny'])->name('payments.store');
     Route::delete('payments/{payment}', [PaymentController::class, 'destroyAny'])->name('payments.destroy');
+    Route::get('payments/charges', [PaymentController::class, 'chargesDataTable'])->name('payments.charges');
 
     // Refunds — authorized in RefundController / RefundService (RefundPolicy).
     Route::post('payments/{payment}/refunds', [RefundController::class, 'store'])->name('payments.refunds.store');

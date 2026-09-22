@@ -14,7 +14,7 @@
 <script>
 /**
  * @param {string} tableSelector
- * @param {object} [options]  { extra: [{selector, key, always}], every }
+ * @param {object} [options]  { extra: [{selector, key, always}], every, pillSelector }
  */
 window.livePillCounts = function (tableSelector, options) {
     options = options || {};
@@ -31,7 +31,7 @@ window.livePillCounts = function (tableSelector, options) {
     function paint(counts) {
         if (!counts) return;
 
-        $('.fpill[data-status]').each(function () {
+        $(options.pillSelector || '.fpill[data-status]').each(function () {
             const status = $(this).data('status');
             count($(this), status === '' || status === undefined
                 ? (counts.total || 0)

@@ -91,7 +91,7 @@
 </div>
 @endif
 
-<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap" id="paymentPills">
     <button class="fpill" data-status="" id="pillAll">All</button>
     @php $statusCls = ['Paid' => 'spill-completed', 'Partial' => 'spill-warning', 'Unpaid' => 'spill-hold']; @endphp
     @foreach($statusCls as $st => $cls)
@@ -121,6 +121,21 @@
     </div>
 </div>
 
+<ul class="nav nav-tabs mb-3" id="paymentsViewTabs">
+    <li class="nav-item">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#paymentsPane" type="button">
+            <i class="bi bi-cash-coin me-1"></i>Payments
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#chargesPane" type="button" id="chargesTabBtn">
+            <i class="bi bi-receipt me-1"></i>Charges <small style="color:var(--text3)">(who owes / owes nothing)</small>
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+<div class="tab-pane fade show active" id="paymentsPane">
 <div class="card">
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -145,6 +160,43 @@
         </div>
     </div>
 </div>
+</div>
+
+<div class="tab-pane fade" id="chargesPane">
+    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap" id="chargePills">
+        <button class="fpill" data-status="" id="pillChargeAll">All</button>
+        @php $chargeStatusCls = ['Unpaid' => 'spill-hold', 'Partially Paid' => 'spill-warning', 'Paid' => 'spill-completed']; @endphp
+        @foreach($chargeStatusCls as $st => $cls)
+        <button class="fpill" data-status="{{ $st }}">
+            <span class="spill {{ $cls }}" style="padding:1px 7px;font-size:.65rem">{{ $st }}</span>
+        </button>
+        @endforeach
+        <small class="ms-2" style="color:var(--text3)">Uses the same client/category filters above.</small>
+    </div>
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="chargesTable" class="table table-hover align-middle w-100 mb-0">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Client</th>
+                            <th>Category</th>
+                            <th>Charge</th>
+                            <th>Status</th>
+                            <th>Total</th>
+                            <th>Paid</th>
+                            <th>Due</th>
+                            <th>Due Date</th>
+                            <th width="60" class="text-end pe-3">Actions</th>
+                        </tr>
+                    </thead>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
 
 @can('manage payments')
     @include('payments.partials.record-modal', ['modalId' => 'paymentModal', 'withClientPicker' => true, 'clients' => $clients])
@@ -155,24 +207,39 @@
 @push('scripts')
 <script>
 var activeStatus = '';
+var activeChargeStatus = '';
 
 function syncPaymentPills() {
-    $('.fpill').removeClass('active');
+    $('#paymentPills .fpill').removeClass('active');
     if (!activeStatus) { $('#pillAll').addClass('active'); return; }
-    $('.fpill[data-status="' + activeStatus + '"]').addClass('active');
+    $('#paymentPills .fpill[data-status="' + activeStatus + '"]').addClass('active');
 }
 syncPaymentPills();
 
-$('.fpill').on('click', function () {
+$('#paymentPills .fpill').on('click', function () {
     activeStatus = $(this).data('status') || '';
     syncPaymentPills();
     window.pTable.ajax.reload();
+});
+
+function syncChargePills() {
+    $('#chargePills .fpill').removeClass('active');
+    if (!activeChargeStatus) { $('#pillChargeAll').addClass('active'); return; }
+    $('#chargePills .fpill[data-status="' + activeChargeStatus + '"]').addClass('active');
+}
+syncChargePills();
+
+$('#chargePills .fpill').on('click', function () {
+    activeChargeStatus = $(this).data('status') || '';
+    syncChargePills();
+    if (window.cTable) window.cTable.ajax.reload();
 });
 
 $('#filterClient, #filterCategory').on('change', function () {
     $('.pp-cat').removeClass('active')
         .filter('[data-category="' + $('#filterCategory').val() + '"]').addClass('active');
     window.pTable.ajax.reload();
+    if (window.cTable) window.cTable.ajax.reload();
 });
 
 $(document).on('click', '.pp-cat', function () {
@@ -210,7 +277,37 @@ $(function () {
         ]
     });
 
-    livePillCounts('#paymentsTable');
+    livePillCounts('#paymentsTable', { pillSelector: '#paymentPills .fpill[data-status]' });
+
+    $('#chargesTabBtn').one('shown.bs.tab', function () {
+        window.cTable = $('#chargesTable').DataTable({
+            processing: true,
+            serverSide: true,
+            order: [[8, 'asc']],
+            ajax: {
+                url: '{{ route("payments.charges") }}',
+                data: function (d) {
+                    d.status      = activeChargeStatus;
+                    d.client_id   = $('#filterClient').val();
+                    d.category_id = $('#filterCategory').val();
+                }
+            },
+            columns: [
+                { data: 'DT_RowIndex', orderable: false, searchable: false },
+                { data: 'client', orderable: false },
+                { data: 'category_name', orderable: false, searchable: false },
+                { data: 'charge', orderable: false, searchable: false },
+                { data: 'status_badge', orderable: false },
+                { data: 'total_fmt', orderable: false },
+                { data: 'paid_fmt', orderable: false },
+                { data: 'due_fmt', orderable: false },
+                { data: 'due_date_fmt' },
+                { data: 'actions', orderable: false, searchable: false, className: 'text-end pe-3' },
+            ]
+        });
+
+        livePillCounts('#chargesTable', { pillSelector: '#chargePills .fpill[data-status]' });
+    });
 
     @can('manage payments')
     const $client = $('#paymentModal [data-rp="client"]');
