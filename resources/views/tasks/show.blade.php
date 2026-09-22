@@ -376,7 +376,7 @@
                 <div id="taskFiles">
                     @forelse($shared as $a)
                         @if($a instanceof \App\Models\TaskNote)
-                            <div class="tp-file{{ $a->is_link ? '' : ' tp-note' }}" style="background:#EBF2FE;border:1px solid #C5D2E6;">
+                            <div class="tp-file{{ $a->is_link ? '' : ' tp-note' }}">
                                 <span class="tp-file-icon"><i class="bi {{ $a->is_link ? 'bi-link-45deg' : 'bi-sticky' }}"></i></span>
                                 <div class="flex-grow-1 min-w-0">
                                     @if($a->is_link)
