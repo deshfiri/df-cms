@@ -74,7 +74,7 @@ class PerformanceConfigService
                 'satisfaction_weight'    => $data['satisfaction_weight'],
                 'client_care_weight'     => $data['client_care_weight'] ?? 0,
                 'daily_target_weight'    => $data['daily_target_weight'] ?? 0,
-                'task_volume_weight'     => $data['task_volume_weight'] ?? 0,
+                'output_volume_weight'   => $data['output_volume_weight'] ?? 0,
                 'updated_by'             => Auth::id(),
             ]);
             $config->save();

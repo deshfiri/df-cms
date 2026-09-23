@@ -195,7 +195,7 @@ class ClientCarePerformanceTest extends TestCase
             'scope_type' => 'global',
             'task_completion_weight' => 20, 'on_time_weight' => 20, 'revision_weight' => 10,
             'sales_weight' => 15, 'satisfaction_weight' => 15, 'client_care_weight' => 20,
-            'daily_target_weight' => 0, 'task_volume_weight' => 0,
+            'daily_target_weight' => 0, 'output_volume_weight' => 0,
         ])->assertOk();
         $this->assertSame(20, KpiWeightConfig::where('scope_type', 'global')->value('client_care_weight'));
 

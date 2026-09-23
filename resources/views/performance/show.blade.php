@@ -17,7 +17,7 @@
         'satisfaction'    => 'Client Satisfaction',
         'client_care'     => 'Client Care',
         'daily_target'    => 'Daily Target',
-        'task_volume'     => 'Task Volume',
+        'output_volume'   => 'Output Volume',
     ];
     $c = $result['components'];
     $money = fn ($v) => number_format((float) $v, 2);
@@ -311,27 +311,40 @@
         </div>
     </div>
 
-    {{-- Task volume: completed work vs. the company's most productive person --}}
-    <div class="col-lg-6">
-        <div class="card section-card sc-comp-card">
+    {{-- Output volume: absolute output vs. the company's most productive person, across every scope --}}
+    <div class="col-12">
+        <div class="card section-card">
             <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                <h6 class="fw-bold mb-0"><i class="bi bi-bar-chart-line me-1"></i>Task Volume</h6>
-                @isset($result['weights_used']['task_volume'])
-                    <span class="sc-weight">weight {{ $result['weights_used']['task_volume'] }}%</span>
+                <h6 class="fw-bold mb-0"><i class="bi bi-bar-chart-line me-1"></i>Output Volume</h6>
+                @isset($result['weights_used']['output_volume'])
+                    <span class="sc-weight">weight {{ $result['weights_used']['output_volume'] }}%</span>
                 @endisset
             </div>
             <div class="card-body">
-                @php $tv = $c['taskVolume'] ?? null; @endphp
-                @if ($tv)
-                    <div class="sc-metric"><span class="k">Volume score</span><span class="v">{{ $tv['pct'] }}%</span></div>
-                    <div class="sc-metric"><span class="k">Their completed credit</span><span class="v">{{ $tv['completed'] }}</span></div>
-                    <div class="sc-metric"><span class="k">Company's highest this period</span><span class="v">{{ $tv['cohort_max'] }}</span></div>
+                @php $ov = $c['outputVolume'] ?? null; @endphp
+                @if ($ov)
+                    <div class="sc-metric"><span class="k">Overall volume score</span><span class="v">{{ $ov['pct'] }}%</span></div>
+                    <div class="table-responsive mt-2">
+                        <table class="table table-sm sc-credit-table mb-0"><thead><tr>
+                            <th>Scope</th><th class="text-end">Theirs</th><th class="text-end">Company's highest</th><th class="text-end">Result</th>
+                        </tr></thead><tbody>
+                            @foreach ($ov['scopes'] as $scope)
+                                <tr>
+                                    <td>{{ $scope['label'] }}</td>
+                                    <td class="text-end">{{ $scope['mine'] }}</td>
+                                    <td class="text-end">{{ $scope['cohort_max'] }}</td>
+                                    <td class="text-end">{{ $scope['pct'] }}%</td>
+                                </tr>
+                            @endforeach
+                        </tbody></table>
+                    </div>
                     <div class="sc-formula mt-2">
-                        Task Completion measures whether you finished what you had; this measures how much you finished, against whoever did the most in the company that period.
-                        Finishing 5 of 5 assigned tasks is still 100% Task Completion — but if someone else finished 10, this scores 50%, not 100%.
+                        Task Completion (and its like) measure whether you finished what you had; this measures how much you finished in each scope, against whoever did the most in the company that period —
+                        capped at 100% for whoever leads a scope. Finishing 5 of 5 assigned tasks is still 100% Task Completion, but if someone else finished 10, this scores 50% on the Tasks row, not 100%.
+                        A scope with nothing to measure for them (no tasks due, no workflow items due, no clients of their own) is left out of the average rather than scored 0.
                     </div>
                 @else
-                    <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">No tasks due for this employee this period.</div>
+                    <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">Nothing to measure this employee's output against this period.</div>
                 @endif
             </div>
         </div>

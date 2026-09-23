@@ -135,7 +135,7 @@
                             <td>{!! $pct($row['scores']['satisfaction']) !!}</td>
                             <td>{!! $pct($row['scores']['client_care'] ?? null) !!}</td>
                             <td>{!! $pct($row['scores']['daily_target'] ?? null) !!}</td>
-                            <td>{!! $pct($row['scores']['task_volume'] ?? null) !!}</td>
+                            <td>{!! $pct($row['scores']['output_volume'] ?? null) !!}</td>
                             <td data-order="{{ $row['final_score'] ?? -1 }}" class="perf-score">
                                 {{ $row['final_score'] !== null ? number_format($row['final_score'], 1) : '—' }}
                             </td>

@@ -91,7 +91,7 @@
                                 <td>{!! $pct($s->satisfaction_score) !!}</td>
                                 <td>{!! $pct($s->client_care_score) !!}</td>
                                 <td>{!! $pct($s->daily_target_score) !!}</td>
-                                <td>{!! $pct($s->task_volume_score) !!}</td>
+                                <td>{!! $pct($s->output_volume_score) !!}</td>
                                 <td class="fw-bold">{{ number_format((float) $s->final_score, 1) }}</td>
                                 <td><span class="spill {{ $levelSpill($s->performance_level) }}">{{ $s->performance_level }}</span></td>
                                 <td class="pe-3">{{ $s->rank_department ?? '—' }}</td>

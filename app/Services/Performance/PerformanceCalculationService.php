@@ -112,6 +112,11 @@ class PerformanceCalculationService
 
         $this->flowItemsByUser = $this->loadFlowItems($ids, $period);
 
+        // Standing sizes, not period-scoped, so one load covers this cohort
+        // for every period scored in the same request.
+        $this->clientPortfolioByUser = $this->loadClientPortfolios($ids);
+        $this->portfoliosPrefetched  = true;
+
         $this->prefetchPeriod = $period;
     }
 
@@ -125,16 +130,28 @@ class PerformanceCalculationService
     private array $flowItemsByUser = [];
 
     /**
-     * The most any one person in the whole company completed in a period —
-     * for Task Volume. Independent of prefetch()'s cohort (which may be
-     * department-filtered): this always means company-wide, so the same
-     * person's Task Volume score never changes depending on which filtered
-     * view triggered the calculation. Memoized per period per service
-     * instance, since a scoreboard run scores many people against the same one.
+     * The most any one person in the whole company did, per scope, in a
+     * period — for Output Volume. Independent of prefetch()'s cohort (which
+     * may be department-filtered): this always means company-wide, so the
+     * same person's Output Volume score never changes depending on which
+     * filtered view triggered the calculation. Memoized per period per
+     * service instance, since a scoreboard run scores many people against
+     * the same ones.
      *
      * @var array<string,float>
      */
-    private array $cohortMaxCompletedByPeriod = [];
+    private array $cohortMaxTaskByPeriod = [];
+
+    /** @var array<string,float> */
+    private array $cohortMaxWorkflowByPeriod = [];
+
+    private ?float $cohortMaxClientPortfolioCache = null;
+
+    /** Standing client-portfolio size per user, for Output Volume's "client handling" scope. */
+    private array $clientPortfolioByUser = [];
+
+    /** True once prefetch() has loaded $clientPortfolioByUser for the cohort — see clientPortfolioSize(). */
+    private bool $portfoliosPrefetched = false;
 
     /** True when this exact period was prefetched for the cohort. */
     private function prefetched(string $period): bool
@@ -797,35 +814,78 @@ class PerformanceCalculationService
         };
     }
 
-    // ── Task Volume ──────────────────────────────────────────────────────
+    // ── Output Volume ────────────────────────────────────────────────────
     //
-    // Task Completion measures a RATE — finish everything you were given and
-    // you hit 100%, whether that was 5 tasks or 50. That leaves two people
+    // Task Completion (and its like) measure a RATE — finish everything you
+    // were given and you hit 100%, whether that was 5 tasks or 50, one
+    // workflow item or ten, one client or a dozen. That leaves two people
     // who both cleared their plate looking identical, which undersells
-    // whoever actually got through more work. Task Volume measures the
-    // absolute output instead, relative to the most productive person in the
-    // company that period:
+    // whoever actually got through more work. Output Volume measures the
+    // absolute output instead, across every scope of work the company
+    // tracks, each relative to whoever did the most of it that period:
     //
-    //     volume % = my completed-task credit ÷ the company's highest × 100
+    //     scope % = my output in that scope ÷ the company's highest × 100
     //
-    // capped at 100 (the top performer that period always scores 100 on this
-    // axis). Nobody with no tasks due in the period is measured on it at
-    // all — same "no data, left out" rule every optional KPI already follows.
+    // capped at 100 (the leader in a scope always scores 100 on it). The
+    // overall score is the plain average of whichever scopes this person
+    // has anything to measure — same "no data, left out" rule every
+    // optional KPI already follows, applied per scope: a Sales-only person
+    // with no workflow items due is not scored 0 on workflow, it is simply
+    // left out of their average. Nobody with nothing to show in ANY scope
+    // is measured on Output Volume at all.
 
-    public function taskVolume(User $user, string $period): ?array
+    public const VOLUME_SCOPE_LABELS = [
+        'task'             => 'Tasks',
+        'workflow'         => 'Workflow Items',
+        'client_handling'  => 'Client Handling',
+    ];
+
+    public function outputVolume(User $user, string $period): ?array
     {
+        $scopes = [];
+
         $tasks = $this->tasksFor($user, $period);
-        if ($tasks->isEmpty()) {
+        if ($tasks->isNotEmpty()) {
+            $scopes['task'] = $this->volumeScope(
+                self::credit($tasks->where('status', 'Completed')),
+                $this->cohortMaxTaskCompleted($period),
+            );
+        }
+
+        $flowItems = $this->flowItemsFor($user, $period);
+        if ($flowItems->isNotEmpty()) {
+            $scopes['workflow'] = $this->volumeScope(
+                $flowItems->where('status', FlowItem::STATUS_COMPLETED)->count(),
+                $this->cohortMaxWorkflowCompleted($period),
+            );
+        }
+
+        $myPortfolio = $this->clientPortfolioSize($user);
+        if ($myPortfolio !== null) {
+            $scopes['client_handling'] = $this->volumeScope($myPortfolio, $this->cohortMaxClientPortfolio());
+        }
+
+        if (empty($scopes)) {
             return null;
         }
 
-        $myCompleted = self::credit($tasks->where('status', 'Completed'));
-        $cohortMax   = $this->cohortMaxCompleted($period);
+        foreach ($scopes as $key => $scope) {
+            $scopes[$key]['label'] = self::VOLUME_SCOPE_LABELS[$key];
+        }
 
         return [
-            'completed'  => round($myCompleted, 2),
+            'scopes' => $scopes,
+            'pct'    => round(collect($scopes)->avg('pct'), 2),
+        ];
+    }
+
+    /** @return array{mine:float,cohort_max:float,pct:float} */
+    private function volumeScope(float $mine, float $cohortMax): array
+    {
+        return [
+            'mine'       => round($mine, 2),
             'cohort_max' => round($cohortMax, 2),
-            'pct'        => $cohortMax > 0 ? round(min(100, $myCompleted / $cohortMax * 100), 2) : 0.0,
+            'pct'        => $cohortMax > 0 ? round(min(100, $mine / $cohortMax * 100), 2) : 0.0,
         ];
     }
 
@@ -833,14 +893,15 @@ class PerformanceCalculationService
      * The most credited-completed work anyone in the whole company turned in
      * this period — always company-wide and independent of whatever cohort
      * prefetch() was called with, so the number can't shift depending on
-     * which filtered scoreboard view triggered the calculation.
+     * which filtered scoreboard view triggered the calculation. Same for
+     * the other two cohort-max methods below.
      */
-    private function cohortMaxCompleted(string $period): float
+    private function cohortMaxTaskCompleted(string $period): float
     {
-        return $this->cohortMaxCompletedByPeriod[$period] ??= $this->computeCohortMaxCompleted($period);
+        return $this->cohortMaxTaskByPeriod[$period] ??= $this->computeCohortMaxTaskCompleted($period);
     }
 
-    private function computeCohortMaxCompleted(string $period): float
+    private function computeCohortMaxTaskCompleted(string $period): float
     {
         [$start, $end] = $this->periodBounds($period);
 
@@ -859,6 +920,78 @@ class PerformanceCalculationService
         }
 
         return $max;
+    }
+
+    private function cohortMaxWorkflowCompleted(string $period): float
+    {
+        return $this->cohortMaxWorkflowByPeriod[$period] ??= $this->computeCohortMaxWorkflowCompleted($period);
+    }
+
+    private function computeCohortMaxWorkflowCompleted(string $period): float
+    {
+        [$start, $end] = $this->periodBounds($period);
+
+        $ids = FlowItem::whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
+            ->whereNotNull('assigned_to')
+            ->distinct()
+            ->pluck('assigned_to');
+
+        if ($ids->isEmpty()) {
+            return 0.0;
+        }
+
+        $max = 0.0;
+        foreach ($this->loadFlowItems($ids, $period) as $items) {
+            $max = max($max, $items->where('status', FlowItem::STATUS_COMPLETED)->count());
+        }
+
+        return $max;
+    }
+
+    /**
+     * How many clients this person is responsible for right now — assigned
+     * to them, or added by them and assigned to no one — the same portfolio
+     * Client Care reads, but independent of it: a person can have clients
+     * with nothing to show this period is out of Client Care but still
+     * counts here on portfolio size alone. Not period-scoped, since a
+     * portfolio is a standing assignment, not something that happened in a
+     * given month. Null (not zero) when they have no clients of their own.
+     */
+    private function clientPortfolioSize(User $user): ?int
+    {
+        $count = $this->portfoliosPrefetched
+            ? ($this->clientPortfolioByUser[$user->id] ?? 0)
+            : ($this->loadClientPortfolios(collect([$user->id]))[$user->id] ?? 0);
+
+        return $count > 0 ? $count : null;
+    }
+
+    private function cohortMaxClientPortfolio(): float
+    {
+        if ($this->cohortMaxClientPortfolioCache !== null) {
+            return $this->cohortMaxClientPortfolioCache;
+        }
+
+        $ids = User::where('is_active', true)->pluck('id');
+        $counts = $ids->isEmpty() ? [] : $this->loadClientPortfolios($ids);
+
+        return $this->cohortMaxClientPortfolioCache = $counts === [] ? 0.0 : (float) max($counts);
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int,int>  $ids
+     * @return array<int,int>
+     */
+    private function loadClientPortfolios(\Illuminate\Support\Collection $ids): array
+    {
+        return Client::query()
+            ->where(fn ($q) => $q
+                ->whereIn('assigned_to', $ids)
+                ->orWhere(fn ($q) => $q->whereNull('assigned_to')->whereIn('created_by', $ids)))
+            ->get(['id', 'assigned_to', 'created_by'])
+            ->groupBy(fn ($c) => (int) ($c->assigned_to ?? $c->created_by))
+            ->map->count()
+            ->all();
     }
 
     public function resolveWeights(User $user): KpiWeightConfig
@@ -885,7 +1018,7 @@ class PerformanceCalculationService
                 'scope_type' => KpiWeightConfig::SCOPE_GLOBAL,
                 'task_completion_weight' => 18, 'on_time_weight' => 18, 'revision_weight' => 12,
                 'sales_weight' => 11, 'satisfaction_weight' => 11, 'client_care_weight' => 11,
-                'daily_target_weight' => 9, 'task_volume_weight' => 10,
+                'daily_target_weight' => 9, 'output_volume_weight' => 10,
             ]);
     }
 
@@ -898,7 +1031,7 @@ class PerformanceCalculationService
         $satisfaction   = $this->clientSatisfaction($user, $period);
         $clientCare     = $this->clientCare($user, $period);
         $dailyTarget    = $this->dailyTargetAchievement($user, $period);
-        $taskVolume     = $this->taskVolume($user, $period);
+        $outputVolume   = $this->outputVolume($user, $period);
 
         $weightConfig = $this->resolveWeights($user);
         $weights = $weightConfig->toWeightsArray();
@@ -911,7 +1044,7 @@ class PerformanceCalculationService
             'satisfaction'    => $satisfaction['score'] ?? null,
             'client_care'     => $clientCare['score'] ?? null,
             'daily_target'    => $dailyTarget['pct'] ?? null,
-            'task_volume'     => $taskVolume['pct'] ?? null,
+            'output_volume'   => $outputVolume['pct'] ?? null,
         ];
 
         // A KPI counts when there is data for it and its profile gives it weight;
@@ -922,7 +1055,7 @@ class PerformanceCalculationService
             return [
                 'final_score' => null, 'performance_level' => null,
                 'scores' => $scores, 'weights_used' => [], 'strongest' => null, 'weakest' => null,
-                'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'taskVolume'),
+                'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'outputVolume'),
             ];
         }
 
@@ -952,7 +1085,7 @@ class PerformanceCalculationService
             'weights_used' => $weightsUsed,
             'strongest' => $strongest,
             'weakest' => $weakest,
-            'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'taskVolume'),
+            'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'outputVolume'),
         ];
     }
 
