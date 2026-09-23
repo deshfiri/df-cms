@@ -9,7 +9,8 @@
         'revision_weight'        => $g->revision_weight ?? 15,
         'sales_weight'           => $g->sales_weight ?? 15,
         'satisfaction_weight'    => $g->satisfaction_weight ?? 15,
-        'client_care_weight'     => $g->client_care_weight ?? 15,
+        'client_care_weight'     => $g->client_care_weight ?? 13,
+        'daily_target_weight'    => $g->daily_target_weight ?? 10,
     ];
 @endphp
 
@@ -44,6 +45,7 @@
     <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-weights" data-tab="weights" type="button"><i class="bi bi-percent me-1"></i>KPI Weights</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-settings" data-tab="settings" type="button"><i class="bi bi-gear me-1"></i>Settings</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-capacity" data-tab="capacity" type="button"><i class="bi bi-person-workspace me-1"></i>Capacity</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-daily-targets" data-tab="daily-targets" type="button"><i class="bi bi-check2-circle me-1"></i>Daily Targets</button></li>
 </ul>
 
 <div class="tab-content">
@@ -82,7 +84,7 @@
                 <form id="globalWeightForm">
                     <input type="hidden" name="scope_type" value="global">
                     <div class="wt-grid mb-3">
-                        @foreach (['task_completion_weight' => 'Task Completion', 'on_time_weight' => 'On-Time', 'revision_weight' => 'Quality', 'sales_weight' => 'Sales', 'satisfaction_weight' => 'Satisfaction', 'client_care_weight' => 'Client Care'] as $field => $label)
+                        @foreach (['task_completion_weight' => 'Task Completion', 'on_time_weight' => 'On-Time', 'revision_weight' => 'Quality', 'sales_weight' => 'Sales', 'satisfaction_weight' => 'Satisfaction', 'client_care_weight' => 'Client Care', 'daily_target_weight' => 'Daily Target'] as $field => $label)
                             <div class="wt-field">
                                 <label>{{ $label }}</label>
                                 <input type="number" min="0" max="100" name="{{ $field }}" value="{{ $gw[$field] }}" class="form-control form-control-sm wt-input">
@@ -106,7 +108,7 @@
                 <div class="table-responsive">
                     <table class="table table-hover mb-0" style="font-size:.85rem">
                         <thead>
-                            <tr><th class="ps-3">Scope</th><th>Task</th><th>On-time</th><th>Quality</th><th>Sales</th><th>Satisfaction</th><th>Client care</th><th class="pe-3">Actions</th></tr>
+                            <tr><th class="ps-3">Scope</th><th>Task</th><th>On-time</th><th>Quality</th><th>Sales</th><th>Satisfaction</th><th>Client care</th><th>Daily target</th><th class="pe-3">Actions</th></tr>
                         </thead>
                         <tbody>
                             @forelse ($overrides as $ov)
@@ -122,17 +124,19 @@
                                     <td>{{ $c->sales_weight }}</td>
                                     <td>{{ $c->satisfaction_weight }}</td>
                                     <td>{{ $c->client_care_weight }}</td>
+                                    <td>{{ $c->daily_target_weight }}</td>
                                     <td class="pe-3">
                                         <button class="btn btn-sm btn-outline-secondary btn-ov-edit"
                                             data-scope-type="{{ $c->scope_type }}" data-scope-value="{{ $c->scope_value }}"
                                             data-task="{{ $c->task_completion_weight }}" data-ontime="{{ $c->on_time_weight }}"
                                             data-revision="{{ $c->revision_weight }}" data-sales="{{ $c->sales_weight }}"
-                                            data-satisfaction="{{ $c->satisfaction_weight }}" data-clientcare="{{ $c->client_care_weight }}"><i class="bi bi-pencil"></i></button>
+                                            data-satisfaction="{{ $c->satisfaction_weight }}" data-clientcare="{{ $c->client_care_weight }}"
+                                            data-dailytarget="{{ $c->daily_target_weight }}"><i class="bi bi-pencil"></i></button>
                                         <button class="btn btn-sm btn-outline-danger btn-ov-delete" data-id="{{ $c->id }}"><i class="bi bi-trash"></i></button>
                                     </td>
                                 </tr>
                             @empty
-                                <tr><td colspan="8" class="text-center py-4" style="color:var(--text3)">No overrides — everyone uses the global weights.</td></tr>
+                                <tr><td colspan="9" class="text-center py-4" style="color:var(--text3)">No overrides — everyone uses the global weights.</td></tr>
                             @endforelse
                         </tbody>
                     </table>
@@ -262,6 +266,42 @@
             </div>
         </div>
     </div>
+
+    {{-- ── Daily Targets ─────────────────────────────────────────────── --}}
+    <div class="tab-pane fade" id="tab-daily-targets">
+        <div class="card section-card">
+            <div class="card-header py-3"><h6 class="fw-bold mb-0">Daily targets</h6></div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table id="dtTable" class="table table-hover mb-0" style="font-size:.85rem">
+                        <thead>
+                            <tr><th class="ps-3">Employee</th><th>Target (tasks/day)</th><th class="pe-3">Actions</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($users as $u)
+                                @php $dt = $dailyTargets->get($u->id); @endphp
+                                <tr>
+                                    <td class="ps-3">{{ $u->name }}</td>
+                                    <td>{{ $dt->target_tasks_per_day ?? '—' }}</td>
+                                    <td class="pe-3">
+                                        <button class="btn btn-sm btn-outline-secondary btn-dt-edit"
+                                            data-user="{{ $u->id }}" data-name="{{ e($u->name) }}"
+                                            data-target="{{ $dt->target_tasks_per_day ?? '' }}">
+                                            <i class="bi bi-pencil"></i> Set
+                                        </button>
+                                        @if ($dt)
+                                            <button class="btn btn-sm btn-outline-danger btn-dt-delete" data-id="{{ $dt->id }}"><i class="bi bi-trash"></i></button>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="cfg-help mt-2"><i class="bi bi-info-circle me-1"></i>Optional. With no target set, an employee's Daily Target KPI is left out of their score. With one set, it compares completed tasks so far this month against target × days elapsed, capped at 100%.</div>
+    </div>
 </div>
 
 {{-- ── Target modal ──────────────────────────────────────────────────── --}}
@@ -320,7 +360,7 @@
                     </div>
                 </div>
                 <div class="wt-grid mb-2" id="ovWeights">
-                    @foreach (['task' => 'Task', 'ontime' => 'On-time', 'revision' => 'Quality', 'sales' => 'Sales', 'satisfaction' => 'Satisfaction', 'clientcare' => 'Client care'] as $k => $label)
+                    @foreach (['task' => 'Task', 'ontime' => 'On-time', 'revision' => 'Quality', 'sales' => 'Sales', 'satisfaction' => 'Satisfaction', 'clientcare' => 'Client care', 'dailytarget' => 'Daily target'] as $k => $label)
                         <div class="wt-field">
                             <label>{{ $label }}</label>
                             <input type="number" min="0" max="100" id="ov_{{ $k }}" value="20" class="form-control form-control-sm ov-wt">
@@ -354,6 +394,24 @@
             <div class="modal-footer py-2">
                 <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
                 <button id="saveCap" class="btn btn-sm btn-primary">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- ── Daily Target modal ────────────────────────────────────────────── --}}
+<div class="modal fade" id="dtModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-3"><h6 class="modal-title fw-bold">Daily Target — <span id="dtName"></span></h6><button class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <input type="hidden" id="dtUser">
+                <label class="form-label fw-semibold small">Target (tasks / day)</label>
+                <input type="number" min="1" max="1000" id="dtTarget" class="form-control form-control-sm" placeholder="e.g. 5">
+            </div>
+            <div class="modal-footer py-2">
+                <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button id="saveDt" class="btn btn-sm btn-primary">Save</button>
             </div>
         </div>
     </div>
@@ -445,7 +503,7 @@ $(function () {
 
     $('#btnAddOverride').on('click', function () {
         $('#ovScopeType').val('department'); toggleOvScope();
-        $('.ov-wt').each(function (i) { $(this).val([20, 20, 15, 15, 15, 15][i]); });
+        $('.ov-wt').each(function (i) { $(this).val([19, 19, 13, 13, 13, 13, 10][i]); });
         ovRecompute();
         new bootstrap.Modal('#overrideModal').show();
     });
@@ -458,6 +516,7 @@ $(function () {
         $('#ov_revision').val(t.data('revision')); $('#ov_sales').val(t.data('sales'));
         $('#ov_satisfaction').val(t.data('satisfaction'));
         $('#ov_clientcare').val(t.data('clientcare') || 0);
+        $('#ov_dailytarget').val(t.data('dailytarget') || 0);
         ovRecompute();
         new bootstrap.Modal('#overrideModal').show();
     });
@@ -470,6 +529,7 @@ $(function () {
             revision_weight: $('#ov_revision').val(), sales_weight: $('#ov_sales').val(),
             satisfaction_weight: $('#ov_satisfaction').val(),
             client_care_weight: $('#ov_clientcare').val(),
+            daily_target_weight: $('#ov_dailytarget').val(),
         }).done(() => window.location.reload()).fail(fail);
     });
     $(document).on('click', '.btn-ov-delete', function () {
@@ -495,6 +555,25 @@ $(function () {
             working_days_per_week: $('#capDays').val(),
             max_active_tasks: $('#capTasks').val() || '', max_workload_points: $('#capPoints').val() || '',
         }).done(() => window.location.reload()).fail(fail);
+    });
+
+    // ── Daily Targets ───────────────────────────────────────────────
+    $(document).on('click', '.btn-dt-edit', function () {
+        const t = $(this);
+        $('#dtName').text(t.data('name'));
+        $('#dtUser').val(t.data('user'));
+        $('#dtTarget').val(t.data('target'));
+        new bootstrap.Modal('#dtModal').show();
+    });
+    $('#saveDt').on('click', function () {
+        $.post('{{ route("performance.config.daily-targets.store") }}', {
+            user_id: $('#dtUser').val(), target_tasks_per_day: $('#dtTarget').val(),
+        }).done(() => window.location.reload()).fail(fail);
+    });
+    $(document).on('click', '.btn-dt-delete', function () {
+        const id = $(this).data('id');
+        Swal.fire({ title: 'Remove daily target?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545' })
+            .then(r => { if (r.isConfirmed) $.ajax({ url: '/performance/config/daily-targets/' + id, type: 'DELETE' }).done(() => window.location.reload()).fail(fail); });
     });
 });
 </script>

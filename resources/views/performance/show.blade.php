@@ -16,6 +16,7 @@
         'sales'           => 'Sales Achievement',
         'satisfaction'    => 'Client Satisfaction',
         'client_care'     => 'Client Care',
+        'daily_target'    => 'Daily Target',
     ];
     $c = $result['components'];
     $money = fn ($v) => number_format((float) $v, 2);
@@ -257,6 +258,31 @@
                     </div>
                 @else
                     <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">No clients of their own, none added and no client upkeep this period.</div>
+                @endif
+            </div>
+        </div>
+    </div>
+
+    {{-- Daily target: completed work vs. an optional per-day quota --}}
+    <div class="col-lg-6">
+        <div class="card section-card sc-comp-card">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                <h6 class="fw-bold mb-0"><i class="bi bi-check2-circle me-1"></i>Daily Target</h6>
+                @isset($result['weights_used']['daily_target'])
+                    <span class="sc-weight">weight {{ $result['weights_used']['daily_target'] }}%</span>
+                @endisset
+            </div>
+            <div class="card-body">
+                @php $dt = $c['dailyTarget'] ?? null; @endphp
+                @if ($dt)
+                    <div class="sc-metric"><span class="k">Achievement</span><span class="v">{{ $dt['pct'] }}%</span></div>
+                    <div class="sc-metric"><span class="k">Target / day</span><span class="v">{{ $dt['target_per_day'] }}</span></div>
+                    <div class="sc-metric"><span class="k">Days elapsed</span><span class="v">{{ $dt['elapsed_days'] }}</span></div>
+                    <div class="sc-metric"><span class="k">Target so far</span><span class="v">{{ $dt['target_so_far'] }}</span></div>
+                    <div class="sc-metric"><span class="k">Completed</span><span class="v">{{ $dt['completed'] }}</span></div>
+                    <div class="sc-formula mt-2">No target is a penalty-free feature — set on Performance → Configuration → Daily Targets.</div>
+                @else
+                    <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">No daily target set for this employee.</div>
                 @endif
             </div>
         </div>

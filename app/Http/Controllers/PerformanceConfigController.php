@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\DailyTarget;
 use App\Models\EmployeeCapacity;
 use App\Models\KpiWeightConfig;
 use App\Models\PerformanceSetting;
@@ -19,7 +20,7 @@ class PerformanceConfigController extends Controller
     /** Functional teams (Spatie roles double as departments — see DatabaseSeeder). */
     private const DEPARTMENTS = ['Sales', 'Document', 'Design', 'Website', 'Product', 'Marketing', 'Support', 'Accounts', 'Content'];
 
-    private const WEIGHT_FIELDS = ['task_completion_weight', 'on_time_weight', 'revision_weight', 'sales_weight', 'satisfaction_weight', 'client_care_weight'];
+    private const WEIGHT_FIELDS = ['task_completion_weight', 'on_time_weight', 'revision_weight', 'sales_weight', 'satisfaction_weight', 'client_care_weight', 'daily_target_weight'];
 
     public function __construct(
         private readonly PerformanceConfigService $service,
@@ -48,15 +49,17 @@ class PerformanceConfigController extends Controller
             });
 
         $capacities = EmployeeCapacity::whereIn('user_id', $users->pluck('id'))->get()->keyBy('user_id');
+        $dailyTargets = DailyTarget::whereIn('user_id', $users->pluck('id'))->get()->keyBy('user_id');
 
         return view('performance.config', [
-            'users'       => $users,
-            'periods'     => $this->periodOptions(),
-            'departments' => self::DEPARTMENTS,
-            'settings'    => PerformanceSetting::current(),
-            'global'      => $global,
-            'overrides'   => $overrides,
-            'capacities'  => $capacities,
+            'users'        => $users,
+            'periods'      => $this->periodOptions(),
+            'departments'  => self::DEPARTMENTS,
+            'settings'     => PerformanceSetting::current(),
+            'global'       => $global,
+            'overrides'    => $overrides,
+            'capacities'   => $capacities,
+            'dailyTargets' => $dailyTargets,
         ]);
     }
 
@@ -118,6 +121,7 @@ class PerformanceConfigController extends Controller
             'sales_weight'           => ['required', 'integer', 'min:0', 'max:100'],
             'satisfaction_weight'    => ['required', 'integer', 'min:0', 'max:100'],
             'client_care_weight'     => ['required', 'integer', 'min:0', 'max:100'],
+            'daily_target_weight'    => ['required', 'integer', 'min:0', 'max:100'],
         ]);
 
         $sum =array_sum(array_map(fn ($f) => (int) $data[$f], self::WEIGHT_FIELDS));
@@ -186,6 +190,29 @@ class PerformanceConfigController extends Controller
         ]);
 
         $this->service->upsertCapacity($data);
+
+        return response()->json(['success' => true]);
+    }
+
+    public function storeDailyTarget(Request $request): JsonResponse
+    {
+        abort_unless(Auth::user()->can('manage performance'), 403);
+
+        $data = $request->validate([
+            'user_id'               => ['required', 'exists:users,id'],
+            'target_tasks_per_day'  => ['required', 'integer', 'min:1', 'max:1000'],
+        ]);
+
+        $this->service->upsertDailyTarget($data);
+
+        return response()->json(['success' => true]);
+    }
+
+    public function destroyDailyTarget(DailyTarget $dailyTarget): JsonResponse
+    {
+        abort_unless(Auth::user()->can('manage performance'), 403);
+
+        $this->service->deleteDailyTarget($dailyTarget);
 
         return response()->json(['success' => true]);
     }

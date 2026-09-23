@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\DailyTarget;
 use App\Models\EmployeeCapacity;
 use App\Models\KpiWeightConfig;
 use App\Models\PerformanceSetting;
@@ -71,6 +72,7 @@ class PerformanceConfigService
                 'sales_weight'           => $data['sales_weight'],
                 'satisfaction_weight'    => $data['satisfaction_weight'],
                 'client_care_weight'     => $data['client_care_weight'] ?? 0,
+                'daily_target_weight'    => $data['daily_target_weight'] ?? 0,
                 'updated_by'             => Auth::id(),
             ]);
             $config->save();
@@ -125,6 +127,32 @@ class PerformanceConfigService
             $this->activityLog->log('Performance', 'Capacity Updated', null, $old, $capacity->only(['user_id', 'working_hours_per_day', 'working_days_per_week', 'max_active_tasks', 'max_workload_points']));
 
             return $capacity;
+        });
+    }
+
+    public function upsertDailyTarget(array $data): DailyTarget
+    {
+        return DB::transaction(function () use ($data) {
+            $target = DailyTarget::firstOrNew(['user_id' => $data['user_id']]);
+
+            $old = $target->exists ? $target->only('target_tasks_per_day') : null;
+            $target->target_tasks_per_day = $data['target_tasks_per_day'];
+            $target->updated_by           = Auth::id();
+            $target->save();
+
+            $this->activityLog->log('Performance', $old ? 'Daily Target Updated' : 'Daily Target Set', null, $old, [
+                'user_id' => $target->user_id, 'target_tasks_per_day' => $target->target_tasks_per_day,
+            ]);
+
+            return $target;
+        });
+    }
+
+    public function deleteDailyTarget(DailyTarget $target): void
+    {
+        DB::transaction(function () use ($target) {
+            $this->activityLog->log('Performance', 'Daily Target Removed', null, $target->only(['user_id', 'target_tasks_per_day']), null);
+            $target->delete();
         });
     }
 }

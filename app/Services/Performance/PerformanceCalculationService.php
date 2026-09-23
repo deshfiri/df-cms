@@ -5,6 +5,7 @@ namespace App\Services\Performance;
 use App\Models\ActivityLog;
 use App\Models\Client;
 use App\Models\ClientSatisfactionRating;
+use App\Models\DailyTarget;
 use App\Models\KpiWeightConfig;
 use App\Models\Payment;
 use App\Models\PerformanceSetting;
@@ -103,11 +104,18 @@ class PerformanceCalculationService
 
         $this->clientCareByUser = $this->loadClientCare($ids, $period);
 
+        // Standing per-user goals, not period-scoped, so one load covers every
+        // period this cohort is ever scored for in the same request.
+        $this->dailyTargetsByUser = DailyTarget::whereIn('user_id', $ids)->get()->keyBy('user_id')->all();
+
         $this->prefetchPeriod = $period;
     }
 
     /** @var array<int,array<string,mixed>> */
     private array $clientCareByUser = [];
+
+    /** @var array<int,DailyTarget> */
+    private array $dailyTargetsByUser = [];
 
     /** True when this exact period was prefetched for the cohort. */
     private function prefetched(string $period): bool
@@ -647,6 +655,48 @@ class PerformanceCalculationService
         return $result;
     }
 
+    // ── Daily Target ─────────────────────────────────────────────────────
+    //
+    // An employee's optional, standing "N tasks a day" goal (DailyTarget —
+    // set by whoever holds 'manage performance', Performance → Configuration).
+    // Nobody who was never given one is measured on it at all, so it never
+    // pulls down someone whose manager doesn't use the feature.
+    //
+    //   target so far = target/day × days elapsed in the period — the full
+    //                   month once it has closed, otherwise up to and
+    //                   including today
+    //   achieved      = the same share-weighted completed-task credit every
+    //                   other task KPI already reads off tasksFor()
+    //   achievement % = achieved ÷ target so far × 100, capped at 100
+
+    public function dailyTargetAchievement(User $user, string $period): ?array
+    {
+        $target = $this->prefetched($period)
+            ? ($this->dailyTargetsByUser[$user->id] ?? null)
+            : DailyTarget::where('user_id', $user->id)->first();
+
+        if (!$target) {
+            return null;
+        }
+
+        [$start, $end] = $this->periodBounds($period);
+        $elapsedEnd = now()->lessThan($end) ? now() : $end;
+        // Whole calendar days: Carbon 3's diffInDays() returns a float, and
+        // today counting only once (not 1.5) needs both ends on a day boundary.
+        $elapsedDays = max(1, (int) $start->diffInDays($elapsedEnd->copy()->startOfDay()) + 1);
+
+        $targetSoFar = $target->target_tasks_per_day * $elapsedDays;
+        $achieved    = self::credit($this->tasksFor($user, $period)->where('status', 'Completed'));
+
+        return [
+            'target_per_day' => $target->target_tasks_per_day,
+            'elapsed_days'   => $elapsedDays,
+            'target_so_far'  => $targetSoFar,
+            'completed'      => round($achieved, 2),
+            'pct'            => $targetSoFar > 0 ? round(min(100, $achieved / $targetSoFar * 100), 2) : null,
+        ];
+    }
+
     public function resolveWeights(User $user): KpiWeightConfig
     {
         // Resolved in-memory from the memoized set (employee → department →
@@ -669,8 +719,9 @@ class PerformanceCalculationService
         return $configs->first(fn (KpiWeightConfig $c) => $c->scope_type === KpiWeightConfig::SCOPE_GLOBAL)
             ?? new KpiWeightConfig([
                 'scope_type' => KpiWeightConfig::SCOPE_GLOBAL,
-                'task_completion_weight' => 20, 'on_time_weight' => 20, 'revision_weight' => 15,
-                'sales_weight' => 15, 'satisfaction_weight' => 15, 'client_care_weight' => 15,
+                'task_completion_weight' => 19, 'on_time_weight' => 19, 'revision_weight' => 13,
+                'sales_weight' => 13, 'satisfaction_weight' => 13, 'client_care_weight' => 13,
+                'daily_target_weight' => 10,
             ]);
     }
 
@@ -682,6 +733,7 @@ class PerformanceCalculationService
         $sales          = $this->salesAchievement($user, $period);
         $satisfaction   = $this->clientSatisfaction($user, $period);
         $clientCare     = $this->clientCare($user, $period);
+        $dailyTarget    = $this->dailyTargetAchievement($user, $period);
 
         $weightConfig = $this->resolveWeights($user);
         $weights = $weightConfig->toWeightsArray();
@@ -693,6 +745,7 @@ class PerformanceCalculationService
             'sales'           => $sales !== null ? min($sales['pct'] ?? 0, 100) : null,
             'satisfaction'    => $satisfaction['score'] ?? null,
             'client_care'     => $clientCare['score'] ?? null,
+            'daily_target'    => $dailyTarget['pct'] ?? null,
         ];
 
         // A KPI counts when there is data for it and its profile gives it weight;
@@ -703,7 +756,7 @@ class PerformanceCalculationService
             return [
                 'final_score' => null, 'performance_level' => null,
                 'scores' => $scores, 'weights_used' => [], 'strongest' => null, 'weakest' => null,
-                'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare'),
+                'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget'),
             ];
         }
 
@@ -733,7 +786,7 @@ class PerformanceCalculationService
             'weights_used' => $weightsUsed,
             'strongest' => $strongest,
             'weakest' => $weakest,
-            'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare'),
+            'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget'),
         ];
     }
 

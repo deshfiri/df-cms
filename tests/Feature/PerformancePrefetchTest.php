@@ -151,9 +151,10 @@ class PerformancePrefetchTest extends TestCase
         DB::disableQueryLog();
 
         // Six employees at six queries each would be 36 plus settings lookups.
-        // The prefetch is a fixed handful, and roles are resolved in memory.
+        // The prefetch is a fixed handful (tasks, sales targets, revenue,
+        // ratings, client care, daily targets), and roles are resolved in memory.
         $this->assertLessThan(
-            20,
+            22,
             $count,
             "Scoring 6 employees took {$count} queries — the cohort prefetch is not being used."
         );
