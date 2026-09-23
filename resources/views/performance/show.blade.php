@@ -290,7 +290,7 @@
                                     <td class="text-end">{{ $scope['completed'] }}</td>
                                     <td class="text-end">
                                         @if ($scope['forgiven'])
-                                            <span class="spill spill-hold" title="Not enough {{ strtolower($scope['label']) }} was due yet to hold this against them">Forgiven · 100%</span>
+                                            <span class="spill spill-hold" title="Not enough {{ strtolower($scope['label']) }} were due yet to hold this against them">Forgiven · 100%</span>
                                         @else
                                             {{ $scope['pct'] }}%
                                         @endif
