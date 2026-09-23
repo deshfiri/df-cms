@@ -25,7 +25,7 @@
                 <div class="row g-3">
                     @if($withClientPicker)
                         <div class="col-12">
-                            <label class="form-label fw-semibold small">Client <span style="color:#dc3545">*</span></label>
+                            <label class="form-label fw-semibold small">Client <span style="color:var(--c-red)">*</span></label>
                             <select data-rp="client" class="form-select">
                                 <option value="">Select client...</option>
                                 @foreach($clients as $c)
@@ -51,7 +51,7 @@
                             <div class="rp-newcharge-title"><i class="bi bi-receipt me-1"></i>New charge</div>
                             <div class="row g-2">
                                 <div class="col-md-6">
-                                    <label class="form-label small mb-1">Total to be paid <span style="color:#dc3545">*</span></label>
+                                    <label class="form-label small mb-1">Total to be paid <span style="color:var(--c-red)">*</span></label>
                                     <div class="input-group input-group-sm">
                                         <span class="input-group-text">৳</span>
                                         <input type="number" data-rp="chargeTotal" class="form-control" min="0.01" step="0.01" placeholder="20000">
@@ -78,7 +78,7 @@
                         <button type="button" class="rp-link" data-rp="payFull" hidden>Pay full balance</button>
                     </div>
                     <div class="col-md-6" data-rp="statusWrap">
-                        <label class="form-label fw-semibold small">Status <span style="color:#dc3545">*</span></label>
+                        <label class="form-label fw-semibold small">Status <span style="color:var(--c-red)">*</span></label>
                         <select data-rp="status" class="form-select">
                             @foreach(\App\Models\Payment::$statuses as $s)
                                 <option value="{{ $s }}">{{ $s }}</option>
@@ -222,7 +222,7 @@ window.RecordPayment = function (opts) {
         el('newCharge').prop('hidden', !isNew);
         el('statusWrap').prop('hidden', linked);
         el('payFull').prop('hidden', !charge);
-        el('amountLabel').html(linked ? 'Amount received <span style="color:#dc3545">*</span>' : 'Amount');
+        el('amountLabel').html(linked ? 'Amount received <span style="color:var(--c-red)">*</span>' : 'Amount');
 
         if (charge) {
             const pct = charge.total_payable > 0 ? Math.min(100, Math.round(charge.paid_amount / charge.total_payable * 100)) : 0;

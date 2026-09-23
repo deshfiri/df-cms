@@ -679,8 +679,8 @@
         }
 
         .call-icon.missed {
-            background: rgba(220, 53, 69, .12);
-            color: #dc3545;
+            background: var(--c-red-bg);
+            color: var(--c-red);
         }
 
         .call-body {
@@ -698,7 +698,7 @@
         }
 
         .call-name.missed {
-            color: #dc3545;
+            color: var(--c-red);
         }
 
         .call-meta {
@@ -1091,7 +1091,7 @@
                     </div>
                 </div>
                 <div class="modal-footer py-2 justify-content-between">
-                    <button class="btn btn-sm" id="groupLeave" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#dc2626">
+                    <button class="btn btn-sm" id="groupLeave" style="background:var(--c-red-bg);border:1px solid var(--c-red-bg);color:var(--c-red)">
                         <i class="bi bi-box-arrow-right me-1"></i>Leave group
                     </button>
                     <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Close</button>

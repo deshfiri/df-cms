@@ -168,7 +168,7 @@
 
         .invalid-feedback {
             font-size: .71rem;
-            color: #dc2626;
+            color: var(--c-red);
             margin-top: 3px;
         }
 

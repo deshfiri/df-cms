@@ -102,7 +102,7 @@
         color: var(--text);
     }
     .form-control.is-invalid { border-color: #dc2626; }
-    .invalid-feedback { font-size: .71rem; color: #dc2626; margin-top: 3px; }
+    .invalid-feedback { font-size: .71rem; color: var(--c-red); margin-top: 3px; }
 
     .input-group .form-control { border-radius: 0 8px 8px 0 !important; }
     .input-group-text {

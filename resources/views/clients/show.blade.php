@@ -2077,7 +2077,7 @@
                 link = '<a href="' + esc(m.join_url) + '" target="_blank" style="color:var(--primary)"><i class="bi bi-box-arrow-up-right me-1"></i>Join</a>' +
                     '<a href="#" class="m-btn-copy-link" data-link="' + esc(m.join_url) + '" style="color:var(--text3)" title="Copy link"><i class="bi bi-clipboard"></i></a>';
             }
-            var googleBadge = m.google_meet_url ? '<span class="badge" style="background:rgba(16,185,129,.12);color:#059669;font-size:.6rem"><i class="bi bi-camera-video-fill me-1"></i>Google Meet</span>' : '';
+            var googleBadge = m.google_meet_url ? '<span class="badge" style="background:var(--c-green-bg);color:var(--c-green);font-size:.6rem"><i class="bi bi-camera-video-fill me-1"></i>Google Meet</span>' : '';
             var agd = m.agenda ? '<div class="mt-1" style="font-size:.74rem;color:var(--text2)">' + esc(m.agenda) + '</div>' : '';
             var nts = (m.notes && m.status === 'Completed') ? '<div class="mt-2 p-2 rounded" style="background:var(--surface2);border:1px solid var(--border);font-size:.74rem;color:var(--text2)"><i class="bi bi-journal-text me-1"></i>' + esc(m.notes) + '</div>' : '';
 

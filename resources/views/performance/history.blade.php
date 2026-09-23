@@ -18,8 +18,8 @@
     #histTable td, #histTable th { vertical-align: middle; }
     .hist-rank { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: var(--surface2); color: var(--text2); font-size: .72rem; font-weight: 700; }
     .hist-rank.top { background: var(--primary); color: #fff; }
-    .hist-emp-link { color: var(--primary); text-decoration: none; font-weight: 600; }
-    .hist-emp-link:hover { color: var(--primary-dark); }
+    .hist-emp-link { color: var(--text); text-decoration: none; font-weight: 600; }
+    .hist-emp-link:hover { color: var(--primary); }
 </style>
 @endpush
 

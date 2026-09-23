@@ -20,7 +20,7 @@
         padding: 2px 8px; border-radius: var(--radius-sm); font-size: .8rem;
     }
     .pc-btn:hover { color: var(--text); border-color: var(--text3); }
-    .pc-btn-danger { background: rgba(239,68,68,.08); border-color: rgba(239,68,68,.2); color: #dc2626; }
+    .pc-btn-danger { background: var(--c-red-bg); border-color: var(--c-red-bg); color: var(--c-red); }
     .form-switch .form-check-input { cursor: pointer; }
 </style>
 @endpush
@@ -108,7 +108,7 @@
             <div class="modal-body">
                 <input type="hidden" id="pcId">
                 <div class="mb-3">
-                    <label class="form-label fw-semibold small">Name <span style="color:#dc3545">*</span></label>
+                    <label class="form-label fw-semibold small">Name <span style="color:var(--c-red)">*</span></label>
                     <input type="text" id="pcName" class="form-control" maxlength="100" placeholder="e.g. Social Media Ads">
                 </div>
                 <div class="mb-3">

@@ -3,8 +3,8 @@
 
 @push('styles')
 <style>
-#tasksTable .task-title-link { color: var(--primary); font-weight: 600; text-decoration: none; }
-#tasksTable .task-title-link:hover { color: var(--primary-dark); }
+#tasksTable .task-title-link { color: var(--text); font-weight: 600; text-decoration: none; }
+#tasksTable .task-title-link:hover { color: var(--primary); }
 #tasksTable .task-title-sub { font-size: .68rem; color: var(--text3); }
 </style>
 @endpush

@@ -233,6 +233,20 @@
             border-color: #2a3d55 !important;
         }
 
+        /* Multi-select "chips" (task/client assignee pickers etc.) — the
+           vendor theme hardcodes near-black text with no matching background
+           override, so a selected chip's label disappeared against the dark
+           shell. */
+        [data-theme="dark"] .select2-selection__choice {
+            background: var(--surface2) !important;
+            border-color: var(--border) !important;
+            color: var(--text) !important;
+        }
+
+        [data-theme="dark"] .select2-selection__choice__remove {
+            filter: invert(1);
+        }
+
         [data-theme="dark"] .swal2-popup {
             background: #111827 !important;
             border: 1px solid #2a3d55 !important;

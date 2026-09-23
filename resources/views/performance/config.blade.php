@@ -27,7 +27,7 @@
     .wt-field label { font-size: .72rem; color: var(--text2); font-weight: 600; }
     .wt-sum { font-size: .8rem; font-weight: 700; }
     .wt-sum.ok { color: var(--primary); }
-    .wt-sum.bad { color: #dc3545; }
+    .wt-sum.bad { color: var(--c-red); }
     .cfg-help { font-size: .72rem; color: var(--text3); }
     .cfg-section-title { font-size: .78rem; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .03em; margin-bottom: .5rem; }
     #capTable td, #targetTable td { vertical-align: middle; }

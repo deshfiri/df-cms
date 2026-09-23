@@ -25,7 +25,7 @@
         padding: 2px 8px; border-radius: var(--radius-sm); font-size: .8rem;
     }
     .dt-btn:hover { color: var(--text); border-color: var(--text3); }
-    .dt-btn-danger { background: rgba(239,68,68,.08); border-color: rgba(239,68,68,.2); color: #dc2626; }
+    .dt-btn-danger { background: var(--c-red-bg); border-color: var(--c-red-bg); color: var(--c-red); }
     .dt-tag { font-size: var(--fs-2xs); padding: 1px 7px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface2); color: var(--text3); }
 
     .dt-picker { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -138,7 +138,7 @@
             <div class="modal-body">
                 <input type="hidden" id="dtId">
                 <div class="mb-3">
-                    <label class="form-label fw-semibold small" for="dtName">Name <span style="color:#dc3545">*</span></label>
+                    <label class="form-label fw-semibold small" for="dtName">Name <span style="color:var(--c-red)">*</span></label>
                     <input type="text" id="dtName" class="form-control" maxlength="100" placeholder="e.g. Bank Statement">
                 </div>
                 <div class="mb-3">

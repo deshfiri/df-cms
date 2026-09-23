@@ -34,8 +34,8 @@ $(function () {
             { data: 'created', orderable: false, searchable: false },
             { data: null, orderable: false, searchable: false, render: function (row) {
                 return '<div class="text-end">'
-                    + '<button class="btn btn-sm px-2 py-1 proof-verify" data-id="' + row.id + '" style="background:rgba(5,150,105,.08);color:#059669"><i class="bi bi-check-lg"></i></button> '
-                    + '<button class="btn btn-sm px-2 py-1 proof-reject" data-id="' + row.id + '" style="background:rgba(239,68,68,.08);color:#dc2626"><i class="bi bi-x-lg"></i></button>'
+                    + '<button class="btn btn-sm px-2 py-1 proof-verify" data-id="' + row.id + '" style="background:var(--c-green-bg);color:var(--c-green)"><i class="bi bi-check-lg"></i></button> '
+                    + '<button class="btn btn-sm px-2 py-1 proof-reject" data-id="' + row.id + '" style="background:var(--c-red-bg);color:var(--c-red)"><i class="bi bi-x-lg"></i></button>'
                     + '</div>';
             } },
         ],

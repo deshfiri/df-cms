@@ -11,7 +11,7 @@
 
     function personPicker(stage, verb) {
         if (!stage.users.length) {
-            return '<div style="font-size:.74rem;color:#f59e0b;text-align:left;margin-bottom:.7rem">'
+            return '<div style="font-size:.74rem;color:var(--c-yellow);text-align:left;margin-bottom:.7rem">'
                  + '<i class="bi bi-exclamation-triangle me-1"></i>Nobody is assigned to <strong>' + esc(stage.name)
                  + '</strong> yet — it will wait there until an admin assigns someone.</div>';
         }

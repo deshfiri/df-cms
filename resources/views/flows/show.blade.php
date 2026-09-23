@@ -7,7 +7,7 @@
     .stage-pos { width: 30px; height: 30px; border-radius: 50%; background: var(--primary); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: .8rem; flex-shrink: 0; }
     .stage-users { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: 3px; }
     .stage-chip { font-size: .66rem; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); border-radius: 999px; padding: 1px 8px; }
-    .stage-none { font-size: .68rem; color: #dc3545; }
+    .stage-none { font-size: .68rem; color: var(--c-red); }
 </style>
 @endpush
 

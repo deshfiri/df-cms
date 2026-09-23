@@ -77,9 +77,9 @@
                     <div style="font-size:.72rem;color:var(--text3)">
                         {{ $item->flow->name ?? '—' }} · {{ $item->currentStage->name ?? '—' }}
                         @if($item->isOverdue())
-                            · <span style="color:#dc3545;font-weight:600"><i class="bi bi-exclamation-circle"></i> Overdue {{ $item->due_date->format('d M') }}</span>
+                            · <span style="color:var(--c-red);font-weight:600"><i class="bi bi-exclamation-circle"></i> Overdue {{ $item->due_date->format('d M') }}</span>
                         @elseif($item->due_date && $item->due_date->isToday())
-                            · <span style="color:#f59e0b;font-weight:600">Due today</span>
+                            · <span style="color:var(--c-yellow);font-weight:600">Due today</span>
                         @elseif($item->due_date)
                             · Due {{ $item->due_date->format('d M') }}
                         @endif

@@ -280,7 +280,7 @@ $(function() {
                 '<div class="d-flex align-items-center justify-content-center bg-primary text-white rounded-circle fw-bold flex-shrink-0" style="width:28px;height:28px;font-size:.72rem">' + (c.text ? c.text.charAt(0).toUpperCase() : '?') + '</div>' +
                 '<div class="flex-grow-1 min-w-0">' +
                     '<div class="fw-semibold" style="font-size:.8rem">' + $('<div>').text(c.text).html() + '</div>' +
-                    '<div style="font-size:.7rem;color:#6b7280">' + $('<div>').text(c.dfid || '').html() + (c.brand ? ' · ' + $('<div>').text(c.brand).html() : '') + '</div>' +
+                    '<div style="font-size:.7rem;color:var(--text3)">' + $('<div>').text(c.dfid || '').html() + (c.brand ? ' · ' + $('<div>').text(c.brand).html() : '') + '</div>' +
                 '</div>' +
                 '<span class="spill ' + spill + '" style="font-size:.6rem;flex-shrink:0">' + (c.status || '') + '</span>' +
             '</div>');

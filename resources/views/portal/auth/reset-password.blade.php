@@ -58,9 +58,9 @@
         border-radius: 8px; font-size: .82rem; font-family: inherit; height: 38px; padding: 0 12px;
     }
     .form-control.is-invalid { border-color: #dc2626; }
-    .invalid-feedback { font-size: .71rem; color: #dc2626; margin-top: 3px; display: block; }
+    .invalid-feedback { font-size: .71rem; color: var(--c-red); margin-top: 3px; display: block; }
     .alert-danger {
-        background: rgba(220,38,38,.09); border: 1px solid rgba(220,38,38,.2); color: #ef4444;
+        background: var(--c-red-bg); border: 1px solid var(--c-red-bg); color: var(--c-red);
         border-radius: 8px; font-size: .78rem; padding: 10px 14px;
     }
     .btn-login {
