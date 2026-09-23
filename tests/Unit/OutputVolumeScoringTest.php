@@ -6,7 +6,6 @@ use App\Models\Category;
 use App\Models\Client;
 use App\Models\Flow;
 use App\Models\FlowItem;
-use App\Models\Task;
 use App\Models\User;
 use App\Services\Performance\PerformanceCalculationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -16,12 +15,21 @@ use Tests\TestCase;
 /**
  * Output Volume: absolute output relative to the most productive person in
  * the company that period, averaged across every scope of work tracked
- * (tasks, workflow items, client handling) — not tasks alone. Task
- * Completion (and its like) already measure a RATE, where finishing
- * everything you were given hits 100% whether that was 5 tasks or 50; this
- * is what makes higher raw output actually count for more. Called directly
- * against PerformanceCalculationService. HTTP-level behavior (weight
- * config, rendering) is covered in Tests\Feature\OutputVolumePerformanceTest.
+ * (workflow items, client handling) — not rate alone. Task Completion (and
+ * its like) already measure a RATE, where finishing everything you were
+ * given hits 100% whether that was 5 tasks or 50; this is what makes higher
+ * raw output actually count for more, for scopes Task Completion doesn't
+ * already cover.
+ *
+ * Deliberately has no "task" scope: Task Completion already scores every
+ * task an assignee is given, so a task scope here would credit the same
+ * completed tasks a second time — once for the rate, once for the volume —
+ * letting a handful of tasks push both KPIs to 100% at once. See
+ * PerformanceCalculationService::outputVolume().
+ *
+ * Called directly against PerformanceCalculationService. HTTP-level
+ * behavior (weight config, rendering) is covered in
+ * Tests\Feature\OutputVolumePerformanceTest.
  */
 class OutputVolumeScoringTest extends TestCase
 {
@@ -38,17 +46,6 @@ class OutputVolumeScoringTest extends TestCase
         $this->travelTo(Carbon::parse('2026-09-20 12:00:00'));
         $this->manager = User::factory()->create(['is_active' => true]);
         $this->flow    = Flow::create(['name' => 'Test Flow', 'is_active' => true]);
-    }
-
-    private function tasks(User $assignee, int $count, string $status = 'Completed'): void
-    {
-        foreach (range(1, $count) as $i) {
-            Task::create([
-                'title' => 'Task', 'priority' => 'Medium', 'status' => $status, 'type' => 'Other',
-                'assigned_to' => $assignee->id, 'created_by' => $this->manager->id,
-                'due_date' => '2026-09-10', 'completion_date' => $status === 'Completed' ? '2026-09-10' : null,
-            ]);
-        }
     }
 
     private function flowItems(User $assignee, int $count, string $status = FlowItem::STATUS_COMPLETED): void
@@ -82,26 +79,23 @@ class OutputVolumeScoringTest extends TestCase
 
     /**
      * Two people both finish 100% of what they were given, but one did
-     * twice the work. Before this feature they were indistinguishable; now
-     * the higher-output person scores higher — on the task scope alone
-     * here, exactly the case that was reported.
+     * twice the work. On a scope Task Completion doesn't already cover
+     * (workflow items), the higher-output person still scores higher here
+     * — the case Output Volume exists for, without re-scoring the tasks
+     * Task Completion already rated.
      */
     public function test_two_people_both_at_100_percent_completion_rate_score_differently_by_volume(): void
     {
         $userA = User::factory()->create(['is_active' => true]);
         $userB = User::factory()->create(['is_active' => true]);
-        $this->tasks($userA, 5);  // all 5 completed -> 100% rate
-        $this->tasks($userB, 10); // all 10 completed -> 100% rate
-
-        $calc = app(PerformanceCalculationService::class);
-        $this->assertSame(100.0, $calc->taskCompletion($userA, self::PERIOD)['completion_pct']);
-        $this->assertSame(100.0, $calc->taskCompletion($userB, self::PERIOD)['completion_pct']);
+        $this->flowItems($userA, 5);  // all 5 completed -> 100% rate
+        $this->flowItems($userB, 10); // all 10 completed -> 100% rate
 
         $volumeA = $this->volume($userA);
         $volumeB = $this->volume($userB);
 
-        $this->assertSame(50.0, $volumeA['scopes']['task']['pct']);
-        $this->assertSame(100.0, $volumeB['scopes']['task']['pct']);
+        $this->assertSame(50.0, $volumeA['scopes']['workflow']['pct']);
+        $this->assertSame(100.0, $volumeB['scopes']['workflow']['pct']);
         $this->assertGreaterThan($volumeA['pct'], $volumeB['pct']);
     }
 
@@ -111,6 +105,16 @@ class OutputVolumeScoringTest extends TestCase
 
         $this->assertNull($this->volume($idle));
         $this->assertNull(app(PerformanceCalculationService::class)->finalScore($idle, self::PERIOD)['scores']['output_volume']);
+    }
+
+    /** Tasks are Task Completion's job, not Output Volume's — see the class docblock. */
+    public function test_output_volume_has_no_task_scope(): void
+    {
+        $leader = User::factory()->create(['is_active' => true]);
+        $this->flowItems($leader, 3);
+
+        $this->assertArrayNotHasKey('task', $this->volume($leader)['scopes']);
+        $this->assertArrayNotHasKey('task', PerformanceCalculationService::VOLUME_SCOPE_LABELS);
     }
 
     // ── Each scope on its own ────────────────────────────────────────────
@@ -164,32 +168,31 @@ class OutputVolumeScoringTest extends TestCase
     public function test_the_top_performer_in_a_scope_always_scores_exactly_100(): void
     {
         $leader = User::factory()->create(['is_active' => true]);
-        $this->tasks($leader, 7);
+        $this->flowItems($leader, 7);
 
-        $this->assertSame(100.0, $this->volume($leader)['scopes']['task']['pct']);
+        $this->assertSame(100.0, $this->volume($leader)['scopes']['workflow']['pct']);
     }
 
     // ── Combining scopes ─────────────────────────────────────────────────
 
     /**
-     * A scope this person has nothing to show in (no tasks due, no workflow
-     * items due, no clients of their own) is left out of their average
-     * rather than counted as a 0 — same "no data, no penalty" rule as every
-     * other optional KPI.
+     * A scope this person has nothing to show in (no workflow items due, no
+     * clients of their own) is left out of their average rather than
+     * counted as a 0 — same "no data, no penalty" rule as every other
+     * optional KPI.
      */
     public function test_a_scope_with_no_data_is_left_out_of_the_average_not_scored_zero(): void
     {
         $leader = User::factory()->create(['is_active' => true]);
         $mine   = User::factory()->create(['is_active' => true]);
-        $this->tasks($leader, 10);
-        $this->tasks($mine, 5); // task-only: no workflow items, no clients for either
+        $this->flowItems($leader, 10);
+        $this->flowItems($mine, 5); // workflow-only: no clients for either
 
         $result = $this->volume($mine);
 
-        $this->assertArrayHasKey('task', $result['scopes']);
-        $this->assertArrayNotHasKey('workflow', $result['scopes']);
+        $this->assertArrayHasKey('workflow', $result['scopes']);
         $this->assertArrayNotHasKey('client_handling', $result['scopes']);
-        $this->assertSame(50.0, $result['pct']); // the task scope alone, not averaged down by absent scopes
+        $this->assertSame(50.0, $result['pct']); // the workflow scope alone, not averaged down by an absent scope
     }
 
     public function test_the_overall_score_is_the_average_of_every_applicable_scope(): void
@@ -197,19 +200,16 @@ class OutputVolumeScoringTest extends TestCase
         $leader = User::factory()->create(['is_active' => true]);
         $mine   = User::factory()->create(['is_active' => true]);
 
-        $this->tasks($leader, 10);
-        $this->tasks($mine, 5); // 50%
         $this->flowItems($leader, 4);
-        $this->flowItems($mine, 4); // 100%
+        $this->flowItems($mine, 2); // 50%
         $this->clientsFor($leader, 4);
         $this->clientsFor($mine, 1); // 25%
 
         $result = $this->volume($mine);
 
-        $this->assertSame(50.0, $result['scopes']['task']['pct']);
-        $this->assertSame(100.0, $result['scopes']['workflow']['pct']);
+        $this->assertSame(50.0, $result['scopes']['workflow']['pct']);
         $this->assertSame(25.0, $result['scopes']['client_handling']['pct']);
-        $this->assertSame(58.33, $result['pct']); // (50 + 100 + 25) / 3
+        $this->assertSame(37.5, $result['pct']); // (50 + 25) / 2
     }
 
     // ── Company-wide, batch-consistent ───────────────────────────────────
@@ -225,8 +225,6 @@ class OutputVolumeScoringTest extends TestCase
         $inFilter    = User::factory()->create(['is_active' => true]);
         $outOfFilter = User::factory()->create(['is_active' => true]); // the real leader, outside the prefetch
 
-        $this->tasks($inFilter, 3);
-        $this->tasks($outOfFilter, 9);
         $this->flowItems($inFilter, 1);
         $this->flowItems($outOfFilter, 5);
         $this->clientsFor($inFilter, 1);
@@ -237,7 +235,6 @@ class OutputVolumeScoringTest extends TestCase
 
         $result = $calc->outputVolume($inFilter, self::PERIOD);
 
-        $this->assertSame(9.0, $result['scopes']['task']['cohort_max']);
         $this->assertSame(5.0, $result['scopes']['workflow']['cohort_max']);
         $this->assertSame(4.0, $result['scopes']['client_handling']['cohort_max']);
     }
@@ -246,8 +243,6 @@ class OutputVolumeScoringTest extends TestCase
     {
         $userA = User::factory()->create(['is_active' => true]);
         $userB = User::factory()->create(['is_active' => true]);
-        $this->tasks($userA, 4);
-        $this->tasks($userB, 8);
         $this->flowItems($userA, 2);
         $this->clientsFor($userB, 3);
 

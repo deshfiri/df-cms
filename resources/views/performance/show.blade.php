@@ -52,8 +52,8 @@
     .sc-credit-table th { font-size: .66rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text3); font-weight: 600; background: var(--surface2); border-color: var(--border); white-space: nowrap; }
     .sc-credit-table td { color: var(--text); border-color: var(--border); vertical-align: middle; background: transparent; }
     .sc-credit-table tr.is-uncounted td { color: var(--text3); }
-    .sc-credit-table a { color: var(--primary); text-decoration: none; font-weight: 600; }
-    .sc-credit-table a:hover { color: var(--primary-dark); }
+    .sc-credit-table a { color: var(--text); text-decoration: none; font-weight: 600; }
+    .sc-credit-table a:hover { color: var(--primary); }
     .sc-event { display: inline-block; font-size: .66rem; padding: 1px 6px; margin: 1px 2px 1px 0; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); white-space: nowrap; }
     .sc-share-bar { height: 4px; border-radius: 2px; background: var(--surface2); overflow: hidden; margin-top: 3px; min-width: 60px; }
     .sc-share-bar > span { display: block; height: 100%; background: var(--primary); }
@@ -340,8 +340,9 @@
                     </div>
                     <div class="sc-formula mt-2">
                         Task Completion (and its like) measure whether you finished what you had; this measures how much you finished in each scope, against whoever did the most in the company that period —
-                        capped at 100% for whoever leads a scope. Finishing 5 of 5 assigned tasks is still 100% Task Completion, but if someone else finished 10, this scores 50% on the Tasks row, not 100%.
-                        A scope with nothing to measure for them (no tasks due, no workflow items due, no clients of their own) is left out of the average rather than scored 0.
+                        capped at 100% for whoever leads a scope. Finishing 5 of 5 assigned workflow items is still 100% on-rate, but if someone else finished 10, this scores 50% on the Workflow Items row, not 100%.
+                        Tasks aren't scored here — Task Completion already covers them, so counting them again would credit the same work twice.
+                        A scope with nothing to measure for them (no workflow items due, no clients of their own) is left out of the average rather than scored 0.
                     </div>
                 @else
                     <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">Nothing to measure this employee's output against this period.</div>

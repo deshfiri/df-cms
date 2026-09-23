@@ -43,11 +43,12 @@ class OutputVolumePerformanceTest extends TestCase
 
     private function task(User $assignee): void
     {
-        Task::create([
+        $task = Task::create([
             'title' => 'Task', 'priority' => 'Medium', 'status' => 'Completed', 'type' => 'Other',
-            'assigned_to' => $assignee->id, 'created_by' => $this->manager->id,
+            'created_by' => $this->manager->id,
             'due_date' => '2026-09-10', 'completion_date' => '2026-09-10',
         ]);
+        $task->assignees()->sync([$assignee->id]);
     }
 
     private function flowItem(User $assignee): void
@@ -77,7 +78,7 @@ class OutputVolumePerformanceTest extends TestCase
             'daily_target_weight' => 0, 'output_volume_weight' => 100,
         ]);
         $sam = User::factory()->create(['is_active' => true]);
-        $this->task($sam);
+        $this->flowItem($sam);
 
         $result = app(PerformanceCalculationService::class)->finalScore($sam, self::PERIOD);
 
@@ -156,7 +157,6 @@ class OutputVolumePerformanceTest extends TestCase
             ->assertOk()
             ->assertSee('Output Volume')
             ->assertSee('Overall volume score')
-            ->assertSee('Tasks')
             ->assertSee('Workflow Items')
             ->assertSee('Client Handling');
     }
@@ -172,7 +172,7 @@ class OutputVolumePerformanceTest extends TestCase
     public function test_the_scoreboard_and_history_render_the_volume_column(): void
     {
         $sam = User::factory()->create(['is_active' => true, 'name' => 'Sam Scoreboard']);
-        $this->task($sam);
+        $this->flowItem($sam);
 
         $this->actingAs($this->manager)->get(route('performance.index'))
             ->assertOk()
