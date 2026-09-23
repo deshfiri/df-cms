@@ -3,12 +3,16 @@
 
 @php
     $g = $global; // global KPI weight config or null
+    // Mirrors PerformanceCalculationService::resolveWeights()'s fallback
+    // exactly, so an admin who has never saved a profile sees the same
+    // numbers the scoring engine is already using, and the total reads
+    // 100 the moment the page opens.
     $gw = [
-        'task_completion_weight' => $g->task_completion_weight ?? 20,
-        'on_time_weight'         => $g->on_time_weight ?? 20,
-        'revision_weight'        => $g->revision_weight ?? 15,
-        'sales_weight'           => $g->sales_weight ?? 15,
-        'satisfaction_weight'    => $g->satisfaction_weight ?? 15,
+        'task_completion_weight' => $g->task_completion_weight ?? 19,
+        'on_time_weight'         => $g->on_time_weight ?? 19,
+        'revision_weight'        => $g->revision_weight ?? 13,
+        'sales_weight'           => $g->sales_weight ?? 13,
+        'satisfaction_weight'    => $g->satisfaction_weight ?? 13,
         'client_care_weight'     => $g->client_care_weight ?? 13,
         'daily_target_weight'    => $g->daily_target_weight ?? 10,
     ];
