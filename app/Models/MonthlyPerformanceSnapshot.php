@@ -10,7 +10,7 @@ class MonthlyPerformanceSnapshot extends Model
     protected $fillable = [
         'user_id', 'period',
         'task_completion_score', 'on_time_score', 'revision_score', 'sales_score', 'satisfaction_score', 'client_care_score',
-        'daily_target_score',
+        'daily_target_score', 'task_volume_score',
         'weights_used', 'component_details', 'final_score', 'performance_level',
         'rank_department', 'rank_company', 'generated_at',
     ];
@@ -28,6 +28,7 @@ class MonthlyPerformanceSnapshot extends Model
             'satisfaction_score'     => 'decimal:2',
             'client_care_score'      => 'decimal:2',
             'daily_target_score'     => 'decimal:2',
+            'task_volume_score'      => 'decimal:2',
             'final_score'            => 'decimal:2',
         ];
     }

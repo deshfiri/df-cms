@@ -124,6 +124,18 @@ class PerformanceCalculationService
     /** @var array<int,\Illuminate\Support\Collection<int,FlowItem>> */
     private array $flowItemsByUser = [];
 
+    /**
+     * The most any one person in the whole company completed in a period —
+     * for Task Volume. Independent of prefetch()'s cohort (which may be
+     * department-filtered): this always means company-wide, so the same
+     * person's Task Volume score never changes depending on which filtered
+     * view triggered the calculation. Memoized per period per service
+     * instance, since a scoreboard run scores many people against the same one.
+     *
+     * @var array<string,float>
+     */
+    private array $cohortMaxCompletedByPeriod = [];
+
     /** True when this exact period was prefetched for the cohort. */
     private function prefetched(string $period): bool
     {
@@ -785,6 +797,70 @@ class PerformanceCalculationService
         };
     }
 
+    // ── Task Volume ──────────────────────────────────────────────────────
+    //
+    // Task Completion measures a RATE — finish everything you were given and
+    // you hit 100%, whether that was 5 tasks or 50. That leaves two people
+    // who both cleared their plate looking identical, which undersells
+    // whoever actually got through more work. Task Volume measures the
+    // absolute output instead, relative to the most productive person in the
+    // company that period:
+    //
+    //     volume % = my completed-task credit ÷ the company's highest × 100
+    //
+    // capped at 100 (the top performer that period always scores 100 on this
+    // axis). Nobody with no tasks due in the period is measured on it at
+    // all — same "no data, left out" rule every optional KPI already follows.
+
+    public function taskVolume(User $user, string $period): ?array
+    {
+        $tasks = $this->tasksFor($user, $period);
+        if ($tasks->isEmpty()) {
+            return null;
+        }
+
+        $myCompleted = self::credit($tasks->where('status', 'Completed'));
+        $cohortMax   = $this->cohortMaxCompleted($period);
+
+        return [
+            'completed'  => round($myCompleted, 2),
+            'cohort_max' => round($cohortMax, 2),
+            'pct'        => $cohortMax > 0 ? round(min(100, $myCompleted / $cohortMax * 100), 2) : 0.0,
+        ];
+    }
+
+    /**
+     * The most credited-completed work anyone in the whole company turned in
+     * this period — always company-wide and independent of whatever cohort
+     * prefetch() was called with, so the number can't shift depending on
+     * which filtered scoreboard view triggered the calculation.
+     */
+    private function cohortMaxCompleted(string $period): float
+    {
+        return $this->cohortMaxCompletedByPeriod[$period] ??= $this->computeCohortMaxCompleted($period);
+    }
+
+    private function computeCohortMaxCompleted(string $period): float
+    {
+        [$start, $end] = $this->periodBounds($period);
+
+        $ids = Task::whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
+            ->whereNotNull('assigned_to')
+            ->distinct()
+            ->pluck('assigned_to');
+
+        if ($ids->isEmpty()) {
+            return 0.0;
+        }
+
+        $max = 0.0;
+        foreach ($this->loadTasks($ids, $period) as $tasks) {
+            $max = max($max, self::credit($tasks->where('status', 'Completed')));
+        }
+
+        return $max;
+    }
+
     public function resolveWeights(User $user): KpiWeightConfig
     {
         // Resolved in-memory from the memoized set (employee → department →
@@ -807,9 +883,9 @@ class PerformanceCalculationService
         return $configs->first(fn (KpiWeightConfig $c) => $c->scope_type === KpiWeightConfig::SCOPE_GLOBAL)
             ?? new KpiWeightConfig([
                 'scope_type' => KpiWeightConfig::SCOPE_GLOBAL,
-                'task_completion_weight' => 19, 'on_time_weight' => 19, 'revision_weight' => 13,
-                'sales_weight' => 13, 'satisfaction_weight' => 13, 'client_care_weight' => 13,
-                'daily_target_weight' => 10,
+                'task_completion_weight' => 18, 'on_time_weight' => 18, 'revision_weight' => 12,
+                'sales_weight' => 11, 'satisfaction_weight' => 11, 'client_care_weight' => 11,
+                'daily_target_weight' => 9, 'task_volume_weight' => 10,
             ]);
     }
 
@@ -822,6 +898,7 @@ class PerformanceCalculationService
         $satisfaction   = $this->clientSatisfaction($user, $period);
         $clientCare     = $this->clientCare($user, $period);
         $dailyTarget    = $this->dailyTargetAchievement($user, $period);
+        $taskVolume     = $this->taskVolume($user, $period);
 
         $weightConfig = $this->resolveWeights($user);
         $weights = $weightConfig->toWeightsArray();
@@ -834,6 +911,7 @@ class PerformanceCalculationService
             'satisfaction'    => $satisfaction['score'] ?? null,
             'client_care'     => $clientCare['score'] ?? null,
             'daily_target'    => $dailyTarget['pct'] ?? null,
+            'task_volume'     => $taskVolume['pct'] ?? null,
         ];
 
         // A KPI counts when there is data for it and its profile gives it weight;
@@ -844,7 +922,7 @@ class PerformanceCalculationService
             return [
                 'final_score' => null, 'performance_level' => null,
                 'scores' => $scores, 'weights_used' => [], 'strongest' => null, 'weakest' => null,
-                'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget'),
+                'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'taskVolume'),
             ];
         }
 
@@ -874,7 +952,7 @@ class PerformanceCalculationService
             'weights_used' => $weightsUsed,
             'strongest' => $strongest,
             'weakest' => $weakest,
-            'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget'),
+            'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'taskVolume'),
         ];
     }
 

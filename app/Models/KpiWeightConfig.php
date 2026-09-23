@@ -17,7 +17,7 @@ class KpiWeightConfig extends Model
     protected $fillable = [
         'scope_type', 'scope_value',
         'task_completion_weight', 'on_time_weight', 'revision_weight', 'sales_weight', 'satisfaction_weight',
-        'client_care_weight', 'daily_target_weight', 'updated_by',
+        'client_care_weight', 'daily_target_weight', 'task_volume_weight', 'updated_by',
     ];
 
     public function updatedBy(): BelongsTo
@@ -35,6 +35,7 @@ class KpiWeightConfig extends Model
             'satisfaction'    => $this->satisfaction_weight,
             'client_care'     => (int) ($this->client_care_weight ?? 0),
             'daily_target'    => (int) ($this->daily_target_weight ?? 0),
+            'task_volume'     => (int) ($this->task_volume_weight ?? 0),
         ];
     }
 }

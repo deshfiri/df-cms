@@ -17,6 +17,7 @@
         'satisfaction'    => 'Client Satisfaction',
         'client_care'     => 'Client Care',
         'daily_target'    => 'Daily Target',
+        'task_volume'     => 'Task Volume',
     ];
     $c = $result['components'];
     $money = fn ($v) => number_format((float) $v, 2);
@@ -305,6 +306,32 @@
                     </div>
                 @else
                     <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">No daily target set for this employee — set one on Performance → Configuration → Daily Targets.</div>
+                @endif
+            </div>
+        </div>
+    </div>
+
+    {{-- Task volume: completed work vs. the company's most productive person --}}
+    <div class="col-lg-6">
+        <div class="card section-card sc-comp-card">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                <h6 class="fw-bold mb-0"><i class="bi bi-bar-chart-line me-1"></i>Task Volume</h6>
+                @isset($result['weights_used']['task_volume'])
+                    <span class="sc-weight">weight {{ $result['weights_used']['task_volume'] }}%</span>
+                @endisset
+            </div>
+            <div class="card-body">
+                @php $tv = $c['taskVolume'] ?? null; @endphp
+                @if ($tv)
+                    <div class="sc-metric"><span class="k">Volume score</span><span class="v">{{ $tv['pct'] }}%</span></div>
+                    <div class="sc-metric"><span class="k">Their completed credit</span><span class="v">{{ $tv['completed'] }}</span></div>
+                    <div class="sc-metric"><span class="k">Company's highest this period</span><span class="v">{{ $tv['cohort_max'] }}</span></div>
+                    <div class="sc-formula mt-2">
+                        Task Completion measures whether you finished what you had; this measures how much you finished, against whoever did the most in the company that period.
+                        Finishing 5 of 5 assigned tasks is still 100% Task Completion — but if someone else finished 10, this scores 50%, not 100%.
+                    </div>
+                @else
+                    <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">No tasks due for this employee this period.</div>
                 @endif
             </div>
         </div>

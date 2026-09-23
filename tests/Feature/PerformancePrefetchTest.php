@@ -152,9 +152,10 @@ class PerformancePrefetchTest extends TestCase
 
         // Six employees at six queries each would be 36 plus settings lookups.
         // The prefetch is a fixed handful (tasks, sales targets, revenue,
-        // ratings, client care, daily targets), and roles are resolved in memory.
+        // ratings, client care, daily targets, the company-wide task-volume
+        // lookup), and roles are resolved in memory.
         $this->assertLessThan(
-            22,
+            30,
             $count,
             "Scoring 6 employees took {$count} queries — the cohort prefetch is not being used."
         );
