@@ -69,7 +69,7 @@ class BulkUploadTest extends TestCase
     {
         $this->actingAs($this->manager);
         $task = app(TaskService::class)->create([
-            'title' => 'Poster', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other', 'assigned_to' => $this->anika->id,
+            'title' => 'Poster', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other', 'assignee_ids' => [$this->anika->id],
         ]);
         $this->actingAs($this->anika);
 
@@ -243,7 +243,7 @@ class BulkUploadTest extends TestCase
         $this->actingAs($this->manager);
         $task = app(TaskService::class)->create([
             'title' => 'Poster', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other',
-            'assigned_to' => $this->anika->id, 'requires_attachment' => true,
+            'assignee_ids' => [$this->anika->id], 'requires_attachment' => true,
         ]);
         $this->actingAs($this->anika);
         app(TaskService::class)->changeWorkingStatus($task, $this->anika, 'In Progress');

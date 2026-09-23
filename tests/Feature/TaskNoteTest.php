@@ -39,7 +39,7 @@ class TaskNoteTest extends TestCase
 
         return app(TaskService::class)->create([
             'title' => 'Spring campaign poster', 'priority' => 'High', 'status' => 'Pending',
-            'type' => 'Other', 'assigned_to' => $this->anika->id,
+            'type' => 'Other', 'assignee_ids' => [$this->anika->id],
         ]);
     }
 

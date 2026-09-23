@@ -106,7 +106,7 @@ class TaskPolicy
      */
     public function progress(User $user, Task $task): bool
     {
-        return (int) $task->assigned_to === (int) $user->id
+        return $task->assignees->contains($user->id)
             && in_array($task->status, Task::$workingStatuses, true);
     }
 
@@ -121,8 +121,8 @@ class TaskPolicy
      */
     public function submit(User $user, Task $task): Response
     {
-        if ((int) $task->assigned_to !== (int) $user->id) {
-            return Response::deny('Only the person this task is assigned to can submit it.');
+        if (!$task->assignees->contains($user->id)) {
+            return Response::deny('Only someone this task is assigned to can submit it.');
         }
 
         if (in_array($task->status, Task::$settledStatuses, true)) {
@@ -157,14 +157,14 @@ class TaskPolicy
             return true;
         }
 
-        return (int) $task->assigned_to === (int) $user->id
+        return $task->assignees->contains($user->id)
             && in_array($task->status, [Task::STATUS_SUBMITTED, 'Completed'], true);
     }
 
     /** Created it, or holds it. */
     private function isParty(User $user, Task $task): bool
     {
-        return (int) $task->assigned_to === (int) $user->id || $this->created($user, $task);
+        return $task->assignees->contains($user->id) || $this->created($user, $task);
     }
 
     private function created(User $user, Task $task): bool

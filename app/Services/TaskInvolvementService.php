@@ -94,7 +94,7 @@ class TaskInvolvementService
     /** Recompute one task's involvement from its activity log. */
     public function rebuild(Task $task): void
     {
-        $rows = $this->project($task, TaskActivity::where('task_id', $task->id)->orderBy('id')->get());
+        $rows = $this->project($task->loadMissing('assignees:id'), TaskActivity::where('task_id', $task->id)->orderBy('id')->get());
 
         DB::transaction(function () use ($task, $rows) {
             TaskInvolvement::where('task_id', $task->id)->delete();
@@ -144,6 +144,7 @@ class TaskInvolvementService
     public function project(Task $task, Collection $activities): array
     {
         $people = [];
+        $currentAssigneeIds = $task->assignees->pluck('id')->map(fn ($id) => (int) $id)->all();
 
         $person = function (?int $userId) use (&$people): ?int {
             if (!$userId) {
@@ -179,16 +180,17 @@ class TaskInvolvementService
 
         // Legacy history has no explicit first assignment. Its first holder is
         // whoever the first recorded hand-off moved the task away from, and
-        // failing that, whoever holds it now.
+        // failing that, whoever holds it now (a pre-multi-assignee task has
+        // exactly one).
         $firstHolder = null;
         foreach ($activities as $activity) {
             [$event, $meta] = self::eventOf($activity);
-            if ($event === 'reassigned') {
-                $firstHolder = $meta['from'] ?? null;
+            if ($event === 'reassigned' && array_key_exists('from', $meta)) {
+                $firstHolder = $meta['from'];
                 break;
             }
         }
-        $firstHolder ??= $task->assigned_to;
+        $firstHolder ??= $currentAssigneeIds[0] ?? null;
 
         foreach ($activities as $activity) {
             [$event, $meta] = self::eventOf($activity);
@@ -197,18 +199,33 @@ class TaskInvolvementService
 
             switch ($event) {
                 case 'created':
-                    $holder = array_key_exists('assigned_to', $meta) ? $meta['assigned_to'] : $firstHolder;
-                    if ($holder = $person($holder ? (int) $holder : null)) {
-                        $take($holder, $at);
+                    // New-shape events carry every assignee set at creation;
+                    // old ones (and the legacy free-text inference below)
+                    // carry a single `assigned_to`.
+                    $holders = array_key_exists('assignee_ids', $meta)
+                        ? (array) $meta['assignee_ids']
+                        : (array_key_exists('assigned_to', $meta) ? [$meta['assigned_to']] : [$firstHolder]);
+                    foreach ($holders as $holderId) {
+                        if ($holder = $person($holderId ? (int) $holderId : null)) {
+                            $take($holder, $at);
+                        }
                     }
                     break;
 
                 case 'reassigned':
-                    if (($from = $person(isset($meta['from']) ? (int) $meta['from'] : null)) && $people[$from]['was_assignee']) {
-                        $people[$from]['released_at'] = $at;
+                    // New-shape events carry {added, removed}; old ones carry {from, to}.
+                    $removed = array_key_exists('removed', $meta) ? (array) $meta['removed'] : array_filter([$meta['from'] ?? null]);
+                    $added   = array_key_exists('added', $meta) ? (array) $meta['added'] : array_filter([$meta['to'] ?? null]);
+
+                    foreach ($removed as $removedId) {
+                        if (($from = $person($removedId ? (int) $removedId : null)) && $people[$from]['was_assignee']) {
+                            $people[$from]['released_at'] = $at;
+                        }
                     }
-                    if ($to = $person(isset($meta['to']) ? (int) $meta['to'] : null)) {
-                        $take($to, $at);
+                    foreach ($added as $addedId) {
+                        if ($to = $person($addedId ? (int) $addedId : null)) {
+                            $take($to, $at);
+                        }
                     }
                     break;
 
@@ -251,8 +268,10 @@ class TaskInvolvementService
             }
         }
 
-        // Whoever holds it now is authoritative, whatever the history says.
-        if ($holder = $person($task->assigned_to ? (int) $task->assigned_to : null)) {
+        // Whoever holds it now is authoritative, whatever the history says —
+        // every current assignee, not just one.
+        foreach ($currentAssigneeIds as $holderId) {
+            $holder = $person($holderId);
             if (!$people[$holder]['was_assignee']) {
                 $take($holder, $task->created_at);
             }
@@ -263,7 +282,7 @@ class TaskInvolvementService
         $rows = [];
         foreach ($people as $userId => $p) {
             $role = match (true) {
-                (int) $userId === (int) $task->assigned_to => self::ROLE_PRIMARY,
+                in_array((int) $userId, $currentAssigneeIds, true) => self::ROLE_PRIMARY,
                 $p['points'] > 0                           => self::ROLE_CONTRIBUTOR,
                 $p['review_points'] > 0                    => self::ROLE_REVIEWER,
                 $p['was_assignee']                         => self::ROLE_PASSED_THROUGH,

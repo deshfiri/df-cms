@@ -51,10 +51,13 @@ class TaskPolicyRevisionTest extends TestCase
 
     private function task(User $assignee, User $creator, string $status): Task
     {
-        return Task::create([
+        $task = Task::create([
             'title' => 'Write the onboarding doc', 'priority' => 'Medium', 'status' => $status, 'type' => 'Other',
-            'assigned_to' => $assignee->id, 'created_by' => $creator->id,
+            'created_by' => $creator->id,
         ]);
+        $task->assignees()->sync([$assignee->id]);
+
+        return $task;
     }
 
     public function test_oversight_may_request_a_revision_regardless_of_status(): void

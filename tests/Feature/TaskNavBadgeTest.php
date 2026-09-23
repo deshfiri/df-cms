@@ -32,10 +32,13 @@ class TaskNavBadgeTest extends TestCase
 
     private function task(User $assignee, User $creator, string $status, array $extra = []): Task
     {
-        return Task::create($extra + [
+        $task = Task::create($extra + [
             'title' => 'Task ' . uniqid(), 'priority' => 'Medium', 'status' => $status, 'type' => 'Other',
-            'assigned_to' => $assignee->id, 'created_by' => $creator->id,
+            'created_by' => $creator->id,
         ]);
+        $task->assignees()->sync([$assignee->id]);
+
+        return $task;
     }
 
     public function test_it_counts_open_work_overdue_work_and_reviews_waiting_on_me(): void

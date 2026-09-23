@@ -49,10 +49,16 @@ class TaskVisibilityTest extends TestCase
 
     private function task(?User $assignee, User $creator, string $title = 'Task'): Task
     {
-        return Task::create([
+        $task = Task::create([
             'title' => $title, 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other',
-            'assigned_to' => $assignee?->id, 'created_by' => $creator->id,
+            'created_by' => $creator->id,
         ]);
+
+        if ($assignee) {
+            $task->assignees()->sync([$assignee->id]);
+        }
+
+        return $task;
     }
 
     /** @return array{0:User,1:User,2:User,3:Task,4:Task,5:Task} me, colleague, manager, mine-assigned, mine-created, not-mine */
@@ -117,7 +123,7 @@ class TaskVisibilityTest extends TestCase
         $handedOut = $this->task($colleague, $lead, 'Handed out by the lead');
         $givenToLead = $this->task($lead, $manager, 'Given to the lead');
 
-        $payload = ['title' => 'Renamed', 'priority' => 'High', 'status' => 'Pending', 'type' => 'Other', 'assigned_to' => $colleague->id];
+        $payload = ['title' => 'Renamed', 'priority' => 'High', 'status' => 'Pending', 'type' => 'Other', 'assignee_ids' => [$colleague->id]];
 
         $this->actingAs($lead)->putJson(route('tasks.update', $handedOut), $payload)->assertOk();
         $this->assertSame('Renamed', $handedOut->fresh()->title);

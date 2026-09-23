@@ -24,24 +24,24 @@ class MyWorkController extends Controller
     public function index(Request $request): View
     {
         $me      = $request->user();
-        $columns = ['id', 'title', 'assigned_to', 'created_by', 'status', 'priority', 'due_date', 'due_at', 'submitted_at', 'completed_at'];
+        $columns = ['id', 'title', 'created_by', 'status', 'priority', 'due_date', 'due_at', 'submitted_at', 'completed_at'];
 
         return view('my-work.index', [
             'openTasks' => Task::with('clients:id,client_name')
-                ->where('assigned_to', $me->id)
+                ->whereHas('assignees', fn ($q) => $q->where('users.id', $me->id))
                 ->whereNotIn('status', Task::$settledStatuses)
                 ->orderByRaw('due_at IS NULL')->orderBy('due_at')
                 ->limit(15)
                 ->get($columns),
-            'waitingOnMe' => Task::with(['clients:id,client_name', 'assignedUser:id,name'])
+            'waitingOnMe' => Task::with(['clients:id,client_name', 'assignees:id,name'])
                 ->where('created_by', $me->id)
-                ->where('assigned_to', '!=', $me->id)
+                ->whereDoesntHave('assignees', fn ($q) => $q->where('users.id', $me->id))
                 ->where('status', Task::STATUS_SUBMITTED)
                 ->latest('submitted_at')
                 ->limit(15)
                 ->get($columns),
             'handedIn' => Task::with('clients:id,client_name')
-                ->where('assigned_to', $me->id)
+                ->whereHas('assignees', fn ($q) => $q->where('users.id', $me->id))
                 ->where('status', Task::STATUS_SUBMITTED)
                 ->latest('submitted_at')
                 ->limit(15)

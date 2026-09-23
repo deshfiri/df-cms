@@ -26,7 +26,8 @@ class StoreTaskRequest extends FormRequest
             // something to a colleague — has no client to attach it to.
             'client_ids'       => ['nullable', 'array'],
             'client_ids.*'     => ['exists:clients,id'],
-            'assigned_to'      => ['nullable', 'exists:users,id', new AssignableUser($this->user())],
+            'assignee_ids'     => ['nullable', 'array'],
+            'assignee_ids.*'   => ['exists:users,id', new AssignableUser($this->user())],
             'priority'         => ['required', Rule::in(Task::$priorities)],
             'status'           => ['required', Rule::in(Task::$statuses)],
             'type'             => ['required', Rule::in(Task::$types)],

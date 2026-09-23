@@ -51,7 +51,7 @@ class PerformanceTaskCreditTest extends TestCase
 
         return $this->tasks->create($extra + [
             'title' => 'Brochure', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other',
-            'assigned_to' => $assignee?->id, 'due_date' => '2026-09-20',
+            'assignee_ids' => $assignee ? [$assignee->id] : [], 'due_date' => '2026-09-20',
         ]);
     }
 
@@ -70,7 +70,7 @@ class PerformanceTaskCreditTest extends TestCase
         $this->tasks->uploadAttachment($task->fresh(), UploadedFile::fake()->create('draft.pdf', 10));
 
         $this->actingAs($manager);
-        $this->tasks->update($task->fresh(), ['assigned_to' => $bashir->id]);
+        $this->tasks->update($task->fresh(), ['assignee_ids' => [$bashir->id]]);
 
         $this->actingAs($bashir);
         $this->tasks->submitForReview($task->fresh(), $bashir);
@@ -111,7 +111,7 @@ class PerformanceTaskCreditTest extends TestCase
         $task    = $this->create($manager, $anika);
 
         $this->actingAs($manager);
-        $this->tasks->update($task, ['assigned_to' => $bashir->id]);
+        $this->tasks->update($task, ['assignee_ids' => [$bashir->id]]);
 
         $anikas = $this->score()->taskCompletion($anika, self::PERIOD);
         $this->assertSame(0, $anikas['total']);
@@ -163,10 +163,11 @@ class PerformanceTaskCreditTest extends TestCase
     public function test_a_task_with_no_recorded_history_counts_in_full_for_its_assignee(): void
     {
         $anika = $this->user('Anika');
-        Task::create([
+        $imported = Task::create([
             'title' => 'Imported', 'priority' => 'Medium', 'status' => 'Completed', 'type' => 'Other',
-            'assigned_to' => $anika->id, 'due_date' => '2026-09-10', 'completion_date' => '2026-09-10',
+            'due_date' => '2026-09-10', 'completion_date' => '2026-09-10',
         ]);
+        $imported->assignees()->sync([$anika->id]);
 
         $result = $this->score()->taskCompletion($anika, self::PERIOD);
         $this->assertSame(1, $result['total']);
@@ -182,7 +183,7 @@ class PerformanceTaskCreditTest extends TestCase
         $bashir  = $this->user('Bashir');
         $task    = $this->create($manager, $anika);
 
-        $task->update(['assigned_to' => $bashir->id]);   // no activity logged
+        $task->assignees()->sync([$bashir->id]);   // no activity logged
 
         $this->assertSame(0, $this->score()->taskCompletion($anika, self::PERIOD)['total']);
         $this->assertSame(1.0, $this->score()->taskCompletion($bashir, self::PERIOD)['credited_total']);
@@ -194,10 +195,11 @@ class PerformanceTaskCreditTest extends TestCase
     {
         $anika = $this->user('Anika');
         foreach (['2026-09-08' => '2026-09-06', '2026-09-09' => '2026-09-09', '2026-09-10' => '2026-09-12'] as $due => $done) {
-            Task::create([
+            $task = Task::create([
                 'title' => "Due {$due}", 'priority' => 'Medium', 'status' => 'Completed', 'type' => 'Other',
-                'assigned_to' => $anika->id, 'due_date' => $due, 'completion_date' => $done,
+                'due_date' => $due, 'completion_date' => $done,
             ]);
+            $task->assignees()->sync([$anika->id]);
         }
 
         $result = $this->score()->onTimeCompletion($anika, self::PERIOD);

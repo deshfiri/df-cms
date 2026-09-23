@@ -14,8 +14,8 @@
 
     .mw-row { display: flex; align-items: center; gap: .75rem; padding: .7rem 1rem; border-bottom: 1px solid var(--border); }
     .mw-row:last-child { border-bottom: 0; }
-    .mw-title { font-weight: 600; font-size: .83rem; color: var(--primary); text-decoration: none; }
-    a.mw-title:hover { color: var(--primary-dark); }
+    .mw-title { font-weight: 600; font-size: .83rem; color: var(--text); text-decoration: none; }
+    a.mw-title:hover { color: var(--primary); }
     .mw-meta { font-size: .7rem; color: var(--text3); display: flex; flex-wrap: wrap; gap: .1rem .7rem; margin-top: 1px; }
     .mw-empty { text-align: center; padding: 2.2rem 1rem; color: var(--text3); font-size: .82rem; }
     .mw-empty i { font-size: 1.8rem; display: block; margin-bottom: .4rem; }
@@ -180,7 +180,7 @@
                                         @endif
                                         <div class="mw-meta">
                                             @if($task->clients->isNotEmpty())<span><i class="bi bi-person-badge me-1"></i>{{ $task->clients->pluck('client_name')->join(', ') }}</span>@endif
-                                            @if($pane === 'task-review' && $task->assignedUser)<span><i class="bi bi-person me-1"></i>{{ $task->assignedUser->name }}</span>@endif
+                                            @if($pane === 'task-review' && $task->assignees->isNotEmpty())<span><i class="bi bi-person me-1"></i>{{ $task->assignees->pluck('name')->join(', ') }}</span>@endif
                                             @if($pane === 'task-done')
                                                 <span><i class="bi bi-check2 me-1"></i>{{ ($task->completion_date ?? $task->updated_at)?->format('d M Y') }}</span>
                                             @elseif($pane === 'task-submitted' || $pane === 'task-review')
@@ -238,7 +238,7 @@
                                     @if($row->client?->assignedUser)<span><i class="bi bi-person me-1"></i>{{ $row->client->assignedUser->name }}</span>@endif
                                 </div>
                                 @if($row->status === 'Need Revision' && $row->rejection_reason)
-                                    <div style="font-size:.68rem;color:#dc3545;margin-top:2px"><i class="bi bi-arrow-counterclockwise me-1"></i>{{ $row->rejection_reason }}</div>
+                                    <div style="font-size:.68rem;color:var(--c-red);margin-top:2px"><i class="bi bi-arrow-counterclockwise me-1"></i>{{ $row->rejection_reason }}</div>
                                 @endif
                             </div>
                             @if($departments->count() > 1)

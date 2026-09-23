@@ -115,11 +115,11 @@ class RealtimeNotificationTest extends TestCase
         $this->actingAs($manager);
 
         app(TaskService::class)->create([
-            'title'       => 'Draft the proposal',
-            'assigned_to' => $worker->id,
-            'priority'    => 'High',
-            'status'      => 'Pending',
-            'client_id'   => $this->client()->id,
+            'title'        => 'Draft the proposal',
+            'assignee_ids' => [$worker->id],
+            'priority'     => 'High',
+            'status'       => 'Pending',
+            'client_id'    => $this->client()->id,
         ]);
 
         Notification::assertSentTo(
@@ -140,15 +140,15 @@ class RealtimeNotificationTest extends TestCase
 
         try {
             app(TaskService::class)->create([
-                'title'       => 'My own errand',
-                'assigned_to' => $me->id,
-                'priority'    => 'Low',
-                'status'      => 'Pending',
-                'client_id'   => $this->client()->id,
+                'title'        => 'My own errand',
+                'assignee_ids' => [$me->id],
+                'priority'     => 'Low',
+                'status'       => 'Pending',
+                'client_id'    => $this->client()->id,
             ]);
             $this->fail('A self-assigned task was created.');
         } catch (\Illuminate\Validation\ValidationException $e) {
-            $this->assertArrayHasKey('assigned_to', $e->errors());
+            $this->assertArrayHasKey('assignee_ids', $e->errors());
         }
 
         Notification::assertNothingSent();
@@ -179,16 +179,16 @@ class RealtimeNotificationTest extends TestCase
         $this->actingAs($manager);
 
         $task = app(TaskService::class)->create([
-            'title'       => 'Chase the invoice',
-            'assigned_to' => $first->id,
-            'priority'    => 'Medium',
-            'status'      => 'Pending',
-            'client_id'   => $this->client()->id,
+            'title'        => 'Chase the invoice',
+            'assignee_ids' => [$first->id],
+            'priority'     => 'Medium',
+            'status'       => 'Pending',
+            'client_id'    => $this->client()->id,
         ]);
 
         Notification::fake();   // ignore the notification from creation
 
-        app(TaskService::class)->update($task, ['assigned_to' => $second->id]);
+        app(TaskService::class)->update($task, ['assignee_ids' => [$second->id]]);
 
         Notification::assertSentTo($second, TaskAssigned::class);
         Notification::assertNotSentTo($first, TaskAssigned::class);
@@ -202,11 +202,11 @@ class RealtimeNotificationTest extends TestCase
         $this->actingAs($manager);
 
         $task = app(TaskService::class)->create([
-            'title'       => 'Ongoing work',
-            'assigned_to' => $worker->id,
-            'priority'    => 'Medium',
-            'status'      => 'Pending',
-            'client_id'   => $this->client()->id,
+            'title'        => 'Ongoing work',
+            'assignee_ids' => [$worker->id],
+            'priority'     => 'Medium',
+            'status'       => 'Pending',
+            'client_id'    => $this->client()->id,
         ]);
 
         Notification::fake();

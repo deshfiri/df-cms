@@ -45,7 +45,7 @@ class TaskSubmissionTest extends TestCase
 
         $task = app(TaskService::class)->create($attributes + [
             'title' => 'Poster', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other',
-            'assigned_to' => $this->anika->id,
+            'assignee_ids' => [$this->anika->id],
         ]);
 
         if ($started) {
@@ -115,7 +115,7 @@ class TaskSubmissionTest extends TestCase
 
         $this->submit($task, [], $this->manager)
             ->assertForbidden()
-            ->assertJson(['message' => 'Only the person this task is assigned to can submit it.']);
+            ->assertJson(['message' => 'Only someone this task is assigned to can submit it.']);
 
         $this->assertSame('In Progress', $task->fresh()->status);
     }
@@ -233,7 +233,7 @@ class TaskSubmissionTest extends TestCase
     {
         $this->actingAs($this->manager)->postJson(route('tasks.store'), [
             'title' => 'Banner', 'priority' => 'High', 'status' => 'Pending', 'type' => 'Other',
-            'assigned_to' => $this->anika->id, 'requires_attachment' => 1,
+            'assignee_ids' => [$this->anika->id], 'requires_attachment' => 1,
         ])->assertOk();
 
         $task = Task::where('title', 'Banner')->sole();
@@ -241,7 +241,7 @@ class TaskSubmissionTest extends TestCase
 
         $this->actingAs($this->manager)->putJson(route('tasks.update', $task), [
             'title' => 'Banner', 'priority' => 'High', 'status' => 'Pending', 'type' => 'Other',
-            'assigned_to' => $this->anika->id, 'requires_attachment' => 0,
+            'assignee_ids' => [$this->anika->id], 'requires_attachment' => 0,
         ])->assertOk();
 
         $this->assertFalse($task->fresh()->requires_attachment);
@@ -253,17 +253,17 @@ class TaskSubmissionTest extends TestCase
     {
         $payload = ['title' => 'My errand', 'priority' => 'Low', 'status' => 'Pending', 'type' => 'Other'];
 
-        $this->actingAs($this->manager)->postJson(route('tasks.store'), $payload + ['assigned_to' => $this->manager->id])
+        $this->actingAs($this->manager)->postJson(route('tasks.store'), $payload + ['assignee_ids' => [$this->manager->id]])
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['assigned_to' => 'You can\'t assign a task to yourself.']);
+            ->assertJsonValidationErrors(['assignee_ids' => 'You can\'t assign a task to yourself.']);
         $this->assertSame(0, Task::where('title', 'My errand')->count());
 
         // Reassigning someone else's task to yourself is refused too.
         $task = $this->task(started: false);
-        $this->actingAs($this->manager)->putJson(route('tasks.update', $task), $payload + ['assigned_to' => $this->manager->id])
+        $this->actingAs($this->manager)->putJson(route('tasks.update', $task), $payload + ['assignee_ids' => [$this->manager->id]])
             ->assertUnprocessable()
-            ->assertJsonValidationErrors('assigned_to');
-        $this->assertSame($this->anika->id, $task->fresh()->assigned_to);
+            ->assertJsonValidationErrors('assignee_ids');
+        $this->assertSame([$this->anika->id], $task->fresh()->assignees->pluck('id')->all());
 
         // The form offers yourself only as a disabled choice.
         $this->actingAs($this->manager)->get(route('tasks.index'))
@@ -274,12 +274,13 @@ class TaskSubmissionTest extends TestCase
     {
         $legacy = Task::create([
             'title' => 'Old errand', 'priority' => 'Low', 'status' => 'Pending', 'type' => 'Other',
-            'assigned_to' => $this->manager->id, 'created_by' => $this->manager->id,
+            'created_by' => $this->manager->id,
         ]);
+        $legacy->assignees()->sync([$this->manager->id]);
 
         $this->actingAs($this->manager)->putJson(route('tasks.update', $legacy), [
             'title' => 'Old errand, renamed', 'priority' => 'Low', 'status' => 'Pending', 'type' => 'Other',
-            'assigned_to' => $this->manager->id,
+            'assignee_ids' => [$this->manager->id],
         ])->assertOk();
 
         $this->assertSame('Old errand, renamed', $legacy->fresh()->title);
@@ -293,6 +294,6 @@ class TaskSubmissionTest extends TestCase
         $this->actingAs($this->manager);
         $task = app(TaskService::class)->create(['title' => 'Anyone', 'priority' => 'Low', 'status' => 'Pending', 'type' => 'Other']);
 
-        $this->assertNull($task->assigned_to, 'With nobody else available it stays unassigned rather than landing on its creator.');
+        $this->assertTrue($task->assignees->isEmpty(), 'With nobody else available it stays unassigned rather than landing on its creator.');
     }
 }

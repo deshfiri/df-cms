@@ -37,11 +37,14 @@ class DailyTargetScoringTest extends TestCase
 
     private function task(string $dueDate, string $status = 'Completed'): Task
     {
-        return Task::create([
+        $task = Task::create([
             'title' => 'Task', 'priority' => 'Medium', 'status' => $status, 'type' => 'Other',
-            'assigned_to' => $this->sam->id, 'created_by' => $this->manager->id,
+            'created_by' => $this->manager->id,
             'due_date' => $dueDate, 'completion_date' => $status === 'Completed' ? $dueDate : null,
         ]);
+        $task->assignees()->sync([$this->sam->id]);
+
+        return $task;
     }
 
     private function achievement(string $period = '2026-09'): ?array

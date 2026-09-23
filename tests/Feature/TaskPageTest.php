@@ -43,7 +43,7 @@ class TaskPageTest extends TestCase
 
         return $this->tasks->create($attributes + [
             'title' => 'Spring campaign poster', 'description' => 'A3, brand colours', 'priority' => 'High',
-            'status' => 'Pending', 'type' => 'Other', 'assigned_to' => $this->anika->id,
+            'status' => 'Pending', 'type' => 'Other', 'assignee_ids' => [$this->anika->id],
             'due_at' => now()->addDay()->setTime(15, 30)->toIso8601String(),
         ]);
     }

@@ -38,10 +38,13 @@ class MyWorkStatsTest extends TestCase
 
     private function task(User $assignee, User $creator, string $status, array $extra = []): Task
     {
-        return Task::create($extra + [
+        $task = Task::create($extra + [
             'title' => 'Task ' . uniqid(), 'priority' => 'Medium', 'status' => $status, 'type' => 'Other',
-            'assigned_to' => $assignee->id, 'created_by' => $creator->id,
+            'created_by' => $creator->id,
         ]);
+        $task->assignees()->sync([$assignee->id]);
+
+        return $task;
     }
 
     private function stats(User $user, ?string $tz = null): array
@@ -142,10 +145,10 @@ class MyWorkStatsTest extends TestCase
         $service = app(TaskService::class);
 
         $this->actingAs($boss);
-        $first  = $service->create(['title' => 'A', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other', 'assigned_to' => (string) $me->id]);
+        $first  = $service->create(['title' => 'A', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other', 'assignee_ids' => [(string) $me->id]]);
         // Created unassigned (nobody assigns work to themselves), then handed to me.
-        $second = $service->create(['title' => 'B', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other', 'assigned_to' => null]);
-        $service->update($second, ['assigned_to' => $me->id]);
+        $second = $service->create(['title' => 'B', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other', 'assignee_ids' => []]);
+        $service->update($second, ['assignee_ids' => [$me->id]]);
 
         $this->actingAs($me);
         $service->changeWorkingStatus($first->fresh(), $me, 'In Progress');

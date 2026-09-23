@@ -88,6 +88,11 @@
             : '<span class="tp-avatar" style="width:' . $size . 'px;height:' . $size . 'px">' . e($user->initials()) . '</span>';
     };
     $me = auth()->user();
+    // Names of a task's assignees, joined for display — the viewer's own
+    // name reads as "You" wherever they're one of them.
+    $assigneeNames = fn ($assignees) => $assignees->isEmpty() ? null : $assignees
+        ->map(fn ($u) => (int) $u->id === (int) $me->id ? 'You' : $u->name)
+        ->join(', ');
 @endphp
 
 @push('styles')
@@ -147,8 +152,8 @@
     .tp-file { display: flex; align-items: center; gap: .6rem; padding: .5rem .6rem; border: 1px solid color-mix(in srgb, var(--c-blue) 25%, transparent); border-radius: var(--radius); background: var(--c-blue-bg); margin-bottom: .4rem; }
     .tp-file-icon { width: 44px; height: 44px; border-radius: 8px; display: grid; place-items: center; background: var(--surface); color: var(--c-blue); font-size: 1.1rem; flex-shrink: 0; }
     .tp-file .tp-icon-btn:hover { background: var(--surface); }
-    .tp-file-name { font-size: .8rem; font-weight: 600; color: var(--primary); text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .tp-file-name:hover { color: var(--primary-dark); }
+    .tp-file-name { font-size: .8rem; font-weight: 600; color: var(--text); text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tp-file-name:hover { color: var(--primary); }
     .tp-file-sub { font-size: .68rem; color: var(--text3); }
     .tp-icon-btn { background: none; border: 0; color: var(--text3); padding: .25rem .35rem; border-radius: 6px; line-height: 1; text-decoration: none; }
     .tp-icon-btn:hover { color: var(--primary); background: var(--surface2); }
@@ -297,7 +302,7 @@
                 @elseif($can['submit'])
                     <div class="tp-hint mt-2">Submitting hands it to <strong>{{ $task->createdBy->name ?? 'the requester' }}</strong>, who accepts it or sends it back.</div>
                 @elseif($can['review'])
-                    <div class="tp-hint mt-2"><strong>{{ $task->assignedUser->name ?? 'The assignee' }}</strong> handed this in <time class="local-dt" data-format="relative" datetime="{{ $iso($task->submitted_at) }}">{{ $task->submitted_at?->diffForHumans() }}</time>. Accept it or send it back.</div>
+                    <div class="tp-hint mt-2"><strong>{{ $assigneeNames($task->assignees) ?? 'The assignee' }}</strong> handed this in <time class="local-dt" data-format="relative" datetime="{{ $iso($task->submitted_at) }}">{{ $task->submitted_at?->diffForHumans() }}</time>. Accept it or send it back.</div>
                 @endif
             @else
                 <div class="tp-hint">
@@ -312,8 +317,8 @@
                             <i class="bi bi-x-circle me-1"></i>This task was cancelled.
                             @break
                         @default
-                            @if($task->assignedUser)
-                                <i class="bi bi-person me-1"></i>With <strong>{{ (int) $task->assigned_to === (int) $me->id ? 'you' : $task->assignedUser->name }}</strong>.
+                            @if($task->assignees->isNotEmpty())
+                                <i class="bi bi-person me-1"></i>With <strong>{{ $assigneeNames($task->assignees) }}</strong>.
                             @else
                                 <i class="bi bi-person-dash me-1"></i>Not assigned to anyone yet.
                             @endif
@@ -589,7 +594,13 @@
             <div class="card-body">
                 <div class="tp-dl">
                     <div class="tp-dl-row"><span class="k">Assigned to</span>
-                        <span class="v">@if($task->assignedUser)<span class="tp-person">{!! $avatar($task->assignedUser, 22) !!}{{ $task->assignedUser->name }}</span>@else<span style="color:var(--text3)">Unassigned</span>@endif</span></div>
+                        <span class="v d-flex flex-wrap gap-2">
+                            @forelse($task->assignees as $assignee)
+                                <span class="tp-person">{!! $avatar($assignee, 22) !!}{{ $assignee->name }}</span>
+                            @empty
+                                <span style="color:var(--text3)">Unassigned</span>
+                            @endforelse
+                        </span></div>
                     <div class="tp-dl-row"><span class="k">Requested by</span>
                         <span class="v">@if($task->createdBy)<span class="tp-person">{!! $avatar($task->createdBy, 22) !!}{{ $task->createdBy->name }}</span>@else — @endif</span></div>
                     <div class="tp-dl-row"><span class="k">Created</span>

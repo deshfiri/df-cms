@@ -140,9 +140,6 @@ class PerformanceCalculationService
      *
      * @var array<string,float>
      */
-    private array $cohortMaxTaskByPeriod = [];
-
-    /** @var array<string,float> */
     private array $cohortMaxWorkflowByPeriod = [];
 
     private ?float $cohortMaxClientPortfolioCache = null;
@@ -236,12 +233,13 @@ class PerformanceCalculationService
         $tasks = Task::query()
             ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
             ->where(fn ($q) => $q
-                ->whereIn('assigned_to', $ids)
+                ->whereHas('assignees', fn ($aq) => $aq->whereIn('users.id', $ids))
                 ->orWhereHas('involvements', fn ($inv) => $inv->whereIn('user_id', $ids)->where('points', '>', 0)))
             ->withCount('revisions')
             ->with([
                 'revisions' => fn ($q) => $q->where('reason_category', 'Employee Mistake'),
                 'involvements',
+                'assignees:id',
             ])
             ->orderBy('id')
             ->get();
@@ -259,28 +257,30 @@ class PerformanceCalculationService
     }
 
     /**
-     * Each doer's share of one task (loaded with its involvements).
+     * Each doer's share of one task (loaded with its involvements and assignees).
      *
-     * The task's current assignee is treated as the holder whatever its rows
-     * last recorded, so credit follows the task even if something reassigned it
-     * without going through TaskService. A task with no involvement recorded at
-     * all counts wholly for its assignee, as every task did before.
+     * Every current assignee is treated as a holder whatever the involvement
+     * rows last recorded, so credit follows the task even if something
+     * reassigned it without going through TaskService. A task with no
+     * involvement recorded at all counts wholly for each current assignee —
+     * independently, since a share is a per-(user, task) number, never summed
+     * across users — the direct generalization of "solo work has share 1".
      *
      * @return array<int,float>
      */
     public static function workSharesOf(Task $task): array
     {
-        $holder = $task->assigned_to ? (int) $task->assigned_to : null;
+        $holderIds = $task->assignees->pluck('id')->map(fn ($id) => (int) $id)->all();
 
         if ($task->involvements->isEmpty()) {
-            return $holder ? [$holder => 1.0] : [];
+            return array_fill_keys($holderIds, 1.0);
         }
 
         $rows = $task->involvements->map(fn ($inv) => [
             'user_id' => (int) $inv->user_id,
             'points'  => (float) $inv->points,
             'role'    => match (true) {
-                (int) $inv->user_id === $holder => TaskInvolvementService::ROLE_PRIMARY,
+                in_array((int) $inv->user_id, $holderIds, true) => TaskInvolvementService::ROLE_PRIMARY,
                 (float) $inv->points > 0        => TaskInvolvementService::ROLE_CONTRIBUTOR,
                 default                         => $inv->role === TaskInvolvementService::ROLE_PRIMARY
                                                       ? TaskInvolvementService::ROLE_PASSED_THROUGH
@@ -288,8 +288,11 @@ class PerformanceCalculationService
             },
         ])->all();
 
-        if ($holder && !$task->involvements->contains(fn ($inv) => (int) $inv->user_id === $holder)) {
-            $rows[] = ['user_id' => $holder, 'points' => 0.0, 'role' => TaskInvolvementService::ROLE_PRIMARY];
+        $seenIds = $task->involvements->pluck('user_id')->map(fn ($id) => (int) $id)->all();
+        foreach ($holderIds as $holderId) {
+            if (!in_array($holderId, $seenIds, true)) {
+                $rows[] = ['user_id' => $holderId, 'points' => 0.0, 'role' => TaskInvolvementService::ROLE_PRIMARY];
+            }
         }
 
         return TaskInvolvementService::workShares($rows);
@@ -312,11 +315,11 @@ class PerformanceCalculationService
         $tasks = Task::query()
             ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
             ->where(fn ($q) => $q
-                ->where('assigned_to', $user->id)
+                ->whereHas('assignees', fn ($aq) => $aq->where('users.id', $user->id))
                 ->orWhereHas('involvements', fn ($inv) => $inv->where('user_id', $user->id)))
-            ->with('involvements')
+            ->with(['involvements', 'assignees:id'])
             ->orderBy('due_date')->orderBy('id')
-            ->get(['id', 'title', 'status', 'assigned_to', 'created_by', 'due_date', 'due_at']);
+            ->get(['id', 'title', 'status', 'created_by', 'due_date', 'due_at']);
 
         return $tasks->map(function (Task $task) use ($user) {
             $mine  = $task->involvements->first(fn ($inv) => (int) $inv->user_id === (int) $user->id);
@@ -327,7 +330,7 @@ class PerformanceCalculationService
                 'title'     => $task->title,
                 'status'    => $task->status,
                 'due'       => $task->due_date?->toDateString(),
-                'role'      => (int) $task->assigned_to === (int) $user->id
+                'role'      => $task->assignees->contains($user->id)
                                    ? TaskInvolvementService::ROLE_PRIMARY
                                    : ($mine?->role ?? TaskInvolvementService::ROLE_OTHER),
                 'points'    => (float) ($mine?->points ?? 0),
@@ -764,7 +767,7 @@ class PerformanceCalculationService
         $windowEnd   = ($today->lessThan($end) ? $today : $end)->copy()->startOfDay();
         $elapsedDays = max(1, (int) $start->diffInDays($windowEnd) + 1);
 
-        $ownTasks  = $this->tasksFor($user, $period)->filter(fn (Task $t) => (int) $t->assigned_to === (int) $user->id);
+        $ownTasks  = $this->tasksFor($user, $period)->filter(fn (Task $t) => $t->assignees->contains($user->id));
         $flowItems = $this->flowItemsFor($user, $period);
 
         $scopes = [];
@@ -833,9 +836,14 @@ class PerformanceCalculationService
     // with no workflow items due is not scored 0 on workflow, it is simply
     // left out of their average. Nobody with nothing to show in ANY scope
     // is measured on Output Volume at all.
+    //
+    // Deliberately excludes a "task" scope: Task Completion already scores
+    // every task an assignee is given, so a task scope here would credit
+    // the exact same completed tasks twice — once for the rate, once for
+    // the volume — letting a handful of tasks push both KPIs to 100% at
+    // once instead of measuring two genuinely different things.
 
     public const VOLUME_SCOPE_LABELS = [
-        'task'             => 'Tasks',
         'workflow'         => 'Workflow Items',
         'client_handling'  => 'Client Handling',
     ];
@@ -843,14 +851,6 @@ class PerformanceCalculationService
     public function outputVolume(User $user, string $period): ?array
     {
         $scopes = [];
-
-        $tasks = $this->tasksFor($user, $period);
-        if ($tasks->isNotEmpty()) {
-            $scopes['task'] = $this->volumeScope(
-                self::credit($tasks->where('status', 'Completed')),
-                $this->cohortMaxTaskCompleted($period),
-            );
-        }
 
         $flowItems = $this->flowItemsFor($user, $period);
         if ($flowItems->isNotEmpty()) {
@@ -890,38 +890,11 @@ class PerformanceCalculationService
     }
 
     /**
-     * The most credited-completed work anyone in the whole company turned in
-     * this period — always company-wide and independent of whatever cohort
-     * prefetch() was called with, so the number can't shift depending on
-     * which filtered scoreboard view triggered the calculation. Same for
-     * the other two cohort-max methods below.
+     * The most anyone in the whole company turned in this scope this period
+     * — always company-wide and independent of whatever cohort prefetch()
+     * was called with, so the number can't shift depending on which
+     * filtered scoreboard view triggered the calculation.
      */
-    private function cohortMaxTaskCompleted(string $period): float
-    {
-        return $this->cohortMaxTaskByPeriod[$period] ??= $this->computeCohortMaxTaskCompleted($period);
-    }
-
-    private function computeCohortMaxTaskCompleted(string $period): float
-    {
-        [$start, $end] = $this->periodBounds($period);
-
-        $ids = Task::whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
-            ->whereNotNull('assigned_to')
-            ->distinct()
-            ->pluck('assigned_to');
-
-        if ($ids->isEmpty()) {
-            return 0.0;
-        }
-
-        $max = 0.0;
-        foreach ($this->loadTasks($ids, $period) as $tasks) {
-            $max = max($max, self::credit($tasks->where('status', 'Completed')));
-        }
-
-        return $max;
-    }
-
     private function cohortMaxWorkflowCompleted(string $period): float
     {
         return $this->cohortMaxWorkflowByPeriod[$period] ??= $this->computeCohortMaxWorkflowCompleted($period);

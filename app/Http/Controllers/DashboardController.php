@@ -207,7 +207,7 @@ class DashboardController extends Controller
         $pipeline = Cache::remember('dash.pipeline_segments', 600, fn() => $this->pipelineSegments());
 
         $myTasks = Task::with('clients:id,client_name,dfid_number')
-            ->where('assigned_to', $user->id)
+            ->whereHas('assignees', fn ($q) => $q->where('users.id', $user->id))
             ->whereNotIn('status', ['Completed', 'Cancelled'])
             ->orderBy('due_date')
             ->limit(8)
@@ -417,8 +417,8 @@ class DashboardController extends Controller
 
         // ── Tasks ─────────────────────────────────────────────────────
         // Counts are real counts: the list below is capped, the tile is not.
-        $taskColumns = ['id', 'title', 'assigned_to', 'created_by', 'status', 'priority', 'due_date', 'completion_date', 'submitted_at', 'updated_at'];
-        $mine        = fn() => Task::where('assigned_to', $user->id);
+        $taskColumns = ['id', 'title', 'created_by', 'status', 'priority', 'due_date', 'completion_date', 'submitted_at', 'updated_at'];
+        $mine        = fn() => Task::whereHas('assignees', fn ($q) => $q->where('users.id', $user->id));
 
         $openTaskCount = $mine()->whereNotIn('status', Task::$settledStatuses)->count();
         $myTasks = $mine()->with('clients:id,client_name,dfid_number')
@@ -444,12 +444,12 @@ class DashboardController extends Controller
 
         // Handed in to this user by the people they assigned work to.
         $toReviewCount = Task::where('created_by', $user->id)
-            ->where('assigned_to', '!=', $user->id)
+            ->whereDoesntHave('assignees', fn ($q) => $q->where('users.id', $user->id))
             ->where('status', Task::STATUS_SUBMITTED)
             ->count();
-        $toReviewTasks = Task::with(['clients:id,client_name,dfid_number', 'assignedUser:id,name'])
+        $toReviewTasks = Task::with(['clients:id,client_name,dfid_number', 'assignees:id,name'])
             ->where('created_by', $user->id)
-            ->where('assigned_to', '!=', $user->id)
+            ->whereDoesntHave('assignees', fn ($q) => $q->where('users.id', $user->id))
             ->where('status', Task::STATUS_SUBMITTED)
             ->latest('submitted_at')
             ->limit(10)
@@ -474,7 +474,7 @@ class DashboardController extends Controller
             ->whereDate('due_date', today())
             ->whereNotIn('status', ['Completed', 'Cancelled'])
             ->where(function ($q) use ($user, $myClientIds) {
-                $q->where('assigned_to', $user->id)
+                $q->whereHas('assignees', fn ($aq) => $aq->where('users.id', $user->id))
                     ->orWhereHas('clients', fn ($c) => $c->whereIn('clients.id', $myClientIds));
             })
             ->count();

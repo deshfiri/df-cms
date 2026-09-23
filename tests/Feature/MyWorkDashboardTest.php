@@ -74,10 +74,13 @@ class MyWorkDashboardTest extends TestCase
 
     private function task(User $assignee, User $creator, string $status, array $extra = []): Task
     {
-        return Task::create($extra + [
+        $task = Task::create($extra + [
             'title' => 'Task ' . uniqid(), 'priority' => 'Medium', 'status' => $status, 'type' => 'Other',
-            'assigned_to' => $assignee->id, 'created_by' => $creator->id,
+            'created_by' => $creator->id,
         ]);
+        $task->assignees()->sync([$assignee->id]);
+
+        return $task;
     }
 
     // ── Workflow work ────────────────────────────────────────────────────

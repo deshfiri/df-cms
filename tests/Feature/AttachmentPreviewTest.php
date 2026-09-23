@@ -47,7 +47,7 @@ class AttachmentPreviewTest extends TestCase
     {
         $this->actingAs($manager);
         $service = app(TaskService::class);
-        $task = $service->create(['title' => 'Logo', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other', 'assigned_to' => $assignee->id]);
+        $task = $service->create(['title' => 'Logo', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other', 'assignee_ids' => [$assignee->id]]);
 
         return [$task, $service->uploadAttachment($task, $file)];
     }

@@ -49,14 +49,16 @@ class TaskAttachmentDownloadTest extends TestCase
 
     private function task(User $assignee, User $creator): Task
     {
-        return Task::create([
-            'title'       => 'Design the brochure',
-            'priority'    => 'Medium',
-            'status'      => 'Pending',
-            'type'        => 'Other',
-            'assigned_to' => $assignee->id,
-            'created_by'  => $creator->id,
+        $task = Task::create([
+            'title'      => 'Design the brochure',
+            'priority'   => 'Medium',
+            'status'     => 'Pending',
+            'type'       => 'Other',
+            'created_by' => $creator->id,
         ]);
+        $task->assignees()->sync([$assignee->id]);
+
+        return $task;
     }
 
     /** @return array{0:Task,1:User,2:User} task, assignee, creator */

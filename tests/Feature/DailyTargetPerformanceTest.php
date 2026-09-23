@@ -52,11 +52,14 @@ class DailyTargetPerformanceTest extends TestCase
 
     private function task(User $assignee, string $dueDate, string $status = 'Completed'): Task
     {
-        return Task::create([
+        $task = Task::create([
             'title' => 'Task', 'priority' => 'Medium', 'status' => $status, 'type' => 'Other',
-            'assigned_to' => $assignee->id, 'created_by' => $this->manager->id,
+            'created_by' => $this->manager->id,
             'due_date' => $dueDate, 'completion_date' => $status === 'Completed' ? $dueDate : null,
         ]);
+        $task->assignees()->sync([$assignee->id]);
+
+        return $task;
     }
 
     private function flowItem(User $assignee, string $dueDate, string $status = FlowItem::STATUS_COMPLETED): FlowItem

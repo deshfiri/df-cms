@@ -74,12 +74,12 @@ class TaskDelegationTest extends TestCase
     private function payload(Client $client, User $assignee): array
     {
         return [
-            'title'       => 'Cut the banner assets',
-            'client_ids'  => [$client->id],
-            'assigned_to' => $assignee->id,
-            'priority'    => 'Medium',
-            'status'      => 'Pending',
-            'type'        => 'Other',
+            'title'        => 'Cut the banner assets',
+            'client_ids'   => [$client->id],
+            'assignee_ids' => [$assignee->id],
+            'priority'     => 'Medium',
+            'status'       => 'Pending',
+            'type'         => 'Other',
         ];
     }
 
@@ -138,7 +138,7 @@ class TaskDelegationTest extends TestCase
             ->assertOk();
 
         $task = Task::firstOrFail();
-        $this->assertSame($builder->id, $task->assigned_to);
+        $this->assertSame([$builder->id], $task->assignees->pluck('id')->all());
         $this->assertSame($designer->id, $task->created_by);
     }
 
@@ -152,7 +152,7 @@ class TaskDelegationTest extends TestCase
         $this->actingAs($designer)
             ->postJson(route('tasks.store'), $this->payload($client, $tester))
             ->assertStatus(422)
-            ->assertJsonValidationErrors('assigned_to');
+            ->assertJsonValidationErrors('assignee_ids.0');
 
         $this->assertDatabaseCount('tasks', 0);
     }
@@ -171,13 +171,15 @@ class TaskDelegationTest extends TestCase
 
     private function delegatedTask(User $from, User $to): Task
     {
-        return Task::create([
-            'title'       => 'Cut the banner assets',
-            'assigned_to' => $to->id,
-            'created_by'  => $from->id,
-            'status'      => 'In Progress',
-            'priority'    => 'Medium',
+        $task = Task::create([
+            'title'      => 'Cut the banner assets',
+            'created_by' => $from->id,
+            'status'     => 'In Progress',
+            'priority'   => 'Medium',
         ]);
+        $task->assignees()->sync([$to->id]);
+
+        return $task;
     }
 
     public function test_the_assignee_submits_and_the_requester_is_notified(): void

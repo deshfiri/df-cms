@@ -45,11 +45,12 @@
                         </select>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label fw-semibold small">Assigned To</label>
-                        <select id="taskAssigned" class="form-select form-select-sm task-select2">
-                            <option value="">Unassigned</option>
+                        <label class="form-label fw-semibold small">
+                            Assigned To <span style="color:var(--text3);font-weight:400">(anyone selected shares full ownership)</span>
+                        </label>
+                        <select id="taskAssigned" class="form-select form-select-sm task-select2" multiple>
                             @foreach($users as $u)
-                                {{-- Nobody assigns a task to themselves (enforced in TaskService). --}}
+                                {{-- Nobody assigns a task to themselves (enforced in TaskService), unless they already were — see openTaskEditor(). --}}
                                 @if((int) $u->id === (int) auth()->id())
                                     <option value="{{ $u->id }}" disabled>{{ $u->name }} (you — can't assign to yourself)</option>
                                 @else
@@ -153,8 +154,7 @@ function resetTaskModal() {
     $('#taskEditId').val('');
     $('#taskModalTitle').html('<i class="bi bi-plus-lg me-2"></i>New Task');
     $('#taskTitle,#taskDescription,#taskStart,#taskDue,#taskDueTime,#taskEstHours').val('');
-    $('#taskAssigned').val('').trigger('change');
-    $('#taskClient,#taskLabels').val([]).trigger('change');
+    $('#taskAssigned,#taskClient,#taskLabels').val([]).trigger('change');
     $('#taskPriority').val('Medium');
     $('#taskStatus').val('Pending');
     $('#taskType').val('Other');
@@ -226,7 +226,7 @@ function openTaskEditor(id) {
         $('#taskTitle').val(t.title);
         $('#taskDescription').val(t.description);
         $('#taskClient').val((t.clients || []).map(c => c.id)).trigger('change');
-        $('#taskAssigned').val(t.assigned_to).trigger('change');
+        $('#taskAssigned').val((t.assignees || []).map(a => a.id)).trigger('change');
         $('#taskPriority').val(t.priority);
         $('#taskStatus').val(t.status);
         $('#taskType').val(t.type);
@@ -258,7 +258,7 @@ $('#saveTaskBtn').on('click', function () {
         title: $('#taskTitle').val(),
         // An internal task has no clients at all — an empty array, same as labels.
         client_ids: $('#taskClient').val() || [],
-        assigned_to: $('#taskAssigned').val() || null,
+        assignee_ids: $('#taskAssigned').val() || [],
         priority: $('#taskPriority').val(),
         status: $('#taskStatus').val(),
         type: $('#taskType').val(),
@@ -276,8 +276,8 @@ $('#saveTaskBtn').on('click', function () {
     };
 
     $btn.prop('disabled', true);
-    // JSON, not jQuery's default form-encoding: an empty array (every client
-    // or label unchecked) has to actually reach the server as [], and
+    // JSON, not jQuery's default form-encoding: an empty array (every client,
+    // assignee or label unchecked) has to actually reach the server as [], and
     // form-encoding drops an empty array from the request body entirely —
     // silently leaving the old selection in place instead of clearing it.
     const req = $.ajax({

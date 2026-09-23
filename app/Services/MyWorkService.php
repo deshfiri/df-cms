@@ -108,7 +108,7 @@ class MyWorkService
     /** @return array<string,int> */
     private function currentLoad(User $user): array
     {
-        $byStatus = Task::where('assigned_to', $user->id)
+        $byStatus = Task::whereHas('assignees', fn ($q) => $q->where('users.id', $user->id))
             ->select('status')->selectRaw('COUNT(*) as cnt')
             ->groupBy('status')
             ->pluck('cnt', 'status')
@@ -117,7 +117,7 @@ class MyWorkService
         $queue    = $this->flows->myQueue($user);
         $flowMine = $queue->filter(fn ($item) => (int) $item->assigned_to === (int) $user->id);
 
-        $overdueTasks = Task::where('assigned_to', $user->id)->overdue()->count();
+        $overdueTasks = Task::whereHas('assignees', fn ($q) => $q->where('users.id', $user->id))->overdue()->count();
         $overdueFlow  = $flowMine->filter(fn ($item) => $item->isOverdue())->count();
 
         return [
@@ -128,7 +128,7 @@ class MyWorkService
             'awaiting_review' => $byStatus->get(Task::STATUS_SUBMITTED, 0),
             'completed_total' => $byStatus->get('Completed', 0),
             'to_review'       => Task::where('created_by', $user->id)
-                ->where('assigned_to', '!=', $user->id)
+                ->whereDoesntHave('assignees', fn ($q) => $q->where('users.id', $user->id))
                 ->where('status', Task::STATUS_SUBMITTED)
                 ->count(),
             'overdue'         => $overdueTasks + $overdueFlow,
@@ -143,7 +143,7 @@ class MyWorkService
 
     private function completedTaskTimes(User $user, CarbonImmutable $since): Collection
     {
-        return Task::where('assigned_to', $user->id)
+        return Task::whereHas('assignees', fn ($q) => $q->where('users.id', $user->id))
             ->where('status', 'Completed')
             ->where('completed_at', '>=', $since)
             ->pluck('completed_at');
@@ -176,13 +176,23 @@ class MyWorkService
      * Assignment moments, read from the task history. Filtered in PHP rather
      * than with a JSON path in SQL: ids in `meta` may be stored as numbers or
      * strings, which SQLite and MySQL compare differently.
+     *
+     * Only counts activity logged since this feature shipped — older rows
+     * still carry the single-assignee `assigned_to`/`to` meta keys, which
+     * this no longer reads (same trade-off made for every other event-meta
+     * shape change: no data lost, only a gap in this rolling chart for
+     * history predating it).
      */
     private function receivedTimes(User $user, CarbonImmutable $since): Collection
     {
         return TaskActivity::whereIn('event', ['created', 'reassigned'])
             ->where('created_at', '>=', $since)
             ->get(['event', 'meta', 'created_at'])
-            ->filter(fn (TaskActivity $a) => (int) ($a->meta[$a->event === 'created' ? 'assigned_to' : 'to'] ?? 0) === (int) $user->id)
+            ->filter(function (TaskActivity $a) use ($user) {
+                $ids = $a->meta[$a->event === 'created' ? 'assignee_ids' : 'added'] ?? [];
+
+                return in_array((int) $user->id, array_map('intval', (array) $ids), true);
+            })
             ->pluck('created_at');
     }
 }

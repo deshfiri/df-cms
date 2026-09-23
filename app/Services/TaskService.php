@@ -41,7 +41,9 @@ class TaskService
             unset($data['client_ids']);
 
             $data = $this->applyWorkloadRules($this->applyDeadline($data));
-            $this->refuseSelfAssignment($data['assigned_to'] ?? null);
+            $this->refuseSelfAssignment($data['assignee_ids'] ?? []);
+            $assigneeIds = $data['assignee_ids'] ?? [];
+            unset($data['assignee_ids']);
             $data['created_by'] = Auth::id();
             $task = Task::create($data);
 
@@ -51,19 +53,22 @@ class TaskService
             if ($clientIds) {
                 $task->clients()->sync($clientIds);
             }
+            if ($assigneeIds) {
+                $task->assignees()->sync($assigneeIds);
+            }
 
             $this->logActivity($task, 'Created', "Task \"{$task->title}\" created", event: 'created', meta: [
-                'assigned_to' => $task->assigned_to,
-                'due_at'      => $task->due_at?->toIso8601String(),
+                'assignee_ids' => $assigneeIds,
+                'due_at'       => $task->due_at?->toIso8601String(),
             ]);
             $this->logForClients($task, 'Created', null, ['title' => $task->title]);
 
-            return $task->load('assignedUser:id,name', 'clients:id,client_name', 'labels');
+            return $task->load('assignees:id,name', 'clients:id,client_name', 'labels');
         });
 
         // After commit: a notification for a task that rolled back would be a lie,
         // and the broadcast leaves the process immediately.
-        $this->notifyAssignee($task);
+        $this->notifyAssignees($task, $task->assignees);
 
         return $task;
     }
@@ -76,20 +81,22 @@ class TaskService
      */
     public function update(Task $task, array $data): Task
     {
-        $previousAssignee = $task->assigned_to;
+        $previousAssigneeIds = $task->assignees()->pluck('users.id')->map(fn ($id) => (int) $id)->all();
 
-        if (array_key_exists('assigned_to', $data)) {
-            $this->refuseSelfAssignment($data['assigned_to'], $task);
+        if (array_key_exists('assignee_ids', $data)) {
+            $this->refuseSelfAssignment($data['assignee_ids'] ?? [], $previousAssigneeIds);
         }
 
-        $updated = DB::transaction(function () use ($task, $data) {
+        $updated = DB::transaction(function () use ($task, $data, $previousAssigneeIds) {
             $labelIds = $data['label_ids'] ?? null;
             unset($data['label_ids']);
             $clientIds = array_key_exists('client_ids', $data) ? $data['client_ids'] : null;
             unset($data['client_ids']);
+            $assigneeIds = array_key_exists('assignee_ids', $data) ? ($data['assignee_ids'] ?? []) : null;
+            unset($data['assignee_ids']);
             $data = $this->applyDeadline($data);
 
-            $old = $task->only(['status', 'priority', 'assigned_to', 'due_date', 'due_at']);
+            $old = $task->only(['status', 'priority', 'due_date', 'due_at']);
             $data['updated_by'] = Auth::id();
 
             if (($data['status'] ?? null) === 'Completed' && $task->status !== 'Completed') {
@@ -104,17 +111,28 @@ class TaskService
             if ($clientIds !== null) {
                 $task->clients()->sync($clientIds);
             }
+            if ($assigneeIds !== null) {
+                $task->assignees()->sync($assigneeIds);
+            }
 
             // The full before/after stays on one "Updated" row (deadline-extension
             // history reads it); the changes that matter to who did what are also
             // logged as their own events.
-            $this->logActivity($task, 'Updated', 'Task updated', $old, $task->only(['status', 'priority', 'assigned_to', 'due_date', 'due_at']), 'updated');
+            $this->logActivity($task, 'Updated', 'Task updated', $old, $task->only(['status', 'priority', 'due_date', 'due_at']), 'updated');
 
-            if ((int) ($old['assigned_to'] ?? 0) !== (int) ($task->assigned_to ?? 0)) {
-                $names = User::whereIn('id', array_filter([$old['assigned_to'], $task->assigned_to]))->pluck('name', 'id');
-                $this->logActivity($task, 'Reassigned',
-                    ($names[$old['assigned_to']] ?? 'Unassigned') . ' → ' . ($names[$task->assigned_to] ?? 'Unassigned'),
-                    event: 'reassigned', meta: ['from' => $old['assigned_to'], 'to' => $task->assigned_to]);
+            if ($assigneeIds !== null) {
+                $newIds   = array_values(array_unique(array_map('intval', $assigneeIds)));
+                $added    = array_values(array_diff($newIds, $previousAssigneeIds));
+                $removed  = array_values(array_diff($previousAssigneeIds, $newIds));
+
+                if ($added || $removed) {
+                    $names    = User::whereIn('id', array_unique([...$previousAssigneeIds, ...$newIds]))->pluck('name', 'id');
+                    $describe = fn (array $ids) => $ids ? collect($ids)->map(fn ($id) => $names[$id] ?? 'Unknown')->join(', ') : 'Unassigned';
+
+                    $this->logActivity($task, 'Reassigned',
+                        $describe($previousAssigneeIds) . ' → ' . $describe($newIds),
+                        event: 'reassigned', meta: ['added' => $added, 'removed' => $removed]);
+                }
             }
 
             if (($old['status'] ?? null) !== $task->status) {
@@ -129,13 +147,14 @@ class TaskService
             }
             $this->logForClients($task, 'Updated', $old, $data);
 
-            return $task->fresh(['assignedUser:id,name', 'clients:id,client_name', 'labels']);
+            return $task->fresh(['assignees:id,name', 'clients:id,client_name', 'labels']);
         });
 
         // Only a genuine hand-off is worth an alert; saving an unrelated field
         // on a task someone already owns is not.
-        if ($updated->assigned_to !== $previousAssignee) {
-            $this->notifyAssignee($updated);
+        $newlyAssigned = $updated->assignees->filter(fn ($u) => !in_array((int) $u->id, $previousAssigneeIds, true));
+        if ($newlyAssigned->isNotEmpty()) {
+            $this->notifyAssignees($updated, $newlyAssigned);
         }
 
         return $updated;
@@ -146,40 +165,44 @@ class TaskService
      * does it and hands it back for the asker to accept. Self-assigned work
      * would review itself.
      *
-     * Saving a task that is already yours unchanged is not a new assignment,
-     * so older tasks can still be edited.
+     * Saving a task that already includes you, unchanged, is not a new
+     * assignment, so older tasks can still be edited — checked against the
+     * *previous* set of assignees, not the new one, so adding yourself
+     * alongside people who were already there still refuses.
      *
+     * @param  array<int,mixed>  $assigneeIds
+     * @param  array<int,int>    $previousAssigneeIds
      * @throws ValidationException
      */
-    private function refuseSelfAssignment(mixed $assignee, ?Task $task = null): void
+    private function refuseSelfAssignment(array $assigneeIds, array $previousAssigneeIds = []): void
     {
         $me = Auth::id();
 
-        if (!$assignee || !$me || (int) $assignee !== (int) $me) {
-            return;
-        }
-        if ($task && (int) $task->assigned_to === (int) $me) {
+        if (!$me) {
             return;
         }
 
-        throw ValidationException::withMessages([
-            'assigned_to' => 'You can\'t assign a task to yourself. Choose who should do it.',
-        ]);
+        $ids = array_map('intval', $assigneeIds);
+
+        if (in_array((int) $me, $ids, true) && !in_array((int) $me, $previousAssigneeIds, true)) {
+            throw ValidationException::withMessages([
+                'assignee_ids' => 'You can\'t assign a task to yourself. Choose who should do it.',
+            ]);
+        }
     }
 
     /**
      * Alert whoever now owns the task. Assigning work to yourself is not news,
      * which is the same rule the workflow notifications follow.
+     *
+     * @param  iterable<User>  $assignees
      */
-    private function notifyAssignee(Task $task): void
+    private function notifyAssignees(Task $task, iterable $assignees): void
     {
-        if (!$task->assigned_to || $task->assigned_to === Auth::id()) {
-            return;
-        }
-
-        $assignee = User::find($task->assigned_to);
-
-        if ($assignee) {
+        foreach ($assignees as $assignee) {
+            if ((int) $assignee->id === (int) Auth::id()) {
+                continue;
+            }
             $assignee->notify(new TaskAssigned($task));
         }
     }
@@ -211,7 +234,7 @@ class TaskService
         $this->logActivity($task, 'Status Changed', "{$previous} → {$status}", event: 'status_changed', meta: ['from' => $previous, 'to' => $status]);
         $this->logForClients($task, 'Status Changed', $previous, $status);
 
-        return $task->fresh(['assignedUser:id,name', 'clients:id,client_name', 'labels']);
+        return $task->fresh(['assignees:id,name', 'clients:id,client_name', 'labels']);
     }
 
     /**
@@ -286,7 +309,7 @@ class TaskService
             throw $e;
         }
 
-        $task = $task->fresh(['assignedUser:id,name', 'clients:id,client_name', 'labels']);
+        $task = $task->fresh(['assignees:id,name', 'clients:id,client_name', 'labels']);
         $this->notifyReviewer($task, $actor, $note);
 
         return $task;
@@ -302,11 +325,13 @@ class TaskService
     {
         $since = TaskRevision::where('task_id', $task->id)->max('created_at');
 
+        $assigneeIds = $task->assignees()->pluck('users.id')->all();
+
         return TaskAttachment::where('task_id', $task->id)
             ->when($since, fn ($q) => $q->where('created_at', '>=', $since))
             ->where(fn ($q) => $q
                 ->where('user_id', '!=', (int) $task->created_by)
-                ->orWhere('user_id', (int) $task->assigned_to))
+                ->orWhereIn('user_id', $assigneeIds))
             ->exists();
     }
 
@@ -335,8 +360,8 @@ class TaskService
             ]);
         }
 
-        $task = $task->fresh(['assignedUser:id,name', 'clients:id,client_name', 'labels']);
-        $this->notifySubmitter($task, $actor, $accept, $data['note'] ?? null);
+        $task = $task->fresh(['assignees:id,name', 'clients:id,client_name', 'labels']);
+        $this->notifyReviewVerdict($task, $actor, $accept, $data['note'] ?? null);
 
         return $task;
     }
@@ -352,15 +377,15 @@ class TaskService
         $reviewer?->notify(new TaskSubmitted($task, $actor, $note));
     }
 
-    /** Tell the assignee what the verdict was. */
-    private function notifySubmitter(Task $task, User $actor, bool $accepted, ?string $note): void
+    /** Tell every assignee what the verdict was. */
+    private function notifyReviewVerdict(Task $task, User $actor, bool $accepted, ?string $note): void
     {
-        if (!$task->assigned_to || $task->assigned_to === $actor->id) {
-            return;
+        foreach ($task->assignees as $assignee) {
+            if ((int) $assignee->id === (int) $actor->id) {
+                continue;
+            }
+            $assignee->notify(new TaskReviewed($task, $actor, $accepted, $note));
         }
-
-        $assignee = User::find($task->assigned_to);
-        $assignee?->notify(new TaskReviewed($task, $actor, $accepted, $note));
     }
 
     /**
@@ -529,27 +554,30 @@ class TaskService
     /**
      * Apply capacity-aware assignment rules — both are no-ops unless the matching
      * PerformanceSetting flag is enabled (defaults are off, so existing behaviour
-     * is unchanged). Auto-assign fills an empty assignee with the least-loaded
-     * employee; strict-limit blocks assigning to an already-overloaded one.
+     * is unchanged). Auto-assign fills an empty assignee list with one
+     * least-loaded employee; strict-limit blocks assigning to anyone already
+     * overloaded, whoever else is on the task with them.
      */
     private function applyWorkloadRules(array $data): array
     {
         $settings = PerformanceSetting::current();
 
-        if ($settings->auto_assign_enabled && empty($data['assigned_to'])) {
+        if ($settings->auto_assign_enabled && empty($data['assignee_ids'])) {
             // Never suggests the creator — nobody is assigned their own task.
             $assignee = $this->workload->suggestAssignee(
                 User::with('capacity')->where('is_active', true)->whereKeyNot((int) Auth::id())->get()
             );
             if ($assignee) {
-                $data['assigned_to'] = $assignee->id;
+                $data['assignee_ids'] = [$assignee->id];
             }
         }
 
-        if ($settings->strict_workload_limit && !empty($data['assigned_to'])) {
-            $user = User::with('capacity')->find($data['assigned_to']);
-            if ($user && $this->workload->isOverloaded($user)) {
-                throw new WorkloadLimitException("{$user->name} is already overloaded. Reassign the task or raise their capacity before adding more work.");
+        if ($settings->strict_workload_limit && !empty($data['assignee_ids'])) {
+            $users = User::with('capacity')->whereIn('id', $data['assignee_ids'])->get();
+            foreach ($users as $user) {
+                if ($this->workload->isOverloaded($user)) {
+                    throw new WorkloadLimitException("{$user->name} is already overloaded. Reassign the task or raise their capacity before adding more work.");
+                }
             }
         }
 

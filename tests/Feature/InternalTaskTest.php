@@ -67,10 +67,10 @@ class InternalTaskTest extends TestCase
         $junior  = User::factory()->create(['is_active' => true]);
 
         $this->actingAs($manager)
-            ->postJson(route('tasks.store'), $this->payload(['assigned_to' => $junior->id]))
+            ->postJson(route('tasks.store'), $this->payload(['assignee_ids' => [$junior->id]]))
             ->assertOk();
 
-        $this->assertSame($junior->id, Task::firstOrFail()->assigned_to);
+        $this->assertSame([$junior->id], Task::firstOrFail()->assignees->pluck('id')->all());
     }
 
     public function test_the_list_renders_a_clientless_task(): void
@@ -94,7 +94,7 @@ class InternalTaskTest extends TestCase
         $manager = $this->manager();
         $junior  = User::factory()->create(['is_active' => true]);
 
-        $task = app(TaskService::class)->create($this->payload(['assigned_to' => $junior->id]) + [
+        $task = app(TaskService::class)->create($this->payload(['assignee_ids' => [$junior->id]]) + [
             'client_ids' => [],
         ]);
 

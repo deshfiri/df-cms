@@ -52,14 +52,16 @@ class TaskWorkflowTest extends TestCase
 
     private function task(User $assignee, User $creator, string $status = 'Pending'): Task
     {
-        return Task::create([
-            'title'       => 'Write the onboarding doc',
-            'priority'    => 'Medium',
-            'status'      => $status,
-            'type'        => 'Other',
-            'assigned_to' => $assignee->id,
-            'created_by'  => $creator->id,
+        $task = Task::create([
+            'title'      => 'Write the onboarding doc',
+            'priority'   => 'Medium',
+            'status'     => $status,
+            'type'       => 'Other',
+            'created_by' => $creator->id,
         ]);
+        $task->assignees()->sync([$assignee->id]);
+
+        return $task;
     }
 
     // ── Starting work ────────────────────────────────────────────────────

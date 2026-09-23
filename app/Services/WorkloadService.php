@@ -7,6 +7,7 @@ use App\Models\PerformanceSetting;
 use App\Models\Task;
 use App\Models\User;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Computes live employee workload from active tasks + EmployeeCapacity, using
@@ -21,7 +22,7 @@ class WorkloadService
     /** Load profile for one employee (single-user query path). */
     public function load(User $user): array
     {
-        $tasks = Task::where('assigned_to', $user->id)
+        $tasks = Task::whereHas('assignees', fn ($q) => $q->where('users.id', $user->id))
             ->whereIn('status', self::ACTIVE_STATUSES)
             ->get(['id', 'priority']);
 
@@ -77,12 +78,22 @@ class WorkloadService
             ->first()['user'] ?? null;
     }
 
-    /** Active tasks for a set of users, keyed by assigned_to — one query. */
+    /**
+     * Active tasks for a set of users, keyed by assignee — one query.
+     *
+     * A task can now have more than one assignee, so this can no longer group
+     * a flat task list by a single column; it joins the pivot instead. Each
+     * assignee independently carries the task's full weight in their own
+     * load — sharing a task does not dilute anyone's workload.
+     */
     private function activeTasksFor(Collection $users): Collection
     {
-        return Task::whereIn('assigned_to', $users->pluck('id'))
-            ->whereIn('status', self::ACTIVE_STATUSES)
-            ->get(['id', 'assigned_to', 'priority'])
+        return DB::table('task_user')
+            ->join('tasks', 'tasks.id', '=', 'task_user.task_id')
+            ->whereIn('task_user.user_id', $users->pluck('id'))
+            ->whereIn('tasks.status', self::ACTIVE_STATUSES)
+            ->whereNull('tasks.deleted_at')
+            ->get(['tasks.id as id', 'task_user.user_id as assigned_to', 'tasks.priority as priority'])
             ->groupBy('assigned_to');
     }
 

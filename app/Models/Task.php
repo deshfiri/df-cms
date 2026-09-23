@@ -53,7 +53,6 @@ class Task extends Model
         'title',
         'description',
         'requires_attachment',
-        'assigned_to',
         'created_by',
         'updated_by',
         'priority',
@@ -198,9 +197,10 @@ class Task extends Model
         return $this->belongsToMany(Client::class, 'client_task');
     }
 
-    public function assignedUser(): BelongsTo
+    /** A task may now be held by more than one person at once, sharing full ownership of it. */
+    public function assignees(): BelongsToMany
     {
-        return $this->belongsTo(User::class, 'assigned_to');
+        return $this->belongsToMany(User::class, 'task_user');
     }
 
     public function createdBy(): BelongsTo
@@ -300,44 +300,44 @@ class Task extends Model
         }
 
         return $query->where(function ($q) use ($user) {
-            $q->where('assigned_to', $user->id)
+            $q->whereHas('assignees', fn ($aq) => $aq->where('users.id', $user->id))
               ->orWhere('created_by', $user->id);
         });
     }
 
     /**
-     * What is waiting on this person, for the sidebar badge — in one query.
+     * What is waiting on this person, for the sidebar badge.
      *
      *   open       assigned to them and not yet handed in, finished or cancelled
      *   overdue    of those, past the deadline (same rule as scopeOverdue)
      *   to_review  handed in to them by someone they assigned it to
      *   total      open + to_review — everything they have to act on
      *
+     * A handful of small counts, not one raw query — assignment now lives in
+     * a pivot table, so this can no longer be a single CASE-based SELECT.
+     *
      * @return array{open:int, overdue:int, to_review:int, total:int}
      */
     public static function pendingCountsFor(User $user): array
     {
-        $settled      = self::$settledStatuses;
-        $placeholders = implode(',', array_fill(0, count($settled), '?'));
-        $id           = (int) $user->id;
+        $mine = fn () => static::whereHas('assignees', fn ($q) => $q->where('users.id', $user->id));
 
-        $row = static::query()
-            ->where(fn ($q) => $q->where('assigned_to', $id)->orWhere('created_by', $id))
-            ->selectRaw("COALESCE(SUM(CASE WHEN assigned_to = ? AND status NOT IN ({$placeholders}) THEN 1 ELSE 0 END), 0) AS open_count", [$id, ...$settled])
-            ->selectRaw(
-                "COALESCE(SUM(CASE WHEN assigned_to = ? AND status NOT IN ({$placeholders}) AND (due_at < ? OR (due_at IS NULL AND due_date < ?)) THEN 1 ELSE 0 END), 0) AS overdue_count",
-                [$id, ...$settled, now()->toDateTimeString(), today()->toDateString()]
-            )
-            ->selectRaw('COALESCE(SUM(CASE WHEN created_by = ? AND assigned_to <> ? AND status = ? THEN 1 ELSE 0 END), 0) AS review_count', [$id, $id, self::STATUS_SUBMITTED])
-            ->toBase()
-            ->first();
+        $open = $mine()->whereNotIn('status', self::$settledStatuses)->count();
 
-        $open     = (int) ($row->open_count ?? 0);
-        $toReview = (int) ($row->review_count ?? 0);
+        $overdue = $mine()->whereNotIn('status', self::$settledStatuses)
+            ->where(fn ($q) => $q
+                ->where('due_at', '<', now())
+                ->orWhere(fn ($legacy) => $legacy->whereNull('due_at')->where('due_date', '<', today())))
+            ->count();
+
+        $toReview = static::where('created_by', $user->id)
+            ->whereDoesntHave('assignees', fn ($q) => $q->where('users.id', $user->id))
+            ->where('status', self::STATUS_SUBMITTED)
+            ->count();
 
         return [
             'open'      => $open,
-            'overdue'   => (int) ($row->overdue_count ?? 0),
+            'overdue'   => $overdue,
             'to_review' => $toReview,
             'total'     => $open + $toReview,
         ];

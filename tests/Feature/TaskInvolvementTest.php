@@ -52,7 +52,7 @@ class TaskInvolvementTest extends TestCase
 
         return $this->tasks->create([
             'title' => 'Brochure', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other',
-            'assigned_to' => $assignee?->id,
+            'assignee_ids' => $assignee ? [$assignee->id] : [],
         ]);
     }
 
@@ -102,7 +102,7 @@ class TaskInvolvementTest extends TestCase
         $task    = $this->create($manager, $anika);
 
         // Reassigned before Anika did anything.
-        $this->as($manager)->tasks->update($task, ['assigned_to' => $bashir->id]);
+        $this->as($manager)->tasks->update($task, ['assignee_ids' => [$bashir->id]]);
         $this->as($bashir)->tasks->changeWorkingStatus($task->fresh(), $bashir, 'In Progress');
 
         $this->assertSame('passed_through', $this->involvementOf($task, $anika)->role);
@@ -123,7 +123,7 @@ class TaskInvolvementTest extends TestCase
         $this->as($anika)->tasks->uploadAttachment($task->fresh(), UploadedFile::fake()->create('draft.pdf', 10));
 
         // ...then it is handed to Bashir, who submits it (4, plus 1 for holding it).
-        $this->as($manager)->tasks->update($task->fresh(), ['assigned_to' => $bashir->id]);
+        $this->as($manager)->tasks->update($task->fresh(), ['assignee_ids' => [$bashir->id]]);
         $this->as($bashir)->tasks->submitForReview($task->fresh(), $bashir);
 
         $anikaRow  = $this->involvementOf($task, $anika);
@@ -236,8 +236,9 @@ class TaskInvolvementTest extends TestCase
 
         $task = Task::create([
             'title' => 'Old', 'priority' => 'Medium', 'status' => 'In Progress', 'type' => 'Other',
-            'assigned_to' => $bashir->id, 'created_by' => $manager->id,
+            'created_by' => $manager->id,
         ]);
+        $task->assignees()->sync([$bashir->id]);
 
         // Free-text history only, the way it was logged before `event` existed.
         $at = now()->subDays(5);
@@ -269,13 +270,13 @@ class TaskInvolvementTest extends TestCase
         $bashir  = $this->user('Bashir');
         $task    = $this->create($manager, $anika);
 
-        $this->as($manager)->tasks->update($task, ['assigned_to' => $bashir->id, 'due_date' => '2026-12-01']);
+        $this->as($manager)->tasks->update($task, ['assignee_ids' => [$bashir->id], 'due_date' => '2026-12-01']);
 
         $events = TaskActivity::where('task_id', $task->id)->orderBy('id')->pluck('event')->all();
         $this->assertSame(['created', 'updated', 'reassigned', 'due_changed'], $events);
 
         $reassigned = TaskActivity::where('task_id', $task->id)->where('event', 'reassigned')->sole();
-        $this->assertSame(['from' => $anika->id, 'to' => $bashir->id], $reassigned->meta);
+        $this->assertSame(['added' => [$bashir->id], 'removed' => [$anika->id]], $reassigned->meta);
         $this->assertSame('Anika → Bashir', $reassigned->description);
     }
 }
