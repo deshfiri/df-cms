@@ -75,7 +75,7 @@ class TaskDelegationTest extends TestCase
     {
         return [
             'title'       => 'Cut the banner assets',
-            'client_id'   => $client->id,
+            'client_ids'  => [$client->id],
             'assigned_to' => $assignee->id,
             'priority'    => 'Medium',
             'status'      => 'Pending',
@@ -173,7 +173,6 @@ class TaskDelegationTest extends TestCase
     {
         return Task::create([
             'title'       => 'Cut the banner assets',
-            'client_id'   => $this->client()->id,
             'assigned_to' => $to->id,
             'created_by'  => $from->id,
             'status'      => 'In Progress',

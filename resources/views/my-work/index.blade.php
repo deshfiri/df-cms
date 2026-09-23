@@ -43,7 +43,7 @@
                                     <span class="mwk-title">{{ $task->title }}</span>
                                 @endif
                                 <div class="mwk-meta">
-                                    @if($task->client)<span><i class="bi bi-person-badge me-1"></i>{{ $task->client->client_name }}</span>@endif
+                                    @if($task->clients->isNotEmpty())<span><i class="bi bi-person-badge me-1"></i>{{ $task->clients->pluck('client_name')->join(', ') }}</span>@endif
                                     @if($meta === 'due')
                                         @if($task->due_at)
                                             <span class="{{ $task->is_overdue ? 'mwk-late' : '' }}"><i class="bi bi-calendar-event me-1"></i>{{ $task->is_overdue ? 'Overdue · ' : 'Due ' }}{{ $task->due_date?->format('d M') }}</span>

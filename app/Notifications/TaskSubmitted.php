@@ -31,7 +31,6 @@ class TaskSubmitted extends Notification
             'title'     => 'Task submitted for your review',
             'message'   => "{$this->submittedBy->name} submitted \"{$this->task->title}\""
                 . ($this->note ? " — {$this->note}" : ''),
-            'client_id' => $this->task->client_id,
             // The task's page, where the Review button is.
             'url'       => route('tasks.show', $this->task->id),
         ];

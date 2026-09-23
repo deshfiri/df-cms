@@ -210,14 +210,17 @@
         <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
             <div class="min-w-0 flex-grow-1">
                 <div class="mb-1" style="font-size:.78rem">
-                    @if($task->client)
+                    @if($task->clients->isNotEmpty())
                         <i class="bi bi-person-badge me-1" style="color:var(--primary)"></i>
-                        @can('view', $task->client)
-                            <a href="{{ route('clients.show', $task->client) }}" class="fw-semibold text-decoration-none" style="color:var(--primary)">{{ $task->client->client_name }}</a>
-                        @else
-                            <span class="fw-semibold" style="color:var(--text2)">{{ $task->client->client_name }}</span>
-                        @endcan
-                        @if($task->client->dfid_number)<span style="color:var(--text3)"> · {{ $task->client->dfid_number }}</span>@endif
+                        @foreach($task->clients as $c)
+                            @can('view', $c)
+                                <a href="{{ route('clients.show', $c) }}" class="fw-semibold text-decoration-none" style="color:var(--primary)">{{ $c->client_name }}</a>
+                            @else
+                                <span class="fw-semibold" style="color:var(--text2)">{{ $c->client_name }}</span>
+                            @endcan
+                            @if($c->dfid_number)<span style="color:var(--text3)"> ({{ $c->dfid_number }})</span>@endif
+                            @unless($loop->last)<span style="color:var(--text3)">, </span>@endunless
+                        @endforeach
                     @else
                         <span style="color:var(--text3)"><i class="bi bi-building me-1"></i>Internal task</span>
                     @endif

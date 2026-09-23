@@ -56,10 +56,19 @@ class FilterCountsTest extends TestCase
 
     private function task(User $assignee, string $status, array $extra = []): Task
     {
-        return Task::create($extra + [
+        $clientIds = $extra['client_ids'] ?? [];
+        unset($extra['client_ids']);
+
+        $task = Task::create($extra + [
             'title' => 'Task ' . uniqid(), 'priority' => 'Medium', 'status' => $status, 'type' => 'Other',
             'assigned_to' => $assignee->id, 'created_by' => $assignee->id,
         ]);
+
+        if ($clientIds) {
+            $task->clients()->sync($clientIds);
+        }
+
+        return $task;
     }
 
     // ── Tasks ────────────────────────────────────────────────────────────
@@ -105,9 +114,9 @@ class FilterCountsTest extends TestCase
         $acme  = $this->client('ACME');
         $other = $this->client('Beta');
 
-        $this->task($me, 'Pending', ['client_id' => $acme->id]);
-        $this->task($me, 'Pending', ['client_id' => $other->id]);
-        $this->task($me, 'Completed', ['client_id' => $other->id]);
+        $this->task($me, 'Pending', ['client_ids' => [$acme->id]]);
+        $this->task($me, 'Pending', ['client_ids' => [$other->id]]);
+        $this->task($me, 'Completed', ['client_ids' => [$other->id]]);
 
         $this->actingAs($me)
             ->getJson(route('tasks.index', ['client_id' => $acme->id]), self::AJAX)

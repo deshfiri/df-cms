@@ -53,7 +53,6 @@ class Task extends Model
         'title',
         'description',
         'requires_attachment',
-        'client_id',
         'assigned_to',
         'created_by',
         'updated_by',
@@ -193,9 +192,10 @@ class Task extends Model
         ];
     }
 
-    public function client(): BelongsTo
+    /** A task may be for more than one client at once, or none at all (internal work). */
+    public function clients(): BelongsToMany
     {
-        return $this->belongsTo(Client::class);
+        return $this->belongsToMany(Client::class, 'client_task');
     }
 
     public function assignedUser(): BelongsTo

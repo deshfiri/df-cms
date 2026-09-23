@@ -79,6 +79,12 @@ class Client extends Model
         return $this->hasMany(FlowItem::class);
     }
 
+    /** Standalone tasks (see the Task module) this client is attached to — a task may have several. */
+    public function tasks()
+    {
+        return $this->belongsToMany(Task::class, 'client_task');
+    }
+
     public function productUpdates()
     {
         return $this->hasMany(ProductUpdate::class)->latest();

@@ -202,7 +202,7 @@ $topCards = [
                     <span class="mytask-priority-dot" style="background:{{ $priorityColor[$t->priority] ?? 'var(--text3)' }}"></span>
                     <div class="flex-fill min-w-0">
                         <div class="fw-semibold text-truncate" style="font-size:.79rem;color:var(--text)">{{ $t->title }}</div>
-                        <div class="text-truncate" style="font-size:.68rem;color:var(--text3)">{{ $t->client?->client_name ?? '—' }} @if($t->due_date) · Due {{ $t->due_date->format('d M') }} @endif</div>
+                        <div class="text-truncate" style="font-size:.68rem;color:var(--text3)">{{ $t->clients->isNotEmpty() ? $t->clients->pluck('client_name')->join(', ') : '—' }} @if($t->due_date) · Due {{ $t->due_date->format('d M') }} @endif</div>
                     </div>
                     @if($t->is_overdue)
                     <span class="spill spill-rejected" style="font-size:.6rem">Overdue</span>

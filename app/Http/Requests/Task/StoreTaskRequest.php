@@ -22,9 +22,10 @@ class StoreTaskRequest extends FormRequest
             'description'      => ['nullable', 'string'],
             // The submission must include a file (see TaskService::submitForReview).
             'requires_attachment' => ['sometimes', 'boolean'],
-            // Optional: internal work — delegating something to a colleague —
-            // has no client to attach it to.
-            'client_id'        => ['nullable', 'exists:clients,id'],
+            // Optional, and any number of them: internal work — delegating
+            // something to a colleague — has no client to attach it to.
+            'client_ids'       => ['nullable', 'array'],
+            'client_ids.*'     => ['exists:clients,id'],
             'assigned_to'      => ['nullable', 'exists:users,id', new AssignableUser($this->user())],
             'priority'         => ['required', Rule::in(Task::$priorities)],
             'status'           => ['required', Rule::in(Task::$statuses)],

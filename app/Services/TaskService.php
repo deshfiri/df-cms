@@ -37,6 +37,8 @@ class TaskService
         $task = DB::transaction(function () use ($data) {
             $labelIds = $data['label_ids'] ?? [];
             unset($data['label_ids']);
+            $clientIds = $data['client_ids'] ?? [];
+            unset($data['client_ids']);
 
             $data = $this->applyWorkloadRules($this->applyDeadline($data));
             $this->refuseSelfAssignment($data['assigned_to'] ?? null);
@@ -46,14 +48,17 @@ class TaskService
             if ($labelIds) {
                 $task->labels()->sync($labelIds);
             }
+            if ($clientIds) {
+                $task->clients()->sync($clientIds);
+            }
 
             $this->logActivity($task, 'Created', "Task \"{$task->title}\" created", event: 'created', meta: [
                 'assigned_to' => $task->assigned_to,
                 'due_at'      => $task->due_at?->toIso8601String(),
             ]);
-            $this->activityLog->log('Task', 'Created', $task->client_id, null, ['title' => $task->title]);
+            $this->logForClients($task, 'Created', null, ['title' => $task->title]);
 
-            return $task->load('assignedUser:id,name', 'client:id,client_name', 'labels');
+            return $task->load('assignedUser:id,name', 'clients:id,client_name', 'labels');
         });
 
         // After commit: a notification for a task that rolled back would be a lie,
@@ -80,6 +85,8 @@ class TaskService
         $updated = DB::transaction(function () use ($task, $data) {
             $labelIds = $data['label_ids'] ?? null;
             unset($data['label_ids']);
+            $clientIds = array_key_exists('client_ids', $data) ? $data['client_ids'] : null;
+            unset($data['client_ids']);
             $data = $this->applyDeadline($data);
 
             $old = $task->only(['status', 'priority', 'assigned_to', 'due_date', 'due_at']);
@@ -93,6 +100,9 @@ class TaskService
 
             if ($labelIds !== null) {
                 $task->labels()->sync($labelIds);
+            }
+            if ($clientIds !== null) {
+                $task->clients()->sync($clientIds);
             }
 
             // The full before/after stays on one "Updated" row (deadline-extension
@@ -117,9 +127,9 @@ class TaskService
                 $this->logActivity($task, 'Due Changed', 'Deadline moved',
                     event: 'due_changed', meta: ['from' => $oldDue?->toIso8601String(), 'to' => $task->due_at?->toIso8601String()]);
             }
-            $this->activityLog->log('Task', 'Updated', $task->client_id, $old, $data);
+            $this->logForClients($task, 'Updated', $old, $data);
 
-            return $task->fresh(['assignedUser:id,name', 'client:id,client_name', 'labels']);
+            return $task->fresh(['assignedUser:id,name', 'clients:id,client_name', 'labels']);
         });
 
         // Only a genuine hand-off is worth an alert; saving an unrelated field
@@ -199,9 +209,9 @@ class TaskService
         $task->update(['status' => $status, 'updated_by' => $actor->id]);
 
         $this->logActivity($task, 'Status Changed', "{$previous} → {$status}", event: 'status_changed', meta: ['from' => $previous, 'to' => $status]);
-        $this->activityLog->log('Task', 'Status Changed', $task->client_id, $previous, $status);
+        $this->logForClients($task, 'Status Changed', $previous, $status);
 
-        return $task->fresh(['assignedUser:id,name', 'client:id,client_name', 'labels']);
+        return $task->fresh(['assignedUser:id,name', 'clients:id,client_name', 'labels']);
     }
 
     /**
@@ -265,7 +275,7 @@ class TaskService
                     'note'           => $note,
                     'attachment_ids' => array_values(array_unique([...array_map(fn (TaskAttachment $a) => $a->id, $stored), ...$handedIn])),
                 ]));
-                $this->activityLog->log('Task', 'Submitted', $locked->client_id, null, ['title' => $locked->title]);
+                $this->logForClients($locked, 'Submitted', null, ['title' => $locked->title]);
             });
         } catch (\Throwable $e) {
             // The rows rolled back; the files already written must not linger
@@ -276,7 +286,7 @@ class TaskService
             throw $e;
         }
 
-        $task = $task->fresh(['assignedUser:id,name', 'client:id,client_name', 'labels']);
+        $task = $task->fresh(['assignedUser:id,name', 'clients:id,client_name', 'labels']);
         $this->notifyReviewer($task, $actor, $note);
 
         return $task;
@@ -317,7 +327,7 @@ class TaskService
 
             $this->logActivity($task, 'Approved', 'Submission accepted' . (!empty($data['note']) ? ": {$data['note']}" : ''),
                 event: 'approved', meta: array_filter(['note' => $data['note'] ?? null, 'to' => 'Completed']));
-            $this->activityLog->log('Task', 'Submission Accepted', $task->client_id, null, ['title' => $task->title]);
+            $this->logForClients($task, 'Submission Accepted', null, ['title' => $task->title]);
         } else {
             $this->requestRevision($task, [
                 'reason_category' => $data['reason_category'] ?? 'Employee Mistake',
@@ -325,7 +335,7 @@ class TaskService
             ]);
         }
 
-        $task = $task->fresh(['assignedUser:id,name', 'client:id,client_name', 'labels']);
+        $task = $task->fresh(['assignedUser:id,name', 'clients:id,client_name', 'labels']);
         $this->notifySubmitter($task, $actor, $accept, $data['note'] ?? null);
 
         return $task;
@@ -385,7 +395,7 @@ class TaskService
                 'reason_category' => $data['reason_category'],
                 'note'            => $data['note'] ?? null,
             ]));
-            $this->activityLog->log('Task', 'Revision Requested', $task->client_id, null, ['reason_category' => $data['reason_category']]);
+            $this->logForClients($task, 'Revision Requested', null, ['reason_category' => $data['reason_category']]);
 
             return $revision->load('requestedBy:id,name');
         });
@@ -397,7 +407,7 @@ class TaskService
             foreach ($task->attachments as $attachment) {
                 Storage::disk($attachment->disk ?: 'local')->delete($attachment->file_path);
             }
-            $this->activityLog->log('Task', 'Deleted', $task->client_id, ['title' => $task->title]);
+            $this->logForClients($task, 'Deleted', ['title' => $task->title]);
             $task->delete();
         });
     }
@@ -573,5 +583,27 @@ class TaskService
         ]);
 
         $this->involvement->rebuild($task->fresh() ?? $task);
+    }
+
+    /**
+     * Record a global activity-log entry for a task-related action, once per
+     * client the task is currently associated with — so the action shows up
+     * on each of their Activity tabs, same as when a task could only ever
+     * have one client. An internal task (no clients) still gets one entry,
+     * just with no client tied to it.
+     */
+    private function logForClients(Task $task, string $action, mixed $old = null, mixed $new = null): void
+    {
+        $clientIds = $task->clients()->pluck('clients.id');
+
+        if ($clientIds->isEmpty()) {
+            $this->activityLog->log('Task', $action, null, $old, $new);
+
+            return;
+        }
+
+        foreach ($clientIds as $clientId) {
+            $this->activityLog->log('Task', $action, $clientId, $old, $new);
+        }
     }
 }

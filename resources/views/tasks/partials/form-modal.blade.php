@@ -36,10 +36,9 @@
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold small">
-                            Client <span style="color:var(--text3);font-weight:400">(optional)</span>
+                            Clients <span style="color:var(--text3);font-weight:400">(optional — leave empty for internal work)</span>
                         </label>
-                        <select id="taskClient" class="form-select form-select-sm task-select2">
-                            <option value="">No client — internal task</option>
+                        <select id="taskClient" class="form-select form-select-sm task-select2" multiple>
                             @foreach($clients as $c)
                             <option value="{{ $c->id }}">{{ $c->client_name }} ({{ $c->dfid_number }})</option>
                             @endforeach
@@ -154,8 +153,8 @@ function resetTaskModal() {
     $('#taskEditId').val('');
     $('#taskModalTitle').html('<i class="bi bi-plus-lg me-2"></i>New Task');
     $('#taskTitle,#taskDescription,#taskStart,#taskDue,#taskDueTime,#taskEstHours').val('');
-    $('#taskClient,#taskAssigned').val('').trigger('change');
-    $('#taskLabels').val([]).trigger('change');
+    $('#taskAssigned').val('').trigger('change');
+    $('#taskClient,#taskLabels').val([]).trigger('change');
     $('#taskPriority').val('Medium');
     $('#taskStatus').val('Pending');
     $('#taskType').val('Other');
@@ -226,7 +225,7 @@ function openTaskEditor(id) {
         $('#taskModalTitle').html('<i class="bi bi-pencil me-2"></i>Edit Task');
         $('#taskTitle').val(t.title);
         $('#taskDescription').val(t.description);
-        $('#taskClient').val(t.client_id).trigger('change');
+        $('#taskClient').val((t.clients || []).map(c => c.id)).trigger('change');
         $('#taskAssigned').val(t.assigned_to).trigger('change');
         $('#taskPriority').val(t.priority);
         $('#taskStatus').val(t.status);
@@ -257,8 +256,8 @@ $('#saveTaskBtn').on('click', function () {
     const id = $('#taskEditId').val();
     const payload = {
         title: $('#taskTitle').val(),
-        // Explicit null rather than '' — an internal task has no client.
-        client_id: $('#taskClient').val() || null,
+        // An internal task has no clients at all — an empty array, same as labels.
+        client_ids: $('#taskClient').val() || [],
         assigned_to: $('#taskAssigned').val() || null,
         priority: $('#taskPriority').val(),
         status: $('#taskStatus').val(),
@@ -277,9 +276,16 @@ $('#saveTaskBtn').on('click', function () {
     };
 
     $btn.prop('disabled', true);
-    const req = id
-        ? $.ajax({ url: '/tasks/' + id, type: 'PUT', data: payload })
-        : $.post('/tasks', payload);
+    // JSON, not jQuery's default form-encoding: an empty array (every client
+    // or label unchecked) has to actually reach the server as [], and
+    // form-encoding drops an empty array from the request body entirely —
+    // silently leaving the old selection in place instead of clearing it.
+    const req = $.ajax({
+        url: id ? '/tasks/' + id : '/tasks',
+        type: id ? 'PUT' : 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(payload),
+    });
 
     req.done(function (r) {
         bootstrap.Modal.getInstance('#taskModal').hide();

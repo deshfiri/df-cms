@@ -206,7 +206,7 @@ class DashboardController extends Controller
         $delayedCount = Cache::remember('dash.delayed_count', 600, fn() => $this->delayedClientCount());
         $pipeline = Cache::remember('dash.pipeline_segments', 600, fn() => $this->pipelineSegments());
 
-        $myTasks = Task::with('client:id,client_name,dfid_number')
+        $myTasks = Task::with('clients:id,client_name,dfid_number')
             ->where('assigned_to', $user->id)
             ->whereNotIn('status', ['Completed', 'Cancelled'])
             ->orderBy('due_date')
@@ -417,11 +417,11 @@ class DashboardController extends Controller
 
         // ── Tasks ─────────────────────────────────────────────────────
         // Counts are real counts: the list below is capped, the tile is not.
-        $taskColumns = ['id', 'title', 'client_id', 'assigned_to', 'created_by', 'status', 'priority', 'due_date', 'completion_date', 'submitted_at', 'updated_at'];
+        $taskColumns = ['id', 'title', 'assigned_to', 'created_by', 'status', 'priority', 'due_date', 'completion_date', 'submitted_at', 'updated_at'];
         $mine        = fn() => Task::where('assigned_to', $user->id);
 
         $openTaskCount = $mine()->whereNotIn('status', Task::$settledStatuses)->count();
-        $myTasks = $mine()->with('client:id,client_name,dfid_number')
+        $myTasks = $mine()->with('clients:id,client_name,dfid_number')
             ->whereNotIn('status', Task::$settledStatuses)
             ->orderByRaw('due_date IS NULL')
             ->orderBy('due_date')
@@ -429,14 +429,14 @@ class DashboardController extends Controller
             ->get($taskColumns);
 
         $submittedTaskCount = $mine()->where('status', Task::STATUS_SUBMITTED)->count();
-        $submittedTasks = $mine()->with('client:id,client_name,dfid_number')
+        $submittedTasks = $mine()->with('clients:id,client_name,dfid_number')
             ->where('status', Task::STATUS_SUBMITTED)
             ->latest('submitted_at')
             ->limit(10)
             ->get($taskColumns);
 
         $completedTaskCount = $mine()->where('status', 'Completed')->count();
-        $completedTasks = $mine()->with('client:id,client_name,dfid_number')
+        $completedTasks = $mine()->with('clients:id,client_name,dfid_number')
             ->where('status', 'Completed')
             ->orderByDesc(DB::raw('COALESCE(completion_date, updated_at)'))
             ->limit(10)
@@ -447,7 +447,7 @@ class DashboardController extends Controller
             ->where('assigned_to', '!=', $user->id)
             ->where('status', Task::STATUS_SUBMITTED)
             ->count();
-        $toReviewTasks = Task::with(['client:id,client_name,dfid_number', 'assignedUser:id,name'])
+        $toReviewTasks = Task::with(['clients:id,client_name,dfid_number', 'assignedUser:id,name'])
             ->where('created_by', $user->id)
             ->where('assigned_to', '!=', $user->id)
             ->where('status', Task::STATUS_SUBMITTED)
@@ -475,7 +475,7 @@ class DashboardController extends Controller
             ->whereNotIn('status', ['Completed', 'Cancelled'])
             ->where(function ($q) use ($user, $myClientIds) {
                 $q->where('assigned_to', $user->id)
-                    ->orWhereIn('client_id', $myClientIds);
+                    ->orWhereHas('clients', fn ($c) => $c->whereIn('clients.id', $myClientIds));
             })
             ->count();
 

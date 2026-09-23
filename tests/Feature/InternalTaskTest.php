@@ -57,7 +57,7 @@ class InternalTaskTest extends TestCase
 
         $task = Task::firstOrFail();
 
-        $this->assertNull($task->client_id);
+        $this->assertTrue($task->clients->isEmpty());
         $this->assertSame('Write the onboarding doc', $task->title);
     }
 
@@ -95,7 +95,7 @@ class InternalTaskTest extends TestCase
         $junior  = User::factory()->create(['is_active' => true]);
 
         $task = app(TaskService::class)->create($this->payload(['assigned_to' => $junior->id]) + [
-            'client_id' => null,
+            'client_ids' => [],
         ]);
 
         $this->actingAs($junior)->postJson(route('tasks.progress', $task), ['status' => 'In Progress'])->assertOk();
@@ -110,30 +110,93 @@ class InternalTaskTest extends TestCase
         $this->assertSame('Completed', $task->fresh()->status);
     }
 
+    private function client(string $name = 'ACME Ltd'): \App\Models\Client
+    {
+        $category = \App\Models\Category::firstOrCreate(['slug' => 'cat-' . uniqid()], ['name' => 'Cat', 'status' => true]);
+
+        return \App\Models\Client::create([
+            'dfid_number' => 'DF' . uniqid(),
+            'client_name' => $name,
+            'brand_name'  => $name,
+            'category_id' => $category->id,
+        ]);
+    }
+
     public function test_a_client_can_still_be_attached(): void
     {
         $manager = $this->manager();
-
-        $category = \App\Models\Category::create(['name' => 'Cat', 'slug' => 'cat-' . uniqid(), 'status' => true]);
-        $client = \App\Models\Client::create([
-            'dfid_number' => 'DF' . uniqid(),
-            'client_name' => 'ACME Ltd',
-            'brand_name'  => 'ACME',
-            'category_id' => $category->id,
-        ]);
+        $client  = $this->client();
 
         $this->actingAs($manager)
-            ->postJson(route('tasks.store'), $this->payload(['client_id' => $client->id]))
+            ->postJson(route('tasks.store'), $this->payload(['client_ids' => [$client->id]]))
             ->assertOk();
 
-        $this->assertSame($client->id, Task::firstOrFail()->client_id);
+        $this->assertSame([$client->id], Task::firstOrFail()->clients->pluck('id')->all());
+    }
+
+    /** The headline feature: a task can be for more than one client at once. */
+    public function test_a_task_can_be_attached_to_multiple_clients_at_once(): void
+    {
+        $manager = $this->manager();
+        $acme    = $this->client('ACME Ltd');
+        $globex  = $this->client('Globex Inc');
+
+        $this->actingAs($manager)
+            ->postJson(route('tasks.store'), $this->payload(['client_ids' => [$acme->id, $globex->id]]))
+            ->assertOk();
+
+        $this->assertEqualsCanonicalizing(
+            [$acme->id, $globex->id],
+            Task::firstOrFail()->clients->pluck('id')->all(),
+        );
+    }
+
+    public function test_updating_a_tasks_clients_replaces_rather_than_adds(): void
+    {
+        $manager = $this->manager();
+        $acme    = $this->client('ACME Ltd');
+        $globex  = $this->client('Globex Inc');
+
+        $task = app(TaskService::class)->create($this->payload() + ['client_ids' => [$acme->id]]);
+
+        $this->actingAs($manager)
+            ->putJson(route('tasks.update', $task), $this->payload(['client_ids' => [$globex->id]]))
+            ->assertOk();
+
+        $this->assertSame([$globex->id], $task->fresh()->clients->pluck('id')->all());
+    }
+
+    public function test_clearing_every_client_on_update_leaves_the_task_internal(): void
+    {
+        $manager = $this->manager();
+        $acme    = $this->client();
+
+        $task = app(TaskService::class)->create($this->payload() + ['client_ids' => [$acme->id]]);
+
+        $this->actingAs($manager)
+            ->putJson(route('tasks.update', $task), $this->payload(['client_ids' => []]))
+            ->assertOk();
+
+        $this->assertTrue($task->fresh()->clients->isEmpty());
     }
 
     public function test_an_unknown_client_is_still_rejected(): void
     {
         $this->actingAs($this->manager())
-            ->postJson(route('tasks.store'), $this->payload(['client_id' => 999999]))
+            ->postJson(route('tasks.store'), $this->payload(['client_ids' => [999999]]))
             ->assertStatus(422)
-            ->assertJsonValidationErrors('client_id');
+            ->assertJsonValidationErrors('client_ids.0');
+    }
+
+    public function test_one_unknown_client_among_valid_ones_rejects_the_whole_request(): void
+    {
+        $client = $this->client();
+
+        $this->actingAs($this->manager())
+            ->postJson(route('tasks.store'), $this->payload(['client_ids' => [$client->id, 999999]]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('client_ids.1');
+
+        $this->assertSame(0, Task::count());
     }
 }

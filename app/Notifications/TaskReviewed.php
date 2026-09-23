@@ -34,7 +34,6 @@ class TaskReviewed extends Notification
             'title'     => $this->accepted ? 'Task accepted' : 'Task sent back',
             'message'   => "{$this->reviewedBy->name} {$verdict}: \"{$this->task->title}\""
                 . ($this->note ? " — {$this->note}" : ''),
-            'client_id' => $this->task->client_id,
             // Straight to the task, so the verdict and any note can be read
             // without hunting for it in the list.
             'url'       => route('tasks.show', $this->task->id),

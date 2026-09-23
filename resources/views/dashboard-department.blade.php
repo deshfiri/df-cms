@@ -179,7 +179,7 @@
                                             <span class="mw-title">{{ $task->title }}</span>
                                         @endif
                                         <div class="mw-meta">
-                                            @if($task->client)<span><i class="bi bi-person-badge me-1"></i>{{ $task->client->client_name }}</span>@endif
+                                            @if($task->clients->isNotEmpty())<span><i class="bi bi-person-badge me-1"></i>{{ $task->clients->pluck('client_name')->join(', ') }}</span>@endif
                                             @if($pane === 'task-review' && $task->assignedUser)<span><i class="bi bi-person me-1"></i>{{ $task->assignedUser->name }}</span>@endif
                                             @if($pane === 'task-done')
                                                 <span><i class="bi bi-check2 me-1"></i>{{ ($task->completion_date ?? $task->updated_at)?->format('d M Y') }}</span>

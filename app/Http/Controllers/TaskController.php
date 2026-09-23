@@ -98,7 +98,7 @@ class TaskController extends Controller
         $me = $request->user();
 
         $task->load([
-            'client:id,client_name,dfid_number',
+            'clients:id,client_name,dfid_number',
             'assignedUser:id,name,avatar',
             'createdBy:id,name,avatar',
             'updatedBy:id,name',
@@ -146,7 +146,7 @@ class TaskController extends Controller
         }
 
         $task->load([
-            'client:id,client_name,dfid_number',
+            'clients:id,client_name,dfid_number',
             'assignedUser:id,name',
             'createdBy:id,name',
             'labels',
@@ -365,7 +365,7 @@ class TaskController extends Controller
         // Authorization first, so no filter below can widen the result set.
         $query = Task::query()
             ->visibleTo($me)
-            ->with(['client:id,client_name', 'assignedUser:id,name']);
+            ->with(['clients:id,client_name', 'assignedUser:id,name']);
 
         // Every filter except the status itself: the pill counts have to say how
         // much sits under each status within the *other* filters, or picking one
@@ -377,7 +377,7 @@ class TaskController extends Controller
             $query->where('assigned_to', $request->assigned_to);
         }
         if ($request->filled('client_id')) {
-            $query->where('client_id', $request->client_id);
+            $query->whereHas('clients', fn ($q) => $q->where('clients.id', $request->client_id));
         }
 
         $counts = $this->pillCounts($query, $me);
@@ -399,7 +399,7 @@ class TaskController extends Controller
             ->addColumn('number', fn (Task $t) => '<span style="font-family:monospace;color:var(--text3)">#' . $t->id . '</span>')
             ->addColumn('title_link', fn (Task $t) => '<a class="task-title-link" href="' . e(route('tasks.show', $t)) . '">' . e($t->title) . '</a>'
                 . ($t->requires_attachment ? ' <i class="bi bi-paperclip" style="color:var(--text3);font-size:.72rem" title="Submission needs a file"></i>' : ''))
-            ->addColumn('client', fn (Task $t) => e($t->client->client_name ?? '-'))
+            ->addColumn('client', fn (Task $t) => $t->clients->isEmpty() ? '-' : e($t->clients->pluck('client_name')->join(', ')))
             ->addColumn('assigned', fn (Task $t) => e($t->assignedUser->name ?? 'Unassigned'))
             ->addColumn('priority_badge', fn (Task $t) => $this->priorityBadge($t->priority))
             ->addColumn('status_badge', fn (Task $t) => $this->statusBadge($t))
