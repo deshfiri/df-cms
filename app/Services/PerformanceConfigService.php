@@ -7,6 +7,7 @@ use App\Models\EmployeeCapacity;
 use App\Models\KpiWeightConfig;
 use App\Models\PerformanceSetting;
 use App\Models\SalesTarget;
+use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
@@ -130,29 +131,47 @@ class PerformanceConfigService
         });
     }
 
-    public function upsertDailyTarget(array $data): DailyTarget
+    /**
+     * Replaces an employee's whole daily-target picture: exactly the scopes
+     * in $quantities (scope => quantity) end up set afterward — anything
+     * they had before that isn't in there is removed, so unchecking a scope
+     * and saving is how it's dropped, and lowering a number is how it's
+     * reduced.
+     *
+     * @param  array<string,int>  $quantities
+     */
+    public function setDailyTargets(int $userId, array $quantities): void
     {
-        return DB::transaction(function () use ($data) {
-            $target = DailyTarget::firstOrNew(['user_id' => $data['user_id']]);
+        DB::transaction(function () use ($userId, $quantities) {
+            $old = DailyTarget::where('user_id', $userId)->pluck('target_quantity', 'scope');
 
-            $old = $target->exists ? $target->only('target_tasks_per_day') : null;
-            $target->target_tasks_per_day = $data['target_tasks_per_day'];
-            $target->updated_by           = Auth::id();
-            $target->save();
+            DailyTarget::where('user_id', $userId)->whereNotIn('scope', array_keys($quantities))->delete();
 
-            $this->activityLog->log('Performance', $old ? 'Daily Target Updated' : 'Daily Target Set', null, $old, [
-                'user_id' => $target->user_id, 'target_tasks_per_day' => $target->target_tasks_per_day,
-            ]);
+            foreach ($quantities as $scope => $quantity) {
+                DailyTarget::updateOrCreate(
+                    ['user_id' => $userId, 'scope' => $scope],
+                    ['target_quantity' => $quantity, 'updated_by' => Auth::id()],
+                );
+            }
 
-            return $target;
+            $this->activityLog->log('Performance', 'Daily Targets Set', null,
+                ['user_id' => $userId] + $old->all(),
+                ['user_id' => $userId] + $quantities,
+            );
         });
     }
 
-    public function deleteDailyTarget(DailyTarget $target): void
+    public function clearDailyTargets(User $user): void
     {
-        DB::transaction(function () use ($target) {
-            $this->activityLog->log('Performance', 'Daily Target Removed', null, $target->only(['user_id', 'target_tasks_per_day']), null);
-            $target->delete();
+        DB::transaction(function () use ($user) {
+            $old = DailyTarget::where('user_id', $user->id)->pluck('target_quantity', 'scope');
+            if ($old->isEmpty()) {
+                return;
+            }
+
+            DailyTarget::where('user_id', $user->id)->delete();
+
+            $this->activityLog->log('Performance', 'Daily Targets Cleared', null, ['user_id' => $user->id] + $old->all(), null);
         });
     }
 }

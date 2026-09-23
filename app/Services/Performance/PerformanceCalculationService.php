@@ -6,6 +6,7 @@ use App\Models\ActivityLog;
 use App\Models\Client;
 use App\Models\ClientSatisfactionRating;
 use App\Models\DailyTarget;
+use App\Models\FlowItem;
 use App\Models\KpiWeightConfig;
 use App\Models\Payment;
 use App\Models\PerformanceSetting;
@@ -105,8 +106,11 @@ class PerformanceCalculationService
         $this->clientCareByUser = $this->loadClientCare($ids, $period);
 
         // Standing per-user goals, not period-scoped, so one load covers every
-        // period this cohort is ever scored for in the same request.
-        $this->dailyTargetsByUser = DailyTarget::whereIn('user_id', $ids)->get()->keyBy('user_id')->all();
+        // period this cohort is ever scored for in the same request. A user
+        // may have a target on more than one scope, hence groupBy not keyBy.
+        $this->dailyTargetsByUser = DailyTarget::whereIn('user_id', $ids)->get()->groupBy('user_id')->all();
+
+        $this->flowItemsByUser = $this->loadFlowItems($ids, $period);
 
         $this->prefetchPeriod = $period;
     }
@@ -114,8 +118,11 @@ class PerformanceCalculationService
     /** @var array<int,array<string,mixed>> */
     private array $clientCareByUser = [];
 
-    /** @var array<int,DailyTarget> */
+    /** @var array<int,\Illuminate\Support\Collection<int,DailyTarget>> */
     private array $dailyTargetsByUser = [];
+
+    /** @var array<int,\Illuminate\Support\Collection<int,FlowItem>> */
+    private array $flowItemsByUser = [];
 
     /** True when this exact period was prefetched for the cohort. */
     private function prefetched(string $period): bool
@@ -134,6 +141,36 @@ class PerformanceCalculationService
         }
 
         return $this->loadTasks(collect([$user->id]), $period)[$user->id] ?? collect();
+    }
+
+    /**
+     * The employee's workflow (Flow) items due in the period, for the Daily
+     * Target "workflow" scope — from the cohort load when there is one,
+     * otherwise fetched for them alone.
+     */
+    private function flowItemsFor(User $user, string $period): \Illuminate\Support\Collection
+    {
+        if ($this->prefetched($period)) {
+            return $this->flowItemsByUser[$user->id] ?? collect();
+        }
+
+        return $this->loadFlowItems(collect([$user->id]), $period)[$user->id] ?? collect();
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int,int>  $ids
+     * @return array<int,\Illuminate\Support\Collection<int,FlowItem>>
+     */
+    private function loadFlowItems(\Illuminate\Support\Collection $ids, string $period): array
+    {
+        [$start, $end] = $this->periodBounds($period);
+
+        return FlowItem::query()
+            ->whereIn('assigned_to', $ids)
+            ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
+            ->get(['id', 'assigned_to', 'due_date', 'status'])
+            ->groupBy('assigned_to')
+            ->all();
     }
 
     // ── Task credit ──────────────────────────────────────────────────────
@@ -657,44 +694,95 @@ class PerformanceCalculationService
 
     // ── Daily Target ─────────────────────────────────────────────────────
     //
-    // An employee's optional, standing "N tasks a day" goal (DailyTarget —
-    // set by whoever holds 'manage performance', Performance → Configuration).
-    // Nobody who was never given one is measured on it at all, so it never
-    // pulls down someone whose manager doesn't use the feature.
+    // An employee's optional, standing "N a day" goal, on any subset of the
+    // available scopes at once (DailyTarget — set by whoever holds 'manage
+    // performance', Performance → Configuration → Daily Targets). Nobody who
+    // was never given one is measured on it at all, so it never pulls down
+    // someone whose manager doesn't use the feature.
     //
+    // Per scope:
     //   target so far = target/day × days elapsed in the period — the full
     //                   month once it has closed, otherwise up to and
     //                   including today
-    //   achieved      = the same share-weighted completed-task credit every
-    //                   other task KPI already reads off tasksFor()
-    //   achievement % = achieved ÷ target so far × 100, capped at 100
+    //   available     = that scope's items due so far that were actually
+    //                   assigned to them — the work that existed to do
+    //   completed     = the assigned ones of those already marked done
+    //
+    //   If available < target so far, there simply wasn't enough work to hit
+    //   the goal — that is on the business, not the employee, so the scope
+    //   is forgiven and scores 100%. Otherwise it is completed ÷ target so
+    //   far × 100, capped at 100 — falling short here is what actually
+    //   costs them, same as every other KPI.
+    //
+    // The overall Daily Target score is the plain average of every scope the
+    // employee has a target on.
 
     public function dailyTargetAchievement(User $user, string $period): ?array
     {
-        $target = $this->prefetched($period)
-            ? ($this->dailyTargetsByUser[$user->id] ?? null)
-            : DailyTarget::where('user_id', $user->id)->first();
+        $targets = $this->prefetched($period)
+            ? ($this->dailyTargetsByUser[$user->id] ?? collect())
+            : DailyTarget::where('user_id', $user->id)->get();
 
-        if (!$target) {
+        if ($targets->isEmpty()) {
             return null;
         }
 
         [$start, $end] = $this->periodBounds($period);
-        $elapsedEnd = now()->lessThan($end) ? now() : $end;
+        $today = now();
         // Whole calendar days: Carbon 3's diffInDays() returns a float, and
-        // today counting only once (not 1.5) needs both ends on a day boundary.
-        $elapsedDays = max(1, (int) $start->diffInDays($elapsedEnd->copy()->startOfDay()) + 1);
+        // today counting only once (not 1.5) needs both ends on a day
+        // boundary — also the "due so far" cutoff for what counts as available.
+        $windowEnd   = ($today->lessThan($end) ? $today : $end)->copy()->startOfDay();
+        $elapsedDays = max(1, (int) $start->diffInDays($windowEnd) + 1);
 
-        $targetSoFar = $target->target_tasks_per_day * $elapsedDays;
-        $achieved    = self::credit($this->tasksFor($user, $period)->where('status', 'Completed'));
+        $ownTasks  = $this->tasksFor($user, $period)->filter(fn (Task $t) => (int) $t->assigned_to === (int) $user->id);
+        $flowItems = $this->flowItemsFor($user, $period);
+
+        $scopes = [];
+        foreach ($targets as $target) {
+            [$available, $completed] = $this->scopeCounts($target->scope, $ownTasks, $flowItems, $windowEnd);
+            $targetSoFar = $target->target_quantity * $elapsedDays;
+            $forgiven    = $available < $targetSoFar;
+
+            $scopes[$target->scope] = [
+                'label'          => DailyTarget::$scopeLabels[$target->scope] ?? $target->scope,
+                'target_per_day' => $target->target_quantity,
+                'target_so_far'  => $targetSoFar,
+                'available'      => $available,
+                'completed'      => $completed,
+                'forgiven'       => $forgiven,
+                'pct'            => $forgiven ? 100.0 : round(min(100, $targetSoFar > 0 ? $completed / $targetSoFar * 100 : 100), 2),
+            ];
+        }
 
         return [
-            'target_per_day' => $target->target_tasks_per_day,
-            'elapsed_days'   => $elapsedDays,
-            'target_so_far'  => $targetSoFar,
-            'completed'      => round($achieved, 2),
-            'pct'            => $targetSoFar > 0 ? round(min(100, $achieved / $targetSoFar * 100), 2) : null,
+            'elapsed_days' => $elapsedDays,
+            'scopes'       => $scopes,
+            'pct'          => round(collect($scopes)->avg('pct'), 2),
         ];
+    }
+
+    /**
+     * What was assigned to this employee in a scope, due on or before the
+     * window's end, and how much of that they had completed by now.
+     *
+     * @return array{0:int,1:int}
+     */
+    private function scopeCounts(string $scope, \Illuminate\Support\Collection $ownTasks, \Illuminate\Support\Collection $flowItems, Carbon $windowEnd): array
+    {
+        $dueByWindow = fn ($item) => $item->due_date !== null && $item->due_date->lte($windowEnd);
+
+        return match ($scope) {
+            DailyTarget::SCOPE_TASK => [
+                $ownTasks->filter($dueByWindow)->count(),
+                $ownTasks->filter($dueByWindow)->where('status', 'Completed')->count(),
+            ],
+            DailyTarget::SCOPE_WORKFLOW => [
+                $flowItems->filter($dueByWindow)->count(),
+                $flowItems->filter($dueByWindow)->where('status', FlowItem::STATUS_COMPLETED)->count(),
+            ],
+            default => [0, 0],
+        };
     }
 
     public function resolveWeights(User $user): KpiWeightConfig

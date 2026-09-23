@@ -248,7 +248,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('performance/config/settings', [PerformanceConfigController::class, 'updateSettings'])->name('performance.config.settings');
     Route::post('performance/config/capacity', [PerformanceConfigController::class, 'updateCapacity'])->name('performance.config.capacity');
     Route::post('performance/config/daily-targets', [PerformanceConfigController::class, 'storeDailyTarget'])->name('performance.config.daily-targets.store');
-    Route::delete('performance/config/daily-targets/{dailyTarget}', [PerformanceConfigController::class, 'destroyDailyTarget'])->name('performance.config.daily-targets.destroy');
+    Route::delete('performance/config/daily-targets/{user}', [PerformanceConfigController::class, 'destroyDailyTarget'])->name('performance.config.daily-targets.destroy');
 
     // Historical scoreboard from persisted snapshots (before the {user} wildcard).
     Route::get('performance/history', [PerformanceController::class, 'history'])->name('performance.history');

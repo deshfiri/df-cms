@@ -49,7 +49,8 @@ class PerformanceConfigController extends Controller
             });
 
         $capacities = EmployeeCapacity::whereIn('user_id', $users->pluck('id'))->get()->keyBy('user_id');
-        $dailyTargets = DailyTarget::whereIn('user_id', $users->pluck('id'))->get()->keyBy('user_id');
+        // Grouped: a user can have a target on more than one scope at once.
+        $dailyTargets = DailyTarget::whereIn('user_id', $users->pluck('id'))->get()->groupBy('user_id');
 
         return view('performance.config', [
             'users'        => $users,
@@ -194,25 +195,42 @@ class PerformanceConfigController extends Controller
         return response()->json(['success' => true]);
     }
 
+    /**
+     * Sets an employee's full daily-target picture in one go: whichever
+     * scopes are checked, each with its own quantity. A scope left out is
+     * removed if the employee had a target on it before — this is a
+     * replace, not an add, so unchecking and saving is how it's reduced or
+     * dropped entirely.
+     */
     public function storeDailyTarget(Request $request): JsonResponse
     {
         abort_unless(Auth::user()->can('manage performance'), 403);
 
         $data = $request->validate([
-            'user_id'               => ['required', 'exists:users,id'],
-            'target_tasks_per_day'  => ['required', 'integer', 'min:1', 'max:1000'],
+            'user_id'      => ['required', 'exists:users,id'],
+            'scopes'       => ['array'],
+            'scopes.*'     => [Rule::in(DailyTarget::$scopes)],
+            'quantities'   => ['array'],
+            'quantities.*' => ['required', 'integer', 'min:1', 'max:1000'],
         ]);
 
-        $this->service->upsertDailyTarget($data);
+        $scopes = array_values(array_unique($data['scopes'] ?? []));
+        $quantities = collect($data['quantities'] ?? [])->only($scopes);
+
+        if (count($quantities) !== count($scopes)) {
+            return response()->json(['success' => false, 'message' => 'Enter a quantity for every scope you checked.'], 422);
+        }
+
+        $this->service->setDailyTargets((int) $data['user_id'], $quantities->all());
 
         return response()->json(['success' => true]);
     }
 
-    public function destroyDailyTarget(DailyTarget $dailyTarget): JsonResponse
+    public function destroyDailyTarget(User $user): JsonResponse
     {
         abort_unless(Auth::user()->can('manage performance'), 403);
 
-        $this->service->deleteDailyTarget($dailyTarget);
+        $this->service->clearDailyTargets($user);
 
         return response()->json(['success' => true]);
     }

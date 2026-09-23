@@ -263,9 +263,9 @@
         </div>
     </div>
 
-    {{-- Daily target: completed work vs. an optional per-day quota --}}
-    <div class="col-lg-6">
-        <div class="card section-card sc-comp-card">
+    {{-- Daily target: completed work vs. an optional per-day quota, by scope --}}
+    <div class="col-12">
+        <div class="card section-card">
             <div class="card-header py-2 d-flex justify-content-between align-items-center">
                 <h6 class="fw-bold mb-0"><i class="bi bi-check2-circle me-1"></i>Daily Target</h6>
                 @isset($result['weights_used']['daily_target'])
@@ -275,14 +275,36 @@
             <div class="card-body">
                 @php $dt = $c['dailyTarget'] ?? null; @endphp
                 @if ($dt)
-                    <div class="sc-metric"><span class="k">Achievement</span><span class="v">{{ $dt['pct'] }}%</span></div>
-                    <div class="sc-metric"><span class="k">Target / day</span><span class="v">{{ $dt['target_per_day'] }}</span></div>
-                    <div class="sc-metric"><span class="k">Days elapsed</span><span class="v">{{ $dt['elapsed_days'] }}</span></div>
-                    <div class="sc-metric"><span class="k">Target so far</span><span class="v">{{ $dt['target_so_far'] }}</span></div>
-                    <div class="sc-metric"><span class="k">Completed</span><span class="v">{{ $dt['completed'] }}</span></div>
-                    <div class="sc-formula mt-2">No target is a penalty-free feature — set on Performance → Configuration → Daily Targets.</div>
+                    <div class="sc-metric"><span class="k">Overall achievement</span><span class="v">{{ $dt['pct'] }}%</span></div>
+                    <div class="table-responsive mt-2">
+                        <table class="table table-sm sc-credit-table mb-0"><thead><tr>
+                            <th>Scope</th><th class="text-end">Target / day</th><th class="text-end">Target so far</th>
+                            <th class="text-end">Due so far</th><th class="text-end">Completed</th><th class="text-end">Result</th>
+                        </tr></thead><tbody>
+                            @foreach ($dt['scopes'] as $scope)
+                                <tr>
+                                    <td>{{ $scope['label'] }}</td>
+                                    <td class="text-end">{{ $scope['target_per_day'] }}</td>
+                                    <td class="text-end">{{ $scope['target_so_far'] }}</td>
+                                    <td class="text-end">{{ $scope['available'] }}</td>
+                                    <td class="text-end">{{ $scope['completed'] }}</td>
+                                    <td class="text-end">
+                                        @if ($scope['forgiven'])
+                                            <span class="spill spill-hold" title="Not enough {{ strtolower($scope['label']) }} was due yet to hold this against them">Forgiven · 100%</span>
+                                        @else
+                                            {{ $scope['pct'] }}%
+                                        @endif
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody></table>
+                    </div>
+                    <div class="sc-formula mt-2">
+                        Each scope's quota so far is target/day × days elapsed. If less work of that scope was due than the quota, it's forgiven — it counts as 100%, since there was nothing more they could have done.
+                        Otherwise it's completed ÷ quota, capped at 100%. The overall score is the average across every scope set for them.
+                    </div>
                 @else
-                    <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">No daily target set for this employee.</div>
+                    <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">No daily target set for this employee — set one on Performance → Configuration → Daily Targets.</div>
                 @endif
             </div>
         </div>

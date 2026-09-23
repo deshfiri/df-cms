@@ -275,22 +275,28 @@
                 <div class="table-responsive">
                     <table id="dtTable" class="table table-hover mb-0" style="font-size:.85rem">
                         <thead>
-                            <tr><th class="ps-3">Employee</th><th>Target (tasks/day)</th><th class="pe-3">Actions</th></tr>
+                            <tr><th class="ps-3">Employee</th><th>Targets</th><th class="pe-3">Actions</th></tr>
                         </thead>
                         <tbody>
                             @foreach ($users as $u)
-                                @php $dt = $dailyTargets->get($u->id); @endphp
+                                @php $mine = $dailyTargets->get($u->id, collect()); @endphp
                                 <tr>
                                     <td class="ps-3">{{ $u->name }}</td>
-                                    <td>{{ $dt->target_tasks_per_day ?? '—' }}</td>
+                                    <td>
+                                        @forelse ($mine as $dt)
+                                            <span class="pay-cat me-1">{{ \App\Models\DailyTarget::$scopeLabels[$dt->scope] ?? $dt->scope }}: {{ $dt->target_quantity }}/day</span>
+                                        @empty
+                                            <span style="color:var(--text3)">—</span>
+                                        @endforelse
+                                    </td>
                                     <td class="pe-3">
                                         <button class="btn btn-sm btn-outline-secondary btn-dt-edit"
                                             data-user="{{ $u->id }}" data-name="{{ e($u->name) }}"
-                                            data-target="{{ $dt->target_tasks_per_day ?? '' }}">
+                                            data-targets="{{ $mine->pluck('target_quantity', 'scope')->toJson() }}">
                                             <i class="bi bi-pencil"></i> Set
                                         </button>
-                                        @if ($dt)
-                                            <button class="btn btn-sm btn-outline-danger btn-dt-delete" data-id="{{ $dt->id }}"><i class="bi bi-trash"></i></button>
+                                        @if ($mine->isNotEmpty())
+                                            <button class="btn btn-sm btn-outline-danger btn-dt-delete" data-user="{{ $u->id }}"><i class="bi bi-trash"></i></button>
                                         @endif
                                     </td>
                                 </tr>
@@ -300,7 +306,10 @@
                 </div>
             </div>
         </div>
-        <div class="cfg-help mt-2"><i class="bi bi-info-circle me-1"></i>Optional. With no target set, an employee's Daily Target KPI is left out of their score. With one set, it compares completed tasks so far this month against target × days elapsed, capped at 100%.</div>
+        <div class="cfg-help mt-2">
+            <i class="bi bi-info-circle me-1"></i>Optional, and set per scope — check as many as apply and give each its own daily quantity.
+            If an employee simply doesn't have that much work due yet, that scope is forgiven and counts as 100% — it only costs them once there was enough work and they didn't get through it.
+        </div>
     </div>
 </div>
 
@@ -403,11 +412,19 @@
 <div class="modal fade" id="dtModal" tabindex="-1">
     <div class="modal-dialog modal-sm">
         <div class="modal-content">
-            <div class="modal-header py-3"><h6 class="modal-title fw-bold">Daily Target — <span id="dtName"></span></h6><button class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-header py-3"><h6 class="modal-title fw-bold">Daily Targets — <span id="dtName"></span></h6><button class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
                 <input type="hidden" id="dtUser">
-                <label class="form-label fw-semibold small">Target (tasks / day)</label>
-                <input type="number" min="1" max="1000" id="dtTarget" class="form-control form-control-sm" placeholder="e.g. 5">
+                <p class="cfg-help mb-3">Check any scope this employee should have a daily quota on, and give it a quantity. Leave a scope unchecked to leave it out — unchecking one that was set and saving removes it.</p>
+                @foreach (\App\Models\DailyTarget::$scopes as $scope)
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <div class="form-check flex-grow-1 mb-0">
+                            <input class="form-check-input dt-scope-check" type="checkbox" value="{{ $scope }}" id="dtScope_{{ $scope }}">
+                            <label class="form-check-label" for="dtScope_{{ $scope }}">{{ \App\Models\DailyTarget::$scopeLabels[$scope] }}</label>
+                        </div>
+                        <input type="number" min="1" max="1000" class="form-control form-control-sm dt-scope-qty" style="width:80px" data-scope="{{ $scope }}" placeholder="qty" disabled>
+                    </div>
+                @endforeach
             </div>
             <div class="modal-footer py-2">
                 <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
@@ -558,22 +575,51 @@ $(function () {
     });
 
     // ── Daily Targets ───────────────────────────────────────────────
+    $('.dt-scope-check').on('change', function () {
+        const $qty = $(this).closest('.d-flex').find('.dt-scope-qty');
+        $qty.prop('disabled', !this.checked);
+        if (!this.checked) $qty.val('');
+    });
+
     $(document).on('click', '.btn-dt-edit', function () {
         const t = $(this);
+        const targets = JSON.parse(t.attr('data-targets') || '{}');
         $('#dtName').text(t.data('name'));
         $('#dtUser').val(t.data('user'));
-        $('#dtTarget').val(t.data('target'));
+        $('.dt-scope-check').each(function () {
+            const scope = this.value;
+            const $qty = $('.dt-scope-qty[data-scope="' + scope + '"]');
+            const has = Object.prototype.hasOwnProperty.call(targets, scope);
+            $(this).prop('checked', has);
+            $qty.prop('disabled', !has).val(has ? targets[scope] : '');
+        });
         new bootstrap.Modal('#dtModal').show();
     });
+
     $('#saveDt').on('click', function () {
+        const scopes = [];
+        const quantities = {};
+        let invalid = false;
+        $('.dt-scope-check:checked').each(function () {
+            const scope = this.value;
+            const qty = $('.dt-scope-qty[data-scope="' + scope + '"]').val();
+            if (!qty || parseInt(qty, 10) < 1) { invalid = true; return; }
+            scopes.push(scope);
+            quantities[scope] = qty;
+        });
+        if (invalid || !scopes.length) {
+            Swal.fire('Error', 'Give every checked scope a quantity of at least 1 (or uncheck it).', 'error');
+            return;
+        }
         $.post('{{ route("performance.config.daily-targets.store") }}', {
-            user_id: $('#dtUser').val(), target_tasks_per_day: $('#dtTarget').val(),
+            user_id: $('#dtUser').val(), scopes: scopes, quantities: quantities,
         }).done(() => window.location.reload()).fail(fail);
     });
+
     $(document).on('click', '.btn-dt-delete', function () {
-        const id = $(this).data('id');
-        Swal.fire({ title: 'Remove daily target?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545' })
-            .then(r => { if (r.isConfirmed) $.ajax({ url: '/performance/config/daily-targets/' + id, type: 'DELETE' }).done(() => window.location.reload()).fail(fail); });
+        const userId = $(this).data('user');
+        Swal.fire({ title: 'Remove all daily targets for this employee?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545' })
+            .then(r => { if (r.isConfirmed) $.ajax({ url: '/performance/config/daily-targets/' + userId, type: 'DELETE' }).done(() => window.location.reload()).fail(fail); });
     });
 });
 </script>
