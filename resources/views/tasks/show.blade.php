@@ -505,7 +505,7 @@
                             </select>
                             <textarea id="tpRevisionNote" class="form-control form-control-sm mb-2" rows="2" maxlength="2000" placeholder="What needs to change? (optional)"></textarea>
                             <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
-                                <span style="font-size:.7rem;color:var(--text3)">Only “Employee Mistake” counts against the quality KPI.</span>
+                                <span style="font-size:.7rem;color:var(--text3)">“Employee Mistake” counts against the assignee's quality KPI; “Task Giver Mistake” counts against whoever gave the task out instead — never both.</span>
                                 <button type="submit" class="btn btn-sm btn-warning">Send back</button>
                             </div>
                         </form>
@@ -513,7 +513,11 @@
                     @forelse($task->revisions as $rv)
                         <div class="p-2 rounded mb-2" style="background:var(--surface2);border:1px solid var(--border)">
                             <div style="font-size:.76rem">
-                                <span class="spill {{ $rv->reason_category === 'Employee Mistake' ? 'spill-cancelled' : 'spill-hold' }}">{{ $rv->reason_category }}</span>
+                                @php
+                                    $reasonSpill = $rv->reason_category === 'Employee Mistake' ? 'spill-cancelled'
+                                        : ($rv->reason_category === 'Task Giver Mistake' ? 'spill-warning' : 'spill-hold');
+                                @endphp
+                                <span class="spill {{ $reasonSpill }}">{{ $rv->reason_category }}</span>
                                 <span style="color:var(--text3)"> by {{ $rv->requestedBy->name ?? 'User' }} ·
                                     <time class="local-dt" datetime="{{ $iso($rv->created_at) }}">{{ $rv->created_at->format('d M Y, H:i') }}</time></span>
                             </div>

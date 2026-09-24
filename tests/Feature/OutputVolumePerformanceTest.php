@@ -115,9 +115,9 @@ class OutputVolumePerformanceTest extends TestCase
 
         $this->actingAs($this->manager)->postJson(route('performance.config.weights.store'), [
             'scope_type' => 'global',
-            'task_completion_weight' => 18, 'on_time_weight' => 18, 'revision_weight' => 12,
-            'sales_weight' => 11, 'satisfaction_weight' => 11, 'client_care_weight' => 11,
-            'daily_target_weight' => 9, 'output_volume_weight' => 10, // sums to 100
+            'task_completion_weight' => 16, 'on_time_weight' => 16, 'revision_weight' => 11,
+            'sales_weight' => 10, 'satisfaction_weight' => 9, 'client_care_weight' => 10,
+            'daily_target_weight' => 8, 'output_volume_weight' => 10, 'task_giving_weight' => 10, // sums to 100
         ])->assertOk();
 
         $this->assertSame(10, KpiWeightConfig::where('scope_type', 'global')->value('output_volume_weight'));
@@ -135,6 +135,7 @@ class OutputVolumePerformanceTest extends TestCase
         $globalFormFields = [
             'task_completion_weight', 'on_time_weight', 'revision_weight', 'sales_weight',
             'satisfaction_weight', 'client_care_weight', 'daily_target_weight', 'output_volume_weight',
+            'task_giving_weight',
         ];
         $sum = 0;
         foreach ($matches as $match) {

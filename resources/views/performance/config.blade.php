@@ -8,14 +8,15 @@
     // numbers the scoring engine is already using, and the total reads
     // 100 the moment the page opens.
     $gw = [
-        'task_completion_weight' => $g->task_completion_weight ?? 18,
-        'on_time_weight'         => $g->on_time_weight ?? 18,
-        'revision_weight'        => $g->revision_weight ?? 12,
-        'sales_weight'           => $g->sales_weight ?? 11,
-        'satisfaction_weight'    => $g->satisfaction_weight ?? 11,
-        'client_care_weight'     => $g->client_care_weight ?? 11,
-        'daily_target_weight'    => $g->daily_target_weight ?? 9,
-        'output_volume_weight'   => $g->output_volume_weight ?? 10,
+        'task_completion_weight' => $g->task_completion_weight ?? 16,
+        'on_time_weight'         => $g->on_time_weight ?? 16,
+        'revision_weight'        => $g->revision_weight ?? 11,
+        'sales_weight'           => $g->sales_weight ?? 10,
+        'satisfaction_weight'    => $g->satisfaction_weight ?? 10,
+        'client_care_weight'     => $g->client_care_weight ?? 10,
+        'daily_target_weight'    => $g->daily_target_weight ?? 8,
+        'output_volume_weight'   => $g->output_volume_weight ?? 9,
+        'task_giving_weight'     => $g->task_giving_weight ?? 10,
     ];
 @endphp
 
@@ -89,7 +90,7 @@
                 <form id="globalWeightForm">
                     <input type="hidden" name="scope_type" value="global">
                     <div class="wt-grid mb-3">
-                        @foreach (['task_completion_weight' => 'Task Completion', 'on_time_weight' => 'On-Time', 'revision_weight' => 'Quality', 'sales_weight' => 'Sales', 'satisfaction_weight' => 'Satisfaction', 'client_care_weight' => 'Client Care', 'daily_target_weight' => 'Daily Target', 'output_volume_weight' => 'Output Volume'] as $field => $label)
+                        @foreach (['task_completion_weight' => 'Task Completion', 'on_time_weight' => 'On-Time', 'revision_weight' => 'Quality', 'sales_weight' => 'Sales', 'satisfaction_weight' => 'Satisfaction', 'client_care_weight' => 'Client Care', 'daily_target_weight' => 'Daily Target', 'output_volume_weight' => 'Output Volume', 'task_giving_weight' => 'Task Giving'] as $field => $label)
                             <div class="wt-field">
                                 <label>{{ $label }}</label>
                                 <input type="number" min="0" max="100" name="{{ $field }}" value="{{ $gw[$field] }}" class="form-control form-control-sm wt-input">
@@ -113,7 +114,7 @@
                 <div class="table-responsive">
                     <table class="table table-hover mb-0" style="font-size:.85rem">
                         <thead>
-                            <tr><th class="ps-3">Scope</th><th>Task</th><th>On-time</th><th>Quality</th><th>Sales</th><th>Satisfaction</th><th>Client care</th><th>Daily target</th><th>Output volume</th><th class="pe-3">Actions</th></tr>
+                            <tr><th class="ps-3">Scope</th><th>Task</th><th>On-time</th><th>Quality</th><th>Sales</th><th>Satisfaction</th><th>Client care</th><th>Daily target</th><th>Output volume</th><th>Task giving</th><th class="pe-3">Actions</th></tr>
                         </thead>
                         <tbody>
                             @forelse ($overrides as $ov)
@@ -131,13 +132,15 @@
                                     <td>{{ $c->client_care_weight }}</td>
                                     <td>{{ $c->daily_target_weight }}</td>
                                     <td>{{ $c->output_volume_weight }}</td>
+                                    <td>{{ $c->task_giving_weight }}</td>
                                     <td class="pe-3">
                                         <button class="btn btn-sm btn-outline-secondary btn-ov-edit"
                                             data-scope-type="{{ $c->scope_type }}" data-scope-value="{{ $c->scope_value }}"
                                             data-task="{{ $c->task_completion_weight }}" data-ontime="{{ $c->on_time_weight }}"
                                             data-revision="{{ $c->revision_weight }}" data-sales="{{ $c->sales_weight }}"
                                             data-satisfaction="{{ $c->satisfaction_weight }}" data-clientcare="{{ $c->client_care_weight }}"
-                                            data-dailytarget="{{ $c->daily_target_weight }}" data-outputvolume="{{ $c->output_volume_weight }}"><i class="bi bi-pencil"></i></button>
+                                            data-dailytarget="{{ $c->daily_target_weight }}" data-outputvolume="{{ $c->output_volume_weight }}"
+                                            data-taskgiving="{{ $c->task_giving_weight }}"><i class="bi bi-pencil"></i></button>
                                         <button class="btn btn-sm btn-outline-danger btn-ov-delete" data-id="{{ $c->id }}"><i class="bi bi-trash"></i></button>
                                     </td>
                                 </tr>
@@ -375,7 +378,7 @@
                     </div>
                 </div>
                 <div class="wt-grid mb-2" id="ovWeights">
-                    @foreach (['task' => 'Task', 'ontime' => 'On-time', 'revision' => 'Quality', 'sales' => 'Sales', 'satisfaction' => 'Satisfaction', 'clientcare' => 'Client care', 'dailytarget' => 'Daily target', 'outputvolume' => 'Output volume'] as $k => $label)
+                    @foreach (['task' => 'Task', 'ontime' => 'On-time', 'revision' => 'Quality', 'sales' => 'Sales', 'satisfaction' => 'Satisfaction', 'clientcare' => 'Client care', 'dailytarget' => 'Daily target', 'outputvolume' => 'Output volume', 'taskgiving' => 'Task giving'] as $k => $label)
                         <div class="wt-field">
                             <label>{{ $label }}</label>
                             <input type="number" min="0" max="100" id="ov_{{ $k }}" value="20" class="form-control form-control-sm ov-wt">
@@ -526,7 +529,7 @@ $(function () {
 
     $('#btnAddOverride').on('click', function () {
         $('#ovScopeType').val('department'); toggleOvScope();
-        $('.ov-wt').each(function (i) { $(this).val([18, 18, 12, 11, 11, 11, 9, 10][i]); });
+        $('.ov-wt').each(function (i) { $(this).val([16, 16, 11, 10, 10, 10, 8, 9, 10][i]); });
         ovRecompute();
         new bootstrap.Modal('#overrideModal').show();
     });
@@ -541,6 +544,7 @@ $(function () {
         $('#ov_clientcare').val(t.data('clientcare') || 0);
         $('#ov_dailytarget').val(t.data('dailytarget') || 0);
         $('#ov_outputvolume').val(t.data('outputvolume') || 0);
+        $('#ov_taskgiving').val(t.data('taskgiving') || 0);
         ovRecompute();
         new bootstrap.Modal('#overrideModal').show();
     });
@@ -555,6 +559,7 @@ $(function () {
             client_care_weight: $('#ov_clientcare').val(),
             daily_target_weight: $('#ov_dailytarget').val(),
             output_volume_weight: $('#ov_outputvolume').val(),
+            task_giving_weight: $('#ov_taskgiving').val(),
         }).done(() => window.location.reload()).fail(fail);
     });
     $(document).on('click', '.btn-ov-delete', function () {

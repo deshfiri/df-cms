@@ -52,6 +52,8 @@ class PerformanceCalculationService
     private ?string $prefetchPeriod = null;
     /** @var array<int,\Illuminate\Support\Collection> */
     private array $tasksByUser = [];
+    /** @var array<int,\Illuminate\Support\Collection> */
+    private array $tasksGivenByUser = [];
     /** @var array<int,SalesTarget> */
     private array $targetsByUser = [];
     /** @var array<int,float> */
@@ -75,6 +77,11 @@ class PerformanceCalculationService
         // One task set per employee, serving task completion, on-time and
         // revision rate — all three are subsets of "their tasks due this period".
         $this->tasksByUser = $this->loadTasks($ids, $period);
+
+        // A separate set: tasks this person *gave out* (created), for Task
+        // Giving Quality — the mirror of the set above, keyed by created_by
+        // and scoped by created_at rather than due_date.
+        $this->tasksGivenByUser = $this->loadTasksGiven($ids, $period);
 
         $this->targetsByUser = SalesTarget::whereIn('user_id', $ids)
             ->where('period', $period)
@@ -170,6 +177,72 @@ class PerformanceCalculationService
     }
 
     /**
+     * Tasks this employee gave out (created) whose brief was written in the
+     * period — from the cohort load when there is one, otherwise fetched for
+     * them alone. For Task Giving Quality; see taskGivingQuality().
+     */
+    private function tasksGivenFor(User $user, string $period): \Illuminate\Support\Collection
+    {
+        if ($this->prefetched($period)) {
+            return $this->tasksGivenByUser[$user->id] ?? collect();
+        }
+
+        return $this->loadTasksGiven(collect([$user->id]), $period)[$user->id] ?? collect();
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int,int>  $ids
+     * @return array<int,\Illuminate\Support\Collection<int,Task>>
+     */
+    private function loadTasksGiven(\Illuminate\Support\Collection $ids, string $period): array
+    {
+        [$start, $end] = $this->periodBounds($period);
+
+        return Task::query()
+            ->whereIn('created_by', $ids)
+            ->whereBetween('created_at', [$start, $end])
+            ->withCount(['revisions as giver_mistake_count' => fn ($q) => $q->where('reason_category', 'Task Giver Mistake')])
+            ->get(['id', 'created_by', 'created_at'])
+            ->groupBy('created_by')
+            ->all();
+    }
+
+    /**
+     * Of the tasks this person gave out (created) this period, what share
+     * came back clean rather than needing a "Task Giver Mistake" revision —
+     * missing information, an unclear brief, and the like. The mirror of
+     * Quality/revisionRate(), scored against whoever wrote the brief rather
+     * than whoever did the work.
+     *
+     * A "Task Giver Mistake" revision never counts against the assignee's
+     * own revision-rate KPI — only "Employee Mistake" does (revisionRate()'s
+     * eager-loaded revisions are filtered to that category alone) — so
+     * nobody is penalised twice, or for someone else's mistake.
+     *
+     * Nobody who gave out nothing this period is scored on it at all — same
+     * "no data, no penalty" rule as every other optional KPI.
+     */
+    public function taskGivingQuality(User $user, string $period): ?array
+    {
+        $tasks = $this->tasksGivenFor($user, $period);
+
+        if ($tasks->isEmpty()) {
+            return null;
+        }
+
+        $totalGiven     = $tasks->count();
+        $flawed         = $tasks->where('giver_mistake_count', '>', 0)->count();
+        $cleanFirstTime = $totalGiven - $flawed;
+
+        return [
+            'total_given'      => $totalGiven,
+            'clean_first_time' => $cleanFirstTime,
+            'flawed'           => $flawed,
+            'pct'              => round($cleanFirstTime / $totalGiven * 100, 2),
+        ];
+    }
+
+    /**
      * The employee's workflow (Flow) items due in the period, for the Daily
      * Target "workflow" scope — from the cohort load when there is one,
      * otherwise fetched for them alone.
@@ -235,7 +308,12 @@ class PerformanceCalculationService
             ->where(fn ($q) => $q
                 ->whereHas('assignees', fn ($aq) => $aq->whereIn('users.id', $ids))
                 ->orWhereHas('involvements', fn ($inv) => $inv->whereIn('user_id', $ids)->where('points', '>', 0)))
-            ->withCount('revisions')
+            // Every count and relation here deliberately excludes "Task Giver
+            // Mistake" revisions: that reason exists precisely so a mistake
+            // in the brief is never held against the person who did the
+            // work — not in the KPI rate, and not in any of the informational
+            // counts revisionRate() shows alongside it. See taskGivingQuality().
+            ->withCount(['revisions as revisions_count' => fn ($q) => $q->where('reason_category', '!=', 'Task Giver Mistake')])
             ->with([
                 'revisions' => fn ($q) => $q->where('reason_category', 'Employee Mistake'),
                 'involvements',
@@ -989,9 +1067,9 @@ class PerformanceCalculationService
         return $configs->first(fn (KpiWeightConfig $c) => $c->scope_type === KpiWeightConfig::SCOPE_GLOBAL)
             ?? new KpiWeightConfig([
                 'scope_type' => KpiWeightConfig::SCOPE_GLOBAL,
-                'task_completion_weight' => 18, 'on_time_weight' => 18, 'revision_weight' => 12,
-                'sales_weight' => 11, 'satisfaction_weight' => 11, 'client_care_weight' => 11,
-                'daily_target_weight' => 9, 'output_volume_weight' => 10,
+                'task_completion_weight' => 16, 'on_time_weight' => 16, 'revision_weight' => 11,
+                'sales_weight' => 10, 'satisfaction_weight' => 10, 'client_care_weight' => 10,
+                'daily_target_weight' => 8, 'output_volume_weight' => 9, 'task_giving_weight' => 10,
             ]);
     }
 
@@ -1005,6 +1083,7 @@ class PerformanceCalculationService
         $clientCare     = $this->clientCare($user, $period);
         $dailyTarget    = $this->dailyTargetAchievement($user, $period);
         $outputVolume   = $this->outputVolume($user, $period);
+        $taskGiving     = $this->taskGivingQuality($user, $period);
 
         $weightConfig = $this->resolveWeights($user);
         $weights = $weightConfig->toWeightsArray();
@@ -1018,6 +1097,7 @@ class PerformanceCalculationService
             'client_care'     => $clientCare['score'] ?? null,
             'daily_target'    => $dailyTarget['pct'] ?? null,
             'output_volume'   => $outputVolume['pct'] ?? null,
+            'task_giving'     => $taskGiving['pct'] ?? null,
         ];
 
         // A KPI counts when there is data for it and its profile gives it weight;
@@ -1028,7 +1108,7 @@ class PerformanceCalculationService
             return [
                 'final_score' => null, 'performance_level' => null,
                 'scores' => $scores, 'weights_used' => [], 'strongest' => null, 'weakest' => null,
-                'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'outputVolume'),
+                'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'outputVolume', 'taskGiving'),
             ];
         }
 
@@ -1058,7 +1138,7 @@ class PerformanceCalculationService
             'weights_used' => $weightsUsed,
             'strongest' => $strongest,
             'weakest' => $weakest,
-            'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'outputVolume'),
+            'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'outputVolume', 'taskGiving'),
         ];
     }
 

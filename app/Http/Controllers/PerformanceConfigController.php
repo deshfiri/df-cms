@@ -20,7 +20,7 @@ class PerformanceConfigController extends Controller
     /** Functional teams (Spatie roles double as departments — see DatabaseSeeder). */
     private const DEPARTMENTS = ['Sales', 'Document', 'Design', 'Website', 'Product', 'Marketing', 'Support', 'Accounts', 'Content'];
 
-    private const WEIGHT_FIELDS = ['task_completion_weight', 'on_time_weight', 'revision_weight', 'sales_weight', 'satisfaction_weight', 'client_care_weight', 'daily_target_weight', 'output_volume_weight'];
+    private const WEIGHT_FIELDS = ['task_completion_weight', 'on_time_weight', 'revision_weight', 'sales_weight', 'satisfaction_weight', 'client_care_weight', 'daily_target_weight', 'output_volume_weight', 'task_giving_weight'];
 
     public function __construct(
         private readonly PerformanceConfigService $service,
@@ -124,6 +124,7 @@ class PerformanceConfigController extends Controller
             'client_care_weight'     => ['required', 'integer', 'min:0', 'max:100'],
             'daily_target_weight'    => ['required', 'integer', 'min:0', 'max:100'],
             'output_volume_weight'   => ['required', 'integer', 'min:0', 'max:100'],
+            'task_giving_weight'     => ['required', 'integer', 'min:0', 'max:100'],
         ]);
 
         $sum =array_sum(array_map(fn ($f) => (int) $data[$f], self::WEIGHT_FIELDS));

@@ -105,6 +105,7 @@
                         <th>Task</th>
                         <th>On-time</th>
                         <th>Quality</th>
+                        <th>Task Giving</th>
                         <th>Sales</th>
                         <th>Satisfaction</th>
                         <th>Clients</th>
@@ -131,6 +132,7 @@
                             <td>{!! $pct($row['scores']['task_completion']) !!}</td>
                             <td>{!! $pct($row['scores']['on_time']) !!}</td>
                             <td>{!! $pct($row['scores']['revision']) !!}</td>
+                            <td>{!! $pct($row['scores']['task_giving'] ?? null) !!}</td>
                             <td>{!! $pct($row['scores']['sales']) !!}</td>
                             <td>{!! $pct($row['scores']['satisfaction']) !!}</td>
                             <td>{!! $pct($row['scores']['client_care'] ?? null) !!}</td>
@@ -165,7 +167,7 @@
             lengthChange: false,
             info: false,
             language: { search: '', searchPlaceholder: 'Search employee…' },
-            columnDefs: [{ orderable: false, targets: [12] }],
+            columnDefs: [{ orderable: false, targets: [13] }],
         });
     });
 </script>

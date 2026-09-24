@@ -18,6 +18,7 @@
         'client_care'     => 'Client Care',
         'daily_target'    => 'Daily Target',
         'output_volume'   => 'Output Volume',
+        'task_giving'     => 'Task Giving Quality',
     ];
     $c = $result['components'];
     $money = fn ($v) => number_format((float) $v, 2);
@@ -172,6 +173,30 @@
                 <div class="sc-metric"><span class="k">Approved first time</span><span class="v">{{ $c['revision']['approved_first_submission'] }}</span></div>
                 <div class="sc-metric"><span class="k">Needed revision</span><span class="v">{{ $c['revision']['requiring_revision'] }}</span></div>
                 <div class="sc-metric"><span class="k">Avg revisions / task</span><span class="v">{{ $c['revision']['avg_revisions_per_task'] ?? '—' }}</span></div>
+            </div>
+        </div>
+    </div>
+
+    {{-- Task Giving Quality — the mirror of Quality above, scored against
+         whoever wrote the brief rather than whoever did the work. --}}
+    <div class="col-lg-4 col-md-6">
+        <div class="card section-card sc-comp-card">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                <h6 class="fw-bold mb-0"><i class="bi bi-file-earmark-text me-1"></i>Task Giving Quality</h6>
+                @isset($result['weights_used']['task_giving'])
+                    <span class="sc-weight">weight {{ $result['weights_used']['task_giving'] }}%</span>
+                @endisset
+            </div>
+            <div class="card-body">
+                @if ($c['taskGiving'])
+                    <div class="sc-metric"><span class="k">Clean-first-time rate</span><span class="v">{{ $c['taskGiving']['pct'] }}%</span></div>
+                    <div class="sc-metric"><span class="k">Tasks given out</span><span class="v">{{ $c['taskGiving']['total_given'] }}</span></div>
+                    <div class="sc-metric"><span class="k">Clean first time</span><span class="v">{{ $c['taskGiving']['clean_first_time'] }}</span></div>
+                    <div class="sc-metric"><span class="k">Needed a fix</span><span class="v">{{ $c['taskGiving']['flawed'] }}</span></div>
+                    <div class="cfg-help mt-2" style="font-size:.7rem;color:var(--text3)">Counts tasks sent back for a "Task Giver Mistake" — missing information or an unclear brief — against whoever gave the task out, not the assignee.</div>
+                @else
+                    <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">Nothing to measure — this employee hasn't given out any tasks this period.</div>
+                @endif
             </div>
         </div>
     </div>

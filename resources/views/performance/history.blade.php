@@ -69,6 +69,7 @@
                             <th>Task</th>
                             <th>On-time</th>
                             <th>Quality</th>
+                            <th>Task Giving</th>
                             <th>Sales</th>
                             <th>Satisfaction</th>
                             <th>Clients</th>
@@ -87,6 +88,7 @@
                                 <td>{!! $pct($s->task_completion_score) !!}</td>
                                 <td>{!! $pct($s->on_time_score) !!}</td>
                                 <td>{!! $pct($s->revision_score) !!}</td>
+                                <td>{!! $pct($s->task_giving_score) !!}</td>
                                 <td>{!! $pct($s->sales_score) !!}</td>
                                 <td>{!! $pct($s->satisfaction_score) !!}</td>
                                 <td>{!! $pct($s->client_care_score) !!}</td>
@@ -109,7 +111,7 @@
 <script>
     $(function () {
         if ($('#histTable').length) {
-            $('#histTable').DataTable({ order: [], paging: true, pageLength: 25, lengthChange: false, info: false, language: { search: '', searchPlaceholder: 'Search employee…' }, columnDefs: [{ orderable: false, targets: [11] }] });
+            $('#histTable').DataTable({ order: [], paging: true, pageLength: 25, lengthChange: false, info: false, language: { search: '', searchPlaceholder: 'Search employee…' }, columnDefs: [{ orderable: false, targets: [12] }] });
         }
     });
 </script>

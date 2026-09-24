@@ -12,7 +12,7 @@ class TaskRevision extends Model
 
     public const UPDATED_AT = null;
 
-    public static array $reasonCategories = ['Employee Mistake', 'Client Requested', 'Scope Change', 'Management Requested'];
+    public static array $reasonCategories = ['Employee Mistake', 'Task Giver Mistake', 'Client Requested', 'Scope Change', 'Management Requested'];
 
     protected $fillable = ['task_id', 'requested_by', 'reason_category', 'note', 'previous_status'];
 
