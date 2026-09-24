@@ -485,8 +485,13 @@ class ChatController extends Controller
             'sender_name' => $m->sender->name ?? '—',
             'body' => $redact ? null : $m->body,
             // Safe HTML with any forbidden word the message tripped wrapped
-            // for a red highlight — see ChatWordFilter::highlight().
+            // for a highlight — see ChatWordFilter::highlight(). Used by the
+            // monitor view only; the ordinary chat shows a flag icon instead
+            // (see 'flagged'), not the word itself.
             'body_html' => $redact ? null : $this->wordFilter->highlight((string) $m->body),
+            // Whether the message tripped the forbidden-word list — the chat
+            // UI shows a small icon for this rather than naming the word.
+            'flagged' => !$redact && $this->wordFilter->hasMatch($m->body),
             'created_at' => $m->created_at->toIso8601String(),
             'deleted' => $m->isDeleted(),
             'can_delete' => !$m->isDeleted() && $m->sender_id === Auth::id(),

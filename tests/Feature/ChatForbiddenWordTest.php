@@ -189,7 +189,32 @@ class ChatForbiddenWordTest extends TestCase
         $this->assertDatabaseHas('activity_logs', ['module' => 'Chat', 'action' => 'Forbidden Word Used']);
     }
 
-    public function test_the_flagged_word_is_highlighted_in_the_chat_message_itself(): void
+    public function test_a_flagged_message_reports_flagged_true_and_a_clean_one_false(): void
+    {
+        ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
+        $sender = $this->user();
+        $other  = $this->user();
+
+        $response = $this->actingAs($sender)->postJson(route('chat.send', $other), ['body' => 'this has a BadWord in it'])->assertOk();
+        $this->assertTrue($response->json('message.flagged'));
+
+        // The same flag is what a recipient (or the sender's other tab) sees
+        // on the initial page load, not only on the send response.
+        $this->actingAs($other)->getJson(route('chat.open', $sender))
+            ->assertOk()
+            ->assertJsonPath('messages.0.flagged', true);
+
+        $clean = $this->actingAs($sender)->postJson(route('chat.send', $other), ['body' => 'a perfectly ordinary message'])->assertOk();
+        $this->assertFalse($clean->json('message.flagged'));
+    }
+
+    /**
+     * The word itself is never shown in the ordinary chat (an icon with a
+     * generic notice instead — see msg-flag-icon in chat/index.blade.php),
+     * but body_html still carries the highlighted word for the moderator's
+     * monitor view, which does show exactly what was flagged.
+     */
+    public function test_body_html_still_carries_the_highlighted_word_for_the_monitor_view(): void
     {
         ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
         $sender = $this->user();
@@ -201,15 +226,9 @@ class ChatForbiddenWordTest extends TestCase
             'this has a <mark class="chat-flagged-word">BadWord</mark> in it',
             $response->json('message.body_html'),
         );
-
-        // The same highlighting is what a recipient (or the sender's other
-        // tab) sees on the initial page load, not only on the send response.
-        $this->actingAs($other)->getJson(route('chat.open', $sender))
-            ->assertOk()
-            ->assertJsonPath('messages.0.body_html', 'this has a <mark class="chat-flagged-word">BadWord</mark> in it');
     }
 
-    public function test_the_live_broadcast_also_carries_the_highlighted_word(): void
+    public function test_the_live_broadcast_also_carries_the_flag_and_the_highlighted_word(): void
     {
         ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
         $sender = $this->user();
@@ -221,6 +240,7 @@ class ChatForbiddenWordTest extends TestCase
 
         $payload = (new \App\Events\MessageSent($message->fresh(), [$other->id]))->broadcastWith();
 
+        $this->assertTrue($payload['flagged']);
         $this->assertSame(
             'this has a <mark class="chat-flagged-word">badword</mark> in it',
             $payload['body_html'],
@@ -245,6 +265,24 @@ class ChatForbiddenWordTest extends TestCase
         $conversation = \App\Models\Conversation::latest('id')->firstOrFail();
         $moderatorUrl = route('chat.monitor', ['conversation' => $conversation->id]);
         $this->actingAs($moderator)->get($moderatorUrl)->assertOk()->assertViewIs('chat.monitor');
+    }
+
+    public function test_the_chat_page_is_set_up_for_a_flag_icon_not_a_highlighted_word(): void
+    {
+        $this->actingAs($this->user())->get(route('chat.index'))
+            ->assertOk()
+            ->assertSee('msg-flag-icon', false)
+            ->assertSee('bi-exclamation-triangle-fill', false)
+            // Not the CSS rule that colors the word itself red — only the
+            // monitor view still defines that class (see the next test).
+            ->assertDontSee('.chat-flagged-word {', false);
+    }
+
+    public function test_the_monitor_page_still_highlights_the_word_itself(): void
+    {
+        $this->actingAs($this->user('monitor chats'))->get(route('chat.monitor'))
+            ->assertOk()
+            ->assertSee('chat-flagged-word', false);
     }
 
     public function test_a_matching_message_still_broadcasts_and_is_readable_normally(): void

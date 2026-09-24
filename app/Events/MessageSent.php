@@ -60,10 +60,11 @@ class MessageSent implements ShouldBroadcastNow
             'sender_id'       => $this->message->sender_id,
             'sender_name'     => $this->message->sender->name,
             'body'            => $this->message->body,
-            // Safe HTML with any forbidden word highlighted — see
-            // ChatWordFilter::highlight() and ChatController::messageResource(),
-            // which builds the same field for the initial page load.
+            // Safe HTML with any forbidden word highlighted — used by the
+            // monitor view only; see ChatController::messageResource(),
+            // which builds the same fields for the initial page load.
             'body_html'       => app(ChatWordFilter::class)->highlight($this->message->body),
+            'flagged'         => app(ChatWordFilter::class)->hasMatch($this->message->body),
             'created_at'      => $this->message->created_at->toIso8601String(),
             // A quote of an earlier message, carried so the reply renders with
             // its context on arrival instead of only after a reload. `mine` is

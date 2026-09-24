@@ -86,6 +86,30 @@ class ChatWordFilterTest extends TestCase
         $this->assertSame([], $this->filter()->match('   '));
     }
 
+    // ── hasMatch() ──────────────────────────────────────────────────────
+
+    public function test_hasmatch_is_true_when_the_body_trips_the_list(): void
+    {
+        ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
+
+        $this->assertTrue($this->filter()->hasMatch('this has a badword in it'));
+    }
+
+    public function test_hasmatch_is_false_for_a_clean_message(): void
+    {
+        ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
+
+        $this->assertFalse($this->filter()->hasMatch('a perfectly ordinary message'));
+    }
+
+    public function test_hasmatch_is_false_for_an_empty_or_null_body(): void
+    {
+        ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
+
+        $this->assertFalse($this->filter()->hasMatch(null));
+        $this->assertFalse($this->filter()->hasMatch(''));
+    }
+
     public function test_the_list_is_cached_until_flushed(): void
     {
         ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);

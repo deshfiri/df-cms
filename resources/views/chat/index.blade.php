@@ -194,13 +194,14 @@
             overflow-wrap: anywhere;
         }
 
-        /* A word that tripped the forbidden-word list — see
-           ChatWordFilter::highlight(). Plain <mark>, not a background
-           highlight: the point is to flag the word, not the whole message. */
-        .chat-flagged-word {
-            background: none;
-            color: var(--c-red);
-            font-weight: 700;
+        /* A message that tripped the forbidden-word list — see
+           ChatWordFilter::hasMatch(). Deliberately doesn't say which word:
+           an icon with a generic notice, not the word itself in red (that's
+           the monitor view's job — see chat-flagged-word there instead). */
+        .msg-flag-icon {
+            color: var(--c-yellow);
+            margin-right: 2px;
+            cursor: help;
         }
 
         .msg-meta {
@@ -1504,10 +1505,13 @@
                 // bubble: pre-wrap has to apply to the message text alone, or the
                 // indentation of the template below would render as whitespace too.
                 //
-                // body_html is server-built, pre-escaped HTML (see
-                // ChatWordFilter::highlight()) with any forbidden word already
-                // wrapped for a red highlight — used as-is, not re-escaped.
-                const text = m.body_html ? `<span class="msg-text">${m.body_html}</span>` : '';
+                // Plain escaped text — a flagged message doesn't get the word
+                // itself picked out (see the flag icon in msg-meta below instead).
+                const text = m.body ? `<span class="msg-text">${esc(m.body)}</span>` : '';
+
+                const flag = m.flagged
+                    ? '<i class="bi bi-exclamation-triangle-fill msg-flag-icon" title="This message uses language against our chat guidelines."></i> '
+                    : '';
 
                 return `<div class="msg ${mine ? 'me' : 'them'}" data-id="${m.id}">
                                                 <div class="msg-tools">
@@ -1516,7 +1520,7 @@
                                                     ${m.can_delete ? '<button class="msg-tool msg-del" title="Delete"><i class="bi bi-trash"></i></button>' : ''}
                                                 </div>
                                                 ${(activeGroupId && !mine) ? `<div class="msg-sender">${esc(m.sender_name)}</div>` : ''}${quoteHtml(m.reply_to)}${text}${attachmentHtml(m.attachment)}${expiredAttachmentHtml(m.attachment_expired)}
-                                                <div class="msg-meta">${timeOf(m.created_at)}</div>
+                                                <div class="msg-meta">${flag}${timeOf(m.created_at)}</div>
                                                 ${reactionsHtml(m.reactions)}
                                             </div>`;
             }

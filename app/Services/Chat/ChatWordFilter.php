@@ -40,6 +40,12 @@ class ChatWordFilter
         return $matched;
     }
 
+    /** Whether the message tripped the list at all — reads better than match() !== [] at call sites. */
+    public function hasMatch(?string $body): bool
+    {
+        return $this->match($body) !== [];
+    }
+
     /**
      * The message body as safe HTML, with every forbidden word it triggered
      * wrapped in a highlight span so it can be shown in red — the same
