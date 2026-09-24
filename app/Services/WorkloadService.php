@@ -101,7 +101,7 @@ class WorkloadService
     private function buildLoad(User $user, Collection $activeTasks, PerformanceSetting $settings): array
     {
         $count    = $activeTasks->count();
-        $points   = (int) $activeTasks->sum(fn (Task $t) => $settings->priorityWeight($t->priority));
+        $points   = (int) $activeTasks->sum(fn (object $t) => $settings->priorityWeight($t->priority));
         $capacity = $user->capacity;
         $util     = $this->utilization($count, $points, $capacity);
         $status   = $util !== null ? $settings->workloadStatus($util) : 'Unknown';

@@ -145,6 +145,28 @@ class TaskMultiAssigneeWorkflowTest extends TestCase
         $this->assertSame(1, $workload->load($b)['active_tasks']);
     }
 
+    public function test_the_workload_overview_and_page_count_a_shared_task_for_every_assignee(): void
+    {
+        // Regression guard: overview() (and suggestAssignee()) fetch active
+        // tasks via a raw task_user join, not Eloquent — unlike load() above.
+        // buildLoad() must not assume it's always handed a Task model.
+        Permission::firstOrCreate(['name' => 'view performance', 'guard_name' => 'web']);
+        $manager = $this->manager();
+        $manager->givePermissionTo('view performance');
+        $a = $this->worker('A');
+        $b = $this->worker('B');
+        EmployeeCapacity::create(['user_id' => $a->id, 'max_active_tasks' => 5]);
+        EmployeeCapacity::create(['user_id' => $b->id, 'max_active_tasks' => 5]);
+
+        $this->sharedTask($manager, [$a, $b]);
+
+        $rows = app(WorkloadService::class)->overview();
+        $this->assertSame(1, $rows->firstWhere('user.id', $a->id)['active_tasks']);
+        $this->assertSame(1, $rows->firstWhere('user.id', $b->id)['active_tasks']);
+
+        $this->actingAs($manager)->get(route('performance.workload'))->assertOk();
+    }
+
     public function test_the_sidebar_badge_counts_open_work_for_every_assignee(): void
     {
         $manager = $this->manager();
