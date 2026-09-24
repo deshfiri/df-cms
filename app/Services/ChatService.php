@@ -8,6 +8,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageReaction;
 use App\Models\User;
+use App\Services\Chat\ChatModerationService;
 use App\Services\Storage\StorageSettings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -27,6 +28,7 @@ class ChatService
 
     public function __construct(
         private readonly StorageSettings $storage,
+        private readonly ChatModerationService $moderation,
     ) {}
 
     /**
@@ -86,6 +88,14 @@ class ChatService
         // Sending is reading: your own message must never count as unread for you.
         if ($conversation->isGroup()) {
             $this->markRead($conversation, $sender);
+        }
+
+        // Best-effort, same as the broadcast above: the message has already
+        // been sent and must stay sent regardless of what happens here.
+        try {
+            $this->moderation->review($message, $conversation, $sender);
+        } catch (\Throwable $e) {
+            report($e);
         }
 
         return $message;

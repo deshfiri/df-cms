@@ -27,6 +27,7 @@
             'general'    => ['label' => 'General',        'icon' => 'bi-sliders',      'route' => 'settings.index',   'hint' => 'Name, logo, theme'],
             'storage'    => ['label' => 'Storage & CDN',  'icon' => 'bi-hdd-network',  'route' => 'settings.storage', 'hint' => 'Where files are kept'],
             'chat'       => ['label' => 'Chat',           'icon' => 'bi-chat-dots',    'route' => 'settings.chat',    'hint' => 'Attachment retention'],
+            'forbidden-words' => ['label' => 'Forbidden Words', 'icon' => 'bi-shield-exclamation', 'route' => 'forbidden-words.index', 'hint' => 'Blocked chat words', 'can' => 'manage chat moderation'],
             'sounds'     => ['label' => 'Sounds',         'icon' => 'bi-volume-up',    'route' => 'settings.sounds',  'hint' => 'Alert tones and volume', 'can' => 'manage sound settings'],
             'document-types' => ['label' => 'Document Types', 'icon' => 'bi-folder2-open', 'route' => 'document-types.index', 'hint' => 'What client files are filed under', 'can' => 'manage document types'],
         ],

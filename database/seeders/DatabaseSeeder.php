@@ -74,6 +74,14 @@ class DatabaseSeeder extends Seeder
             'manage sound settings',
             // Settings → Document Types: the list clients' documents are filed under.
             'manage document types',
+            // Settings → Forbidden Words: the internal chat's blocked-word list,
+            // and who gets told when someone trips it. Deliberately distinct
+            // from 'monitor chats', which grants full read access to every
+            // conversation.
+            'manage chat moderation',
+            // Bug Reports: who reviews and resolves what staff report about
+            // the system. Filing one needs no permission — see 'manage requests'.
+            'manage bug reports',
         ];
 
         foreach ($permissions as $perm) {
@@ -96,7 +104,7 @@ class DatabaseSeeder extends Seeder
             // WhatsApp: a Manager runs the inbox (sees every brand, assigns work,
             // manages numbers and templates) but not the Meta app credentials,
             // which stay with Super Admin like every other integration secret.
-            'Manager' => ['view dashboard', 'view clients', 'manage clients', 'delete clients', 'manage payments', 'view payments', 'manage products', 'manage documents', 'manage-workflow', 'approve-stage', 'import clients', 'export clients', 'view reports', 'view tasks', 'manage tasks', 'manage-meetings', 'manage requests', 'view ads', 'manage ads', 'view performance', 'manage performance', 'view reviews', 'view whatsapp', 'reply whatsapp', 'assign whatsapp', 'view all whatsapp', 'manage whatsapp numbers', 'manage whatsapp templates', 'view workflows'],
+            'Manager' => ['view dashboard', 'view clients', 'manage clients', 'delete clients', 'manage payments', 'view payments', 'manage products', 'manage documents', 'manage-workflow', 'approve-stage', 'import clients', 'export clients', 'view reports', 'view tasks', 'manage tasks', 'manage-meetings', 'manage requests', 'manage bug reports', 'view ads', 'manage ads', 'view performance', 'manage performance', 'view reviews', 'view whatsapp', 'reply whatsapp', 'assign whatsapp', 'view all whatsapp', 'manage whatsapp numbers', 'manage whatsapp templates', 'view workflows'],
             'Sales' => ['view clients', 'manage clients', 'submit-stage', 'approve-stage', 'view tasks', 'manage tasks', 'manage-meetings'],
             'Document' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks'],
             'Design' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks'],

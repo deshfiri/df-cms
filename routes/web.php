@@ -27,6 +27,7 @@ use App\Http\Controllers\MarketingController;
 use App\Http\Controllers\ChatSettingsController;
 use App\Http\Controllers\SoundSettingsController;
 use App\Http\Controllers\DocumentTypeController;
+use App\Http\Controllers\ForbiddenWordController;
 use App\Http\Controllers\AlertSoundController;
 use App\Http\Controllers\MetaSettingsController;
 use App\Http\Controllers\StorageSettingsController;
@@ -38,6 +39,7 @@ use App\Http\Controllers\SettingController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\BugReportController;
 use App\Http\Controllers\EmployeeRequestController;
 use App\Http\Controllers\ExportController;
 use App\Http\Controllers\FileManagerController;
@@ -290,6 +292,12 @@ Route::middleware(['auth'])->group(function () {
         ->parameters(['requests' => 'employeeRequest']);
     Route::post('requests/{employeeRequest}/respond', [EmployeeRequestController::class, 'respond'])->name('requests.respond');
 
+    // Bug / issue reports (standalone)
+    Route::resource('bug-reports', BugReportController::class)
+        ->only(['index', 'store', 'destroy'])
+        ->parameters(['bug-reports' => 'bugReport']);
+    Route::post('bug-reports/{bugReport}/respond', [BugReportController::class, 'respond'])->name('bug-reports.respond');
+
     // Payments (standalone)
     Route::get('payments', [PaymentController::class, 'all'])->name('payments.index');
     Route::post('payments', [PaymentController::class, 'storeAny'])->name('payments.store');
@@ -531,6 +539,12 @@ Route::middleware(['auth'])->group(function () {
     Route::post('settings/document-types', [DocumentTypeController::class, 'store'])->name('document-types.store');
     Route::put('settings/document-types/{documentType}', [DocumentTypeController::class, 'update'])->name('document-types.update');
     Route::delete('settings/document-types/{documentType}', [DocumentTypeController::class, 'destroy'])->name('document-types.destroy');
+
+    // Words blocked from the internal chat ("manage chat moderation").
+    Route::get('settings/forbidden-words', [ForbiddenWordController::class, 'index'])->name('forbidden-words.index');
+    Route::post('settings/forbidden-words', [ForbiddenWordController::class, 'store'])->name('forbidden-words.store');
+    Route::put('settings/forbidden-words/{forbiddenWord}', [ForbiddenWordController::class, 'update'])->name('forbidden-words.update');
+    Route::delete('settings/forbidden-words/{forbiddenWord}', [ForbiddenWordController::class, 'destroy'])->name('forbidden-words.destroy');
 
     // Alert sounds for everyone ("manage sound settings"; gated in the controller).
     Route::get('settings/sounds', [SoundSettingsController::class, 'index'])->name('settings.sounds');
