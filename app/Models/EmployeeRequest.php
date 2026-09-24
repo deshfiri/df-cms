@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class EmployeeRequest extends Model
@@ -38,6 +39,12 @@ class EmployeeRequest extends Model
     public function reviewedBy()
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    /** Who this request was sent to — the only people (besides the requester) who may see or respond to it. */
+    public function recipients(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'employee_request_recipients');
     }
 
     public function scopePending($query)

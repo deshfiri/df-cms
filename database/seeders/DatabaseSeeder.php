@@ -80,7 +80,7 @@ class DatabaseSeeder extends Seeder
             // conversation.
             'manage chat moderation',
             // Bug Reports: who reviews and resolves what staff report about
-            // the system. Filing one needs no permission — see 'manage requests'.
+            // the system. Filing one needs no permission at all.
             'manage bug reports',
         ];
 
@@ -119,9 +119,12 @@ class DatabaseSeeder extends Seeder
             'Viewer' => ['view clients', 'view payments', 'view reports'],
         ];
 
-        // Filing and following your own requests needs no permission at all —
-        // see EmployeeRequestPolicy. 'manage requests' is what decides who sees
-        // everyone's and answers them.
+        // Filing, following and sending a request to someone needs no
+        // permission at all — see EmployeeRequestPolicy. 'manage requests'
+        // decides nothing there any more: a request is only ever visible to
+        // whoever filed it and whoever it was actually sent to. The
+        // permission is kept seeded (and still granted here) only because
+        // removing it outright is a separate, unrequested change.
         $roles['Manager'][] = 'create chat groups';
         $roles['Manager'][] = 'manage all tasks';
         $roles['Manager'][] = 'manage document types';

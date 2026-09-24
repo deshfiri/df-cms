@@ -410,7 +410,8 @@
                 </a>
             @endcan
             {{-- Open to everyone: asking the company for something is part of
-                 having a login. 'manage requests' decides who answers them. --}}
+                 having a login. Who answers a given request is whoever it
+                 was sent to (see EmployeeRequestPolicy), not a permission. --}}
             <a href="{{ route('requests.index') }}"
                 class="sb-link {{ request()->routeIs('requests.*') ? 'active' : '' }}" title="Requests"
                 data-bs-toggle="tooltip" data-bs-placement="right">

@@ -5,7 +5,7 @@
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
     <div>
         <h4 class="page-title mb-0">Requests</h4>
-        <div style="font-size:.7rem;color:var(--text3);margin-top:2px">Ask Super Admin / Manager for anything you need</div>
+        <div style="font-size:.7rem;color:var(--text3);margin-top:2px">Send a request to whoever should handle it</div>
     </div>
     @if($canCreate)
         <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newRequestModal">
@@ -25,11 +25,11 @@
     <button class="fpill" data-status="Rejected">
         <span class="spill spill-rejected" style="padding:1px 7px;font-size:.65rem">Rejected</span>
     </button>
-    @if($canManage)
+    {{-- Every request you can see is either yours or sent to you — this
+         narrows down to just the ones you filed. --}}
     <button class="fpill ms-auto" id="pillMine">
         <i class="bi bi-person me-1" style="font-size:.67rem"></i>Mine Only
     </button>
-    @endif
 </div>
 
 <div class="card">
@@ -40,9 +40,8 @@
                     <tr>
                         <th>#</th>
                         <th>Subject</th>
-                        @if($canManage)
                         <th>Requested By</th>
-                        @endif
+                        <th>Sent To</th>
                         <th>Client</th>
                         <th>Status</th>
                         <th>Date</th>
@@ -70,6 +69,15 @@
                 <div class="mb-3">
                     <label class="form-label fw-semibold small">Message <span class="text-danger">*</span></label>
                     <textarea id="reqMessage" class="form-control" rows="4" placeholder="Explain your request..."></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Send To <span class="text-danger">*</span></label>
+                    <select id="reqRecipients" class="form-select select2" multiple>
+                        @foreach($users as $u)
+                        <option value="{{ $u->id }}">{{ $u->name }}</option>
+                        @endforeach
+                    </select>
+                    <span style="font-size:.68rem;color:var(--text3)">Only the people you pick here will see this request.</span>
                 </div>
                 <div class="mb-3">
                     <label class="form-label fw-semibold small d-block">Request About <span class="text-danger">*</span></label>
@@ -116,9 +124,15 @@
 
 @push('scripts')
 <script>
-const canManageRequests = @json($canManage);
 let activeReqStatus = '';
 let mineOnly = false;
+
+$(function () {
+    $('#reqRecipients').select2({
+        theme: 'bootstrap-5', width: '100%', placeholder: 'Who should this go to?',
+        dropdownParent: $('#newRequestModal'),
+    });
+});
 
 $('.fpill[data-status]').on('click', function () {
     activeReqStatus = $(this).data('status');
@@ -136,18 +150,15 @@ $('#pillMine').on('click', function () {
 
 $(function () {
     const columns = [
-        { data: 'DT_RowIndex', orderable: false, searchable: false },
-        { data: 'subject',     orderable: false, searchable: false },
-    ];
-    if (canManageRequests) {
-        columns.push({ data: 'requester', orderable: false, searchable: false });
-    }
-    columns.push(
+        { data: 'DT_RowIndex',  orderable: false, searchable: false },
+        { data: 'subject',      orderable: false, searchable: false },
+        { data: 'requester',    orderable: false, searchable: false },
+        { data: 'recipients',   orderable: false, searchable: false },
         { data: 'client',       orderable: false, searchable: false },
         { data: 'status_badge', orderable: false, searchable: false },
         { data: 'created',      orderable: false, searchable: false },
-        { data: 'actions',      orderable: false, searchable: false }
-    );
+        { data: 'actions',      orderable: false, searchable: false },
+    ];
 
     window.reqTable = $('#requestsTable').DataTable({
         processing: true,
@@ -182,19 +193,25 @@ $('#reqTypePersonal, #reqTypeClient').on('click', function () {
 $('#newRequestModal').on('hidden.bs.modal', function () {
     $('#reqSubject,#reqMessage').val('');
     $('#reqClient').val('').trigger('change');
+    $('#reqRecipients').val(null).trigger('change');
     $('#reqTypeClient').removeClass('active');
     $('#reqTypePersonal').addClass('active');
     $('#reqClientWrap').addClass('d-none');
 });
 
 $('#saveRequest').on('click', function () {
-    const subject   = $('#reqSubject').val().trim();
-    const message   = $('#reqMessage').val().trim();
-    const isClient  = $('#reqTypeClient').hasClass('active');
-    const clientId  = $('#reqClient').val() || null;
+    const subject      = $('#reqSubject').val().trim();
+    const message      = $('#reqMessage').val().trim();
+    const isClient     = $('#reqTypeClient').hasClass('active');
+    const clientId     = $('#reqClient').val() || null;
+    const recipientIds = $('#reqRecipients').val() || [];
 
     if (!subject || !message) {
         Swal.fire('Missing', 'Subject and message are required.', 'warning');
+        return;
+    }
+    if (!recipientIds.length) {
+        Swal.fire('Missing', 'Choose at least one person to send this to.', 'warning');
         return;
     }
     if (isClient && !clientId) {
@@ -206,6 +223,7 @@ $('#saveRequest').on('click', function () {
         subject: subject,
         message: message,
         client_id: isClient ? clientId : null,
+        recipient_ids: recipientIds,
     }).done(function () {
         bootstrap.Modal.getInstance('#newRequestModal').hide();
         window.reqTable.ajax.reload();
@@ -252,7 +270,8 @@ $(document).on('click', '.req-view', function () {
     const row = window.reqTable.row($(this).closest('tr')).data();
     if (!row) return;
     $('#viewReqSubject').text(row.subject);
-    let html = '<div class="mb-2 small" style="color:var(--text3)">' + (row.requester || '') + ' &middot; ' + row.created + '</div>'
+    let html = '<div class="mb-1 small" style="color:var(--text3)">' + (row.requester || '') + ' &middot; ' + row.created + '</div>'
+        + '<div class="mb-2 small" style="color:var(--text3)">Sent to: ' + (row.recipients || '—') + '</div>'
         + '<div class="mb-3">' + row.status_badge + '</div>'
         + '<div class="mb-3" style="white-space:pre-wrap">' + $('<div>').text(row.message || '').html() + '</div>';
     if (row.response_note) {

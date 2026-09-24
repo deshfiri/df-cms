@@ -213,13 +213,19 @@ class DashboardController extends Controller
             ->limit(8)
             ->get();
 
-        // ── Pending employee requests (Super Admin / Manager only) ─────
-        $pendingRequests = EmployeeRequest::with('requestedBy:id,name')
+        // ── Pending requests sent to this person ────────────────────────
+        // A request is only visible to whoever it was addressed to (see
+        // EmployeeRequestPolicy) — no longer everyone holding a permission.
+        $pendingRequestsQuery = EmployeeRequest::query()
             ->pending()
+            ->whereHas('recipients', fn ($q) => $q->where('users.id', $user->id));
+
+        $pendingRequests = (clone $pendingRequestsQuery)
+            ->with('requestedBy:id,name')
             ->latest()
             ->limit(5)
             ->get();
-        $pendingRequestCount = EmployeeRequest::pending()->count();
+        $pendingRequestCount = $pendingRequestsQuery->count();
 
         return view('dashboard', compact(
             'statusCounts',

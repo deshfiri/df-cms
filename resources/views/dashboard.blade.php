@@ -267,7 +267,8 @@ $topCards = [
     </div>
 </div>
 
-@can('manage requests')
+{{-- Requests sent to this person specifically — not a permission-gated
+     "everyone who manages requests" widget any more. --}}
 <div class="row g-3 mb-4">
     <div class="col-12">
         <div class="dash-widget">
@@ -293,7 +294,6 @@ $topCards = [
         </div>
     </div>
 </div>
-@endcan
 
 {{-- ══════════════════════════════════════════════════════════════
      Secondary analytics — same data as before, now below the fold

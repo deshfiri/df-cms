@@ -6,15 +6,11 @@ use App\Models\EmployeeRequest;
 use App\Models\User;
 use App\Notifications\RequestResolved;
 use App\Notifications\RequestSubmitted;
-use App\Services\Concerns\NotifiesStaff;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 
 class EmployeeRequestService
 {
-    use NotifiesStaff;
-
-    private const APPROVER_ROLES = ['Super Admin', 'Manager'];
-
     public function __construct(
         private readonly ActivityLogService $activityLog,
     ) {}
@@ -22,22 +18,25 @@ class EmployeeRequestService
     public function create(array $data, User $actor): EmployeeRequest
     {
         return DB::transaction(function () use ($data, $actor) {
+            $recipientIds = $data['recipient_ids'];
+            unset($data['recipient_ids']);
             $data['requested_by'] = $actor->id;
             $data['status']       = EmployeeRequest::STATUS_PENDING;
 
             $request = EmployeeRequest::create($data);
+            $request->recipients()->sync($recipientIds);
 
             $this->activityLog->log(
                 'Request',
                 'Submitted',
                 $request->client_id,
                 null,
-                ['subject' => $request->subject]
+                ['subject' => $request->subject, 'recipient_ids' => $recipientIds]
             );
 
-            $this->notifyApprovers($request, $actor);
+            $this->notifyRecipients($request, $actor);
 
-            return $request->load('requestedBy:id,name', 'client:id,client_name');
+            return $request->load('requestedBy:id,name', 'client:id,client_name', 'recipients:id,name');
         });
     }
 
@@ -72,14 +71,13 @@ class EmployeeRequestService
         $request->delete();
     }
 
-    /** Approvers who can actually action the request — never the person who filed it. */
-    private function notifyApprovers(EmployeeRequest $request, User $actor): void
+    /** Only the people this was actually sent to — never the person who filed it. */
+    private function notifyRecipients(EmployeeRequest $request, User $actor): void
     {
-        $this->notifyStaff(
-            self::APPROVER_ROLES,
-            new RequestSubmitted($request),
-            permission: 'manage requests',
-            except: $actor,
-        );
+        $recipients = $request->recipients()->where('is_active', true)->whereKeyNot($actor->getKey())->get();
+
+        if ($recipients->isNotEmpty()) {
+            Notification::send($recipients, new RequestSubmitted($request));
+        }
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\EmployeeRequest\StoreEmployeeRequestRequest;
 use App\Models\Client;
 use App\Models\EmployeeRequest;
+use App\Models\User;
 use App\Services\EmployeeRequestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,19 +21,21 @@ class EmployeeRequestController extends Controller
 
     public function index(Request $request)
     {
-        // The page and its table feed alike: a role without a requests
-        // permission gets neither.
+        // Everyone gets the page — EmployeeRequestPolicy::viewAny() is always
+        // true. What each person actually sees in it is scoped per-row below.
         $this->authorize('viewAny', EmployeeRequest::class);
 
         if ($request->ajax()) {
             return $this->dataTable($request);
         }
 
-        $clients   = Client::withoutTrashed()->orderBy('client_name')->get(['id', 'client_name', 'dfid_number']);
-        $canManage = $request->user()->can('manage requests');
+        $clients = Client::withoutTrashed()->orderBy('client_name')->get(['id', 'client_name', 'dfid_number']);
+        // Who a new request can be sent to — anyone but yourself.
+        $users = User::where('is_active', true)->where('id', '!=', $request->user()->id)
+            ->orderBy('name')->get(['id', 'name']);
         $canCreate = $request->user()->can('create', EmployeeRequest::class);
 
-        return view('requests.index', compact('clients', 'canManage', 'canCreate'));
+        return view('requests.index', compact('clients', 'users', 'canCreate'));
     }
 
     public function store(StoreEmployeeRequestRequest $request): JsonResponse
@@ -71,13 +74,17 @@ class EmployeeRequestController extends Controller
     private function dataTable(Request $request): JsonResponse
     {
         $user = $request->user();
-        $canManage = $user->can('manage requests');
 
-        $query = EmployeeRequest::query()->with(['requestedBy:id,name', 'client:id,client_name']);
+        $query = EmployeeRequest::query()->with(['requestedBy:id,name', 'client:id,client_name', 'recipients:id,name']);
 
-        if (!$canManage) {
-            $query->where('requested_by', $user->id);
-        } elseif ($request->boolean('mine_only')) {
+        // What you may see at all: your own, or one sent to you. "manage
+        // requests" plays no part in this any more — see EmployeeRequestPolicy.
+        $query->where(function ($q) use ($user) {
+            $q->where('requested_by', $user->id)
+                ->orWhereHas('recipients', fn ($qq) => $qq->where('users.id', $user->id));
+        });
+
+        if ($request->boolean('mine_only')) {
             $query->where('requested_by', $user->id);
         }
 
@@ -89,10 +96,11 @@ class EmployeeRequestController extends Controller
             ->addIndexColumn()
             ->addColumn('subject', fn(EmployeeRequest $r) => e($r->subject))
             ->addColumn('requester', fn(EmployeeRequest $r) => e($r->requestedBy->name ?? '-'))
+            ->addColumn('recipients', fn(EmployeeRequest $r) => e($r->recipients->pluck('name')->implode(', ')))
             ->addColumn('client', fn(EmployeeRequest $r) => e($r->client->client_name ?? '-'))
             ->addColumn('status_badge', fn(EmployeeRequest $r) => $this->statusBadge($r->status))
             ->addColumn('created', fn(EmployeeRequest $r) => $r->created_at->format('d M Y'))
-            ->addColumn('actions', fn(EmployeeRequest $r) => $this->actionButtons($r, $user, $canManage))
+            ->addColumn('actions', fn(EmployeeRequest $r) => $this->actionButtons($r, $user))
             ->rawColumns(['status_badge', 'actions'])
             ->make(true);
     }
@@ -108,16 +116,17 @@ class EmployeeRequestController extends Controller
         return '<span class="spill ' . ($map[$status] ?? 'spill-pending') . '">' . e($status) . '</span>';
     }
 
-    private function actionButtons(EmployeeRequest $r, $user, bool $canManage): string
+    private function actionButtons(EmployeeRequest $r, $user): string
     {
+        $isRecipient = $r->recipients->contains($user->id);
         $html = '<button class="btn btn-sm px-2 py-1 req-view" data-id="' . $r->id . '" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="View"><i class="bi bi-eye"></i></button> ';
 
-        if ($canManage && $r->status === EmployeeRequest::STATUS_PENDING) {
+        if ($isRecipient && $r->status === EmployeeRequest::STATUS_PENDING) {
             $html .= '<button class="btn btn-sm px-2 py-1 req-approve" data-id="' . $r->id . '" style="background:rgba(5,150,105,.08);border:1px solid rgba(5,150,105,.2);color:#059669" title="Approve"><i class="bi bi-check-lg"></i></button> '
                 . '<button class="btn btn-sm px-2 py-1 req-reject" data-id="' . $r->id . '" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#dc2626" title="Reject"><i class="bi bi-x-lg"></i></button> ';
         }
 
-        if ($r->status === EmployeeRequest::STATUS_PENDING && ($r->requested_by === $user->id || $canManage)) {
+        if ($r->status === EmployeeRequest::STATUS_PENDING && $r->requested_by === $user->id) {
             $html .= '<button class="btn btn-sm px-2 py-1 req-delete" data-id="' . $r->id . '" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#dc2626" title="Delete"><i class="bi bi-trash"></i></button>';
         }
 
