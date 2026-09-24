@@ -431,7 +431,7 @@ class TaskController extends Controller
                 // are policy checks so the buttons match what the endpoints allow.
                 if ($me->can('submit', $t)) {
                     // Shown to the assignee throughout, but only live once work has started.
-                    $blocker = $t->submitBlocker();
+                    $blocker = $t->submitBlocker($me);
                     $html .= $blocker
                         ? '<span class="d-inline-block" tabindex="0" title="' . e($blocker) . '"><button class="btn btn-sm px-2 py-1" disabled style="border:1px solid var(--border);color:var(--text3);pointer-events:none"><i class="bi bi-send"></i></button></span> '
                         : '<button class="btn btn-sm px-2 py-1 task-submit" data-id="' . $t->id . '" data-title="' . e($t->title) . '" data-requires="' . ($t->requires_attachment ? 1 : 0) . '" style="background:rgba(var(--primary-rgb),.1);border:1px solid var(--primary);color:var(--primary)" title="Submit for review"><i class="bi bi-send"></i></button> ';
@@ -492,12 +492,13 @@ class TaskController extends Controller
             return '<span class="spill spill-rejected"><i class="bi bi-exclamation-triangle-fill me-1"></i>Overdue</span>';
         }
         $map = [
-            'Pending'     => 'spill-pending',
-            'In Progress' => 'spill-in-progress',
-            'On Hold'     => 'spill-hold',
-            'Submitted'   => 'spill-warning',
-            'Completed'   => 'spill-approved',
-            'Cancelled'   => 'spill-rejected',
+            'Pending'             => 'spill-pending',
+            'In Progress'         => 'spill-in-progress',
+            'On Hold'             => 'spill-hold',
+            'Partially Submitted' => 'spill-hold',
+            'Submitted'           => 'spill-warning',
+            'Completed'           => 'spill-approved',
+            'Cancelled'           => 'spill-rejected',
         ];
 
         return '<span class="spill ' . ($map[$task->status] ?? 'spill-pending') . '">' . e($task->status) . '</span>';

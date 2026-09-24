@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Auth;
 
 class Task extends Model
 {
@@ -16,19 +17,29 @@ class Task extends Model
     public static array $priorities = ['Low', 'Medium', 'High', 'Urgent'];
 
     /**
-     * 'Submitted' sits between working and done: the assignee has handed it
-     * back and it is waiting on whoever assigned it to accept or return it.
+     * 'Submitted' sits between working and done: every current assignee has
+     * handed their part in and it is waiting on whoever assigned it to
+     * accept or return it.
      */
     public const STATUS_SUBMITTED = 'Submitted';
 
-    public static array $statuses = ['Pending', 'In Progress', 'On Hold', 'Submitted', 'Completed', 'Cancelled', 'Overdue'];
+    /**
+     * A task shared by more than one assignee sits here from the moment any
+     * one of them submits their part until the last one does — see
+     * TaskService::submitForReview() and task_user.submitted_at. A solo task
+     * never passes through this status: with one assignee, that one
+     * submission already is everyone submitting.
+     */
+    public const STATUS_PARTIALLY_SUBMITTED = 'Partially Submitted';
+
+    public static array $statuses = ['Pending', 'In Progress', 'On Hold', 'Partially Submitted', 'Submitted', 'Completed', 'Cancelled', 'Overdue'];
 
     /**
      * Statuses an assignee may submit from — once work has started. A task
      * still Pending has not been worked on, so there is nothing to hand in:
      * the assignee presses Start work first. See submitBlocker().
      */
-    public static array $submittableStatuses = ['In Progress', 'On Hold'];
+    public static array $submittableStatuses = ['In Progress', 'On Hold', 'Partially Submitted'];
 
     /**
      * Statuses an assignee may move their own task between while working on it.
@@ -36,15 +47,19 @@ class Task extends Model
      * Deliberately excludes 'Completed' and 'Cancelled': finishing is the
      * reviewer's call, and cancelling is an administrative one. Also excludes
      * 'Submitted' — that transition goes through submitForReview(), which
-     * timestamps it and notifies the reviewer.
+     * timestamps it and notifies the reviewer. Includes 'Partially Submitted':
+     * whoever on a shared task hasn't submitted yet is still working it.
      */
-    public static array $workingStatuses = ['Pending', 'In Progress', 'On Hold'];
+    public static array $workingStatuses = ['Pending', 'In Progress', 'On Hold', 'Partially Submitted'];
 
     /**
      * Statuses where the assignee no longer owes any work, so nothing can be
      * overdue on them. 'Submitted' belongs here: the work has been handed in
      * and is waiting on a reviewer — counting it late would blame the assignee
      * for somebody else's delay, including in the performance KPI.
+     *
+     * 'Partially Submitted' deliberately does not: not everyone is done, so
+     * the task itself can still run late until the last assignee submits.
      */
     public static array $settledStatuses = ['Submitted', 'Completed', 'Cancelled'];
     public static array $types = ['Call', 'Meeting', 'Email', 'Follow Up', 'Visit', 'Proposal', 'Invoice', 'Support', 'Other'];
@@ -133,12 +148,24 @@ class Task extends Model
      * (checked again under a row lock) and the page (what the disabled button
      * says). In Progress counts as started even without a recorded start —
      * older tasks were moved there before starts were timestamped.
+     *
+     * $user is whoever is asking, defaulting to whoever is signed in — every
+     * call site but TaskService::submitForReview() (which already has the
+     * actor to hand) asks on behalf of the current viewer anyway. Needed
+     * because "already submitted" is now a per-assignee fact, not just a
+     * task-wide one: on a shared task, one assignee submitting does not stop
+     * the others from still being asked to.
      */
-    public function submitBlocker(): ?string
+    public function submitBlocker(?User $user = null): ?string
     {
+        $user ??= Auth::user();
+        $myPivot = $user ? $this->assignees->firstWhere('id', $user->id)?->pivot : null;
+        $alreadySubmittedMyPart = $myPivot && $myPivot->submitted_at !== null;
+
         return match (true) {
             $this->status === self::STATUS_SUBMITTED => 'This task has already been submitted and is waiting for review.',
             in_array($this->status, ['Completed', 'Cancelled'], true) => "This task is {$this->status} and can no longer be submitted.",
+            $alreadySubmittedMyPart => 'You already submitted your part of this task — waiting on the other assignee(s) to submit theirs.',
             $this->status === 'Pending',
             $this->status === 'On Hold' && $this->started_at === null => 'Start work on this task before submitting it.',
             !in_array($this->status, self::$submittableStatuses, true) => "This task is {$this->status} and can't be submitted.",
@@ -157,7 +184,8 @@ class Task extends Model
      *
      * `server_now` lets the browser correct for its own clock being wrong, so a
      * counter reads the same on every machine and after every refresh. States:
-     * not_started, running, paused, overdue, submitted, completed, cancelled.
+     * not_started, running, paused, overdue, partially_submitted, submitted,
+     * completed, cancelled.
      *
      * @return array<string,mixed>
      */
@@ -168,6 +196,7 @@ class Task extends Model
             $this->status === 'Cancelled'           => 'cancelled',
             $this->status === self::STATUS_SUBMITTED => 'submitted',
             $this->is_overdue                        => 'overdue',
+            $this->status === self::STATUS_PARTIALLY_SUBMITTED => 'partially_submitted',
             $this->status === 'In Progress'          => 'running',
             $this->started_at !== null               => 'paused',
             default                                  => 'not_started',
@@ -197,10 +226,15 @@ class Task extends Model
         return $this->belongsToMany(Client::class, 'client_task');
     }
 
-    /** A task may now be held by more than one person at once, sharing full ownership of it. */
+    /**
+     * A task may now be held by more than one person at once, sharing full
+     * ownership of it. submitted_at is per-assignee: each one's own moment
+     * of handing their part in, not the task-level column of the same name
+     * (which only gets set once every current assignee has).
+     */
     public function assignees(): BelongsToMany
     {
-        return $this->belongsToMany(User::class, 'task_user');
+        return $this->belongsToMany(User::class, 'task_user')->withPivot('submitted_at');
     }
 
     public function createdBy(): BelongsTo

@@ -26,7 +26,7 @@
 {{-- Filter pills --}}
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
     <button class="fpill" data-status="" id="pillAll">All</button>
-    @php $statusCls = ['Pending'=>'spill-pending','In Progress'=>'spill-in-progress','On Hold'=>'spill-hold','Submitted'=>'spill-warning','Completed'=>'spill-approved','Cancelled'=>'spill-rejected']; @endphp
+    @php $statusCls = ['Pending'=>'spill-pending','In Progress'=>'spill-in-progress','On Hold'=>'spill-hold','Partially Submitted'=>'spill-hold','Submitted'=>'spill-warning','Completed'=>'spill-approved','Cancelled'=>'spill-rejected']; @endphp
     @foreach($statusCls as $st => $cls)
     <button class="fpill" data-status="{{ $st }}">
         <span class="spill {{ $cls }}" style="padding:1px 7px;font-size:.65rem">{{ $st }}</span>

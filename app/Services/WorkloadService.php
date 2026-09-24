@@ -17,7 +17,9 @@ use Illuminate\Support\Facades\DB;
  */
 class WorkloadService
 {
-    private const ACTIVE_STATUSES = ['Pending', 'In Progress', 'On Hold'];
+    // 'Partially Submitted' stays active: at least one assignee still owes
+    // their part, so the task must keep weighing on that person's load.
+    private const ACTIVE_STATUSES = ['Pending', 'In Progress', 'On Hold', Task::STATUS_PARTIALLY_SUBMITTED];
 
     /** Load profile for one employee (single-user query path). */
     public function load(User $user): array

@@ -265,7 +265,7 @@
             @if($can['submit'] || $can['progress'] || $can['review'])
                 <div class="tp-actions">
                     @if($can['submit'])
-                        @if($submitBlocker = $task->submitBlocker())
+                        @if($submitBlocker = $task->submitBlocker($me))
                             {{-- Visible, so the assignee knows it's coming — live once work starts. --}}
                             <span class="d-inline-block" tabindex="0" title="{{ $submitBlocker }}">
                                 <button class="btn btn-primary tp-submit" disabled style="pointer-events:none" aria-describedby="tpSubmitBlocked">
@@ -295,8 +295,13 @@
                         </button>
                     @endif
                 </div>
-                @if($can['submit'] && $task->submitBlocker())
-                    <div class="tp-hint mt-2" id="tpSubmitBlocked"><i class="bi bi-play-circle me-1"></i>{{ $task->submitBlocker() }} Press <strong>Start work</strong> and Submit becomes available.</div>
+                @if($can['submit'] && $submitBlocker)
+                    <div class="tp-hint mt-2" id="tpSubmitBlocked">
+                        <i class="bi bi-play-circle me-1"></i>{{ $submitBlocker }}
+                        @if($task->status === 'Pending' || ($task->status === 'On Hold' && !$task->started_at))
+                            Press <strong>Start work</strong> and Submit becomes available.
+                        @endif
+                    </div>
                 @elseif($can['submit'] && $awaitingSubmissionFile)
                     <div class="tp-hint mt-2"><i class="bi bi-paperclip me-1"></i>This task needs a file with the submission — attach it below or in the submit dialog.</div>
                 @elseif($can['submit'])
@@ -309,6 +314,9 @@
                     @switch($task->status)
                         @case('Submitted')
                             <i class="bi bi-hourglass-split me-1"></i>Submitted — waiting for <strong>{{ $task->createdBy->name ?? 'the requester' }}</strong> to review it.
+                            @break
+                        @case('Partially Submitted')
+                            <i class="bi bi-hourglass-split me-1"></i>Partially submitted — still waiting on <strong>{{ $assigneeNames($task->assignees->filter(fn ($a) => $a->pivot->submitted_at === null)) ?? 'the remaining assignee(s)' }}</strong> before it goes to <strong>{{ $task->createdBy->name ?? 'the requester' }}</strong> for review.
                             @break
                         @case('Completed')
                             <i class="bi bi-check2-circle me-1" style="color:var(--c-green)"></i>Completed and accepted.
@@ -740,7 +748,7 @@
 
         let state = timer.state;
         // Crossing the deadline happens on this screen, not only on refresh.
-        if (due && ['running', 'paused', 'not_started'].includes(state) && now > due) state = 'overdue';
+        if (due && ['running', 'paused', 'not_started', 'partially_submitted'].includes(state) && now > due) state = 'overdue';
 
         let label, main, caption, tone;
         switch (state) {
@@ -758,6 +766,11 @@
                 caption = submitted
                     ? 'since it was handed in' + (due ? (submitted <= due ? ' · on time' : ' · ' + words(submitted - due) + ' after the deadline') : '')
                     : 'Handed in — waiting for review.';
+                break;
+            case 'partially_submitted':
+                label = 'Partially submitted'; tone = 'waiting';
+                main = due ? clock(due - now) : '—';
+                caption = due ? 'left until the deadline · waiting on the other assignee(s)' : 'Waiting on the other assignee(s) to submit their part.';
                 break;
             case 'cancelled':
                 label = 'Cancelled'; tone = 'idle'; main = '—'; caption = 'No time is being counted.';

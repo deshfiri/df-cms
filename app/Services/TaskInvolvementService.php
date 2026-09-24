@@ -34,6 +34,14 @@ use Illuminate\Support\Facades\DB;
  *     shared a link/note  0.5  (up to 1.5)
  *     submitted the work  4    (up to 8 — a resubmission after rework counts)
  *
+ * A task with more than one current assignee needs every one of them to
+ * submit their own part before it reaches Submitted (see TaskService::
+ * submitForReview() and Task::STATUS_PARTIALLY_SUBMITTED) — each
+ * submission earns 4 ÷ however many are currently assigned, so the total
+ * "submitted" pool stays one task's worth whether one person hands it in
+ * alone or several each do. Every other event still earns in full
+ * regardless of assignee count.
+ *
  * Comments, files and links earn work points only for people doing the work: anyone
  * who has held the task, or a helper who neither asked for it nor reviewed it.
  * A manager commenting on work they assigned is not doing that work.
@@ -165,12 +173,19 @@ class TaskInvolvementService
             $people[$userId]['was_assignee'] = true;
         };
 
-        $earn = function (int $userId, string $event) use (&$people) {
+        // A shared task's "submitted" points are split across however many
+        // people currently hold it: each one only submits their own part, so
+        // the pool one submission is worth stays the same whether one person
+        // does it alone or several each submit theirs — not multiplied by
+        // headcount. Everything else earns in full regardless of assignee
+        // count; only submitting is inherently "the whole task's worth",
+        // divided among however many now have to each do it.
+        $earn = function (int $userId, string $event, int $divisor = 1) use (&$people) {
             if ($event === 'started' && ($people[$userId]['earned']['started'] ?? 0) > 0) {
                 $event = 'resumed';
             }
 
-            $points = self::WORK_POINTS[$event] ?? 0.0;
+            $points = (self::WORK_POINTS[$event] ?? 0.0) / max(1, $divisor);
             $so_far = $people[$userId]['earned'][$event] ?? 0.0;
             $award  = isset(self::CAPS[$event]) ? max(0.0, min($points, self::CAPS[$event] - $so_far)) : $points;
 
@@ -237,7 +252,7 @@ class TaskInvolvementService
 
                 case 'submitted':
                     if ($actor) {
-                        $earn($actor, 'submitted');
+                        $earn($actor, 'submitted', max(1, count($currentAssigneeIds)));
                     }
                     break;
 

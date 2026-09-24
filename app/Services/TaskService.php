@@ -11,6 +11,7 @@ use App\Models\TaskNote;
 use App\Models\TaskRevision;
 use App\Models\User;
 use App\Notifications\TaskAssigned;
+use App\Notifications\TaskPartiallySubmitted;
 use App\Notifications\TaskReviewed;
 use App\Notifications\TaskRevisionRequested;
 use App\Notifications\TaskSubmitted;
@@ -258,16 +259,24 @@ class TaskService
      * @param  array<int,UploadedFile>  $files
      * @param  array<int,int|string>    $attachmentIds
      */
+    /**
+     * On a solo task, this is the whole thing: one submission, straight to
+     * Submitted. On a shared one, this is only this assignee's own part —
+     * the task sits at Task::STATUS_PARTIALLY_SUBMITTED, and the reviewer
+     * hears nothing, until every current assignee has done the same (see
+     * TaskInvolvementService for how the credit for each submission splits).
+     */
     public function submitForReview(Task $task, User $actor, ?string $note = null, array $files = [], array $attachmentIds = []): Task
     {
         $stored = [];
+        $fullySubmitted = false;
 
         try {
-            DB::transaction(function () use ($task, $actor, $note, $files, $attachmentIds, &$stored) {
+            DB::transaction(function () use ($task, $actor, $note, $files, $attachmentIds, &$stored, &$fullySubmitted) {
                 $locked = Task::whereKey($task->id)->lockForUpdate()->firstOrFail();
 
                 // Same rule as the policy, against the row as it is now.
-                if ($reason = $locked->submitBlocker()) {
+                if ($reason = $locked->submitBlocker($actor)) {
                     throw ValidationException::withMessages(['status' => $reason]);
                 }
 
@@ -288,9 +297,22 @@ class TaskService
                         ->pluck('id')->all()
                     : [];
 
+                // This assignee's own part. Whoever else is still assigned and
+                // has not yet submitted theirs is what decides where the task
+                // as a whole lands — never headcount, so an assignee who was
+                // removed after already submitting cannot hold the rest up.
+                $locked->assignees()->updateExistingPivot($actor->id, ['submitted_at' => now()]);
+                $assigneeIds = $locked->assignees()->pluck('users.id');
+                $stillWaiting = DB::table('task_user')
+                    ->where('task_id', $locked->id)
+                    ->whereIn('user_id', $assigneeIds)
+                    ->whereNull('submitted_at')
+                    ->exists();
+                $fullySubmitted = !$stillWaiting;
+
                 $locked->update([
-                    'status'       => Task::STATUS_SUBMITTED,
-                    'submitted_at' => now(),
+                    'status'       => $fullySubmitted ? Task::STATUS_SUBMITTED : Task::STATUS_PARTIALLY_SUBMITTED,
+                    'submitted_at' => $fullySubmitted ? now() : $locked->submitted_at,
                     'updated_by'   => $actor->id,
                 ]);
 
@@ -311,9 +333,25 @@ class TaskService
         }
 
         $task = $task->fresh(['assignees:id,name', 'clients:id,client_name', 'labels']);
-        $this->notifyReviewer($task, $actor, $note);
+
+        if ($fullySubmitted) {
+            $this->notifyReviewer($task, $actor, $note);
+        } else {
+            $this->notifyRemainingAssignees($task, $actor);
+        }
 
         return $task;
+    }
+
+    /** Nudge whoever on a shared task still has not submitted their own part. */
+    private function notifyRemainingAssignees(Task $task, User $submittedBy): void
+    {
+        foreach ($task->assignees as $assignee) {
+            if ((int) $assignee->id === (int) $submittedBy->id || $assignee->pivot->submitted_at !== null) {
+                continue;
+            }
+            $assignee->notify(new TaskPartiallySubmitted($task, $submittedBy));
+        }
     }
 
     /**
@@ -405,15 +443,19 @@ class TaskService
                 'previous_status' => $task->status,
             ]);
 
-            // Submitted work that is sent back reopens the same way completed
-            // work does — it goes to the assignee, not into limbo.
-            if (in_array($task->status, ['Completed', Task::STATUS_SUBMITTED], true)) {
+            // Submitted (whole or partial) or completed work that is sent back
+            // reopens the same way — it goes to the assignees, not into limbo.
+            // Every current assignee's own submitted_at resets too: on a
+            // shared task, whoever had already submitted their part submits
+            // it again against the corrected brief, same as whoever had not.
+            if (in_array($task->status, ['Completed', Task::STATUS_SUBMITTED, Task::STATUS_PARTIALLY_SUBMITTED], true)) {
                 $task->update([
                     'status'          => 'In Progress',
                     'completion_date' => null,
                     'submitted_at'    => null,
                     'updated_by'      => Auth::id(),
                 ]);
+                DB::table('task_user')->where('task_id', $task->id)->update(['submitted_at' => null]);
             }
 
             $description = "Revision requested ({$data['reason_category']})" . (!empty($data['note']) ? ": {$data['note']}" : '');

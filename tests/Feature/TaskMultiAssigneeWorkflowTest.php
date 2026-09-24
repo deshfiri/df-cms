@@ -7,6 +7,7 @@ use App\Models\Task;
 use App\Models\TaskActivity;
 use App\Models\User;
 use App\Notifications\TaskAssigned;
+use App\Notifications\TaskPartiallySubmitted;
 use App\Notifications\TaskReviewed;
 use App\Services\TaskService;
 use App\Services\WorkloadService;
@@ -70,7 +71,14 @@ class TaskMultiAssigneeWorkflowTest extends TestCase
         Notification::assertSentTo($b, TaskAssigned::class);
     }
 
-    public function test_either_assignee_can_start_it_and_either_can_submit_it(): void
+    /**
+     * Neither assignee needs to have started it themselves to submit their
+     * own part — starting and submitting are still each an individual act,
+     * just no longer a single act that finishes the whole task alone. See
+     * test_the_task_only_reaches_submitted_once_every_assignee_has() for
+     * the two-submission requirement this replaced.
+     */
+    public function test_either_assignee_can_start_it_and_either_can_submit_their_own_part(): void
     {
         $manager = $this->manager();
         $a       = $this->worker('A');
@@ -80,11 +88,106 @@ class TaskMultiAssigneeWorkflowTest extends TestCase
         // A starts it...
         $this->actingAs($a)->postJson(route('tasks.progress', $task), ['status' => 'In Progress'])->assertOk();
 
-        // ...but B, who never started it themselves, can still hand it in —
-        // it is the task's state that matters, not who moved it there.
+        // ...but B, who never started it themselves, can still hand in their
+        // own part — only B is left to submit now, so this completes it.
         $this->actingAs($b)->postJson(route('tasks.submit', $task), ['note' => 'Done'])->assertOk();
+        $this->actingAs($a)->postJson(route('tasks.submit', $task), [])->assertOk();
 
         $this->assertSame(Task::STATUS_SUBMITTED, $task->fresh()->status);
+    }
+
+    public function test_the_task_only_reaches_submitted_once_every_assignee_has(): void
+    {
+        $manager = $this->manager();
+        $a       = $this->worker('A');
+        $b       = $this->worker('B');
+        $task    = $this->sharedTask($manager, [$a, $b]);
+
+        $this->actingAs($a)->postJson(route('tasks.progress', $task), ['status' => 'In Progress'])->assertOk();
+        $this->actingAs($a)->postJson(route('tasks.submit', $task), [])->assertOk();
+
+        // A alone is not the whole task — the reviewer cannot act on it yet.
+        $this->assertSame(Task::STATUS_PARTIALLY_SUBMITTED, $task->fresh()->status);
+        $this->actingAs($manager)->postJson(route('tasks.review', $task), ['accept' => true])->assertForbidden();
+
+        // A cannot submit their own part twice while waiting on B.
+        $this->actingAs($a)->postJson(route('tasks.submit', $task), [])->assertStatus(422);
+
+        $this->actingAs($b)->postJson(route('tasks.submit', $task), [])->assertOk();
+        $this->assertSame(Task::STATUS_SUBMITTED, $task->fresh()->status);
+    }
+
+    public function test_submitting_notifies_only_whoever_has_not_submitted_yet(): void
+    {
+        $manager = $this->manager();
+        $a       = $this->worker('A');
+        $b       = $this->worker('B');
+        $c       = $this->worker('C');
+        $task    = $this->sharedTask($manager, [$a, $b, $c]);
+
+        $this->actingAs($a)->postJson(route('tasks.progress', $task), ['status' => 'In Progress'])->assertOk();
+        Notification::fake();
+        $this->actingAs($a)->postJson(route('tasks.submit', $task), [])->assertOk();
+
+        Notification::assertSentTo($b, TaskPartiallySubmitted::class);
+        Notification::assertSentTo($c, TaskPartiallySubmitted::class);
+        Notification::assertNotSentTo($a, TaskPartiallySubmitted::class);
+        // The reviewer hears nothing yet — the task is not ready for them.
+        Notification::assertNothingSentTo($manager);
+
+        Notification::fake();
+        $this->actingAs($b)->postJson(route('tasks.submit', $task), [])->assertOk();
+        // Only C is left, so only C gets nudged again.
+        Notification::assertSentTo($c, TaskPartiallySubmitted::class);
+        Notification::assertNotSentTo($a, TaskPartiallySubmitted::class);
+    }
+
+    public function test_sending_it_back_resets_everyones_submission_and_reopens_it(): void
+    {
+        $manager = $this->manager();
+        $a       = $this->worker('A');
+        $b       = $this->worker('B');
+        $task    = $this->sharedTask($manager, [$a, $b]);
+
+        $this->actingAs($a)->postJson(route('tasks.progress', $task), ['status' => 'In Progress'])->assertOk();
+        $this->actingAs($a)->postJson(route('tasks.submit', $task), [])->assertOk();
+        $this->assertSame(Task::STATUS_PARTIALLY_SUBMITTED, $task->fresh()->status);
+
+        // A spots the problem and sends it back before B ever submits theirs.
+        $this->actingAs($a)->postJson(route('tasks.revisions.store', $task), [
+            'reason_category' => 'Task Giver Mistake', 'note' => 'Missing the brand colours.',
+        ])->assertOk();
+
+        $this->assertSame('In Progress', $task->fresh()->status);
+
+        // A's own already-submitted part reset too — A submits again once
+        // the brief is fixed, same as B, who never had submitted at all.
+        $this->actingAs($a)->postJson(route('tasks.submit', $task), [])->assertOk();
+        $this->assertSame(Task::STATUS_PARTIALLY_SUBMITTED, $task->fresh()->status, 'B still has not submitted their part');
+
+        $this->actingAs($b)->postJson(route('tasks.submit', $task), [])->assertOk();
+        $this->assertSame(Task::STATUS_SUBMITTED, $task->fresh()->status);
+    }
+
+    public function test_removing_an_assignee_who_already_submitted_does_not_hold_up_the_rest(): void
+    {
+        $manager = $this->manager();
+        $a       = $this->worker('A');
+        $b       = $this->worker('B');
+        $task    = $this->sharedTask($manager, [$a, $b]);
+
+        $this->actingAs($a)->postJson(route('tasks.progress', $task), ['status' => 'In Progress'])->assertOk();
+        $this->actingAs($a)->postJson(route('tasks.submit', $task), [])->assertOk();
+        $this->assertSame(Task::STATUS_PARTIALLY_SUBMITTED, $task->fresh()->status);
+
+        // A is taken off the task entirely — B is now the only assignee.
+        $this->actingAs($manager)->putJson(route('tasks.update', $task), [
+            'title' => $task->title, 'priority' => $task->priority, 'status' => $task->fresh()->status, 'type' => $task->type,
+            'assignee_ids' => [$b->id],
+        ])->assertOk();
+
+        $this->actingAs($b)->postJson(route('tasks.submit', $task), [])->assertOk();
+        $this->assertSame(Task::STATUS_SUBMITTED, $task->fresh()->status, 'B alone is now the whole task');
     }
 
     public function test_reviewing_notifies_every_assignee_except_the_reviewer(): void
@@ -96,6 +199,7 @@ class TaskMultiAssigneeWorkflowTest extends TestCase
 
         $this->actingAs($a)->postJson(route('tasks.progress', $task), ['status' => 'In Progress'])->assertOk();
         $this->actingAs($a)->postJson(route('tasks.submit', $task), [])->assertOk();
+        $this->actingAs($b)->postJson(route('tasks.submit', $task), [])->assertOk();
 
         Notification::fake();
         $this->actingAs($manager)->postJson(route('tasks.review', $task), ['accept' => true])->assertOk();
@@ -141,6 +245,26 @@ class TaskMultiAssigneeWorkflowTest extends TestCase
 
         $workload = app(WorkloadService::class);
         // Sharing a task does not dilute anyone's workload: both carry it in full.
+        $this->assertSame(1, $workload->load($a)['active_tasks']);
+        $this->assertSame(1, $workload->load($b)['active_tasks']);
+    }
+
+    public function test_workload_still_counts_a_partially_submitted_task_for_the_assignee_still_owing_work(): void
+    {
+        $manager = $this->manager();
+        $a       = $this->worker('A');
+        $b       = $this->worker('B');
+        EmployeeCapacity::create(['user_id' => $a->id, 'max_active_tasks' => 5]);
+        EmployeeCapacity::create(['user_id' => $b->id, 'max_active_tasks' => 5]);
+
+        $task = $this->sharedTask($manager, [$a, $b]);
+        $this->actingAs($a)->postJson(route('tasks.progress', $task), ['status' => 'In Progress'])->assertOk();
+        $this->actingAs($a)->postJson(route('tasks.submit', $task), [])->assertOk();
+
+        $this->assertSame(Task::STATUS_PARTIALLY_SUBMITTED, $task->fresh()->status);
+
+        $workload = app(WorkloadService::class);
+        // B still owes their part — the task must not vanish from either load.
         $this->assertSame(1, $workload->load($a)['active_tasks']);
         $this->assertSame(1, $workload->load($b)['active_tasks']);
     }
