@@ -385,6 +385,8 @@
                     Credited {{ rtrim(rtrim(number_format($c['taskCompletion']['credited_total'], 2), '0'), '.') }}
                     of {{ $c['taskCompletion']['total'] }} {{ Str::plural('task', $c['taskCompletion']['total']) }}
                     @if ($c['taskCompletion']['shared'] > 0) &middot; {{ $c['taskCompletion']['shared'] }} shared @endif
+                    {{-- Credited can run higher than the task count: a
+                         multi-client task weights ×N across all three task KPIs. --}}
                 </span>
             </div>
             <div class="card-body p-0">
@@ -392,7 +394,7 @@
                     <div class="table-responsive">
                         <table class="table sc-credit-table">
                             <thead>
-                                <tr><th>Task</th><th>Status</th><th>Due</th><th>Role</th><th>Work recorded</th><th class="text-end">Points</th><th style="width:120px">Share</th></tr>
+                                <tr><th>Task</th><th>Status</th><th>Due</th><th>Role</th><th>Work recorded</th><th class="text-end">Points</th><th style="width:120px">Share</th><th>Clients</th></tr>
                             </thead>
                             <tbody>
                                 @foreach ($credit as $row)
@@ -416,6 +418,12 @@
                                             {{ round($row['share'] * 100) }}%
                                             <div class="sc-share-bar"><span style="width: {{ round($row['share'] * 100) }}%"></span></div>
                                         </td>
+                                        <td style="white-space:nowrap">
+                                            {{ $row['clients_count'] }}
+                                            @if ($row['client_multiplier'] > 1)
+                                                <span class="sc-event" title="Counts this task ×{{ $row['client_multiplier'] }} toward Task Completion, On-Time Delivery and Revision Rate">×{{ $row['client_multiplier'] }}</span>
+                                            @endif
+                                        </td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -428,6 +436,7 @@
                         · link or note {{ \App\Services\TaskInvolvementService::WORK_POINTS['note_added'] + 0 }} (max {{ \App\Services\TaskInvolvementService::CAPS['note_added'] + 0 }})
                         · submitted {{ \App\Services\TaskInvolvementService::WORK_POINTS['submitted'] + 0 }}.
                         Creating, reviewing or only holding a task that passed on earns no share. Rates weight each task by its share.
+                        A task linked to more than one client counts extra toward all three task KPIs — double for 2 clients, triple for 3, and so on, scaled by your share of it.
                     </div>
                 @else
                     <div class="text-center py-3" style="color:var(--text3);font-size:.82rem">No tasks due in this period.</div>

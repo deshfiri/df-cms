@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\Category;
+use App\Models\Client;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\Performance\PerformanceCalculationService;
@@ -58,6 +60,17 @@ class PerformanceTaskCreditTest extends TestCase
     private function score(): PerformanceCalculationService
     {
         return app(PerformanceCalculationService::class);
+    }
+
+    /** @return array<int,int> ids of $count freshly-created clients */
+    private function clients(int $count): array
+    {
+        $category = Category::create(['name' => 'Cat ' . uniqid(), 'slug' => 'cat-' . uniqid(), 'status' => true]);
+
+        return collect(range(1, $count))->map(fn () => Client::create([
+            'dfid_number' => 'DF' . uniqid(), 'client_name' => 'Client ' . uniqid(), 'brand_name' => 'Brand',
+            'category_id' => $category->id,
+        ])->id)->all();
     }
 
     /** Anika starts it and adds a draft (4 points), then Bashir finishes it (4 + 1 for holding). */
@@ -187,6 +200,149 @@ class PerformanceTaskCreditTest extends TestCase
 
         $this->assertSame(0, $this->score()->taskCompletion($anika, self::PERIOD)['total']);
         $this->assertSame(1.0, $this->score()->taskCompletion($bashir, self::PERIOD)['credited_total']);
+    }
+
+    // ── Client bonus (Task Completion, On-Time Delivery, Revision Rate) ──
+
+    public function test_a_completed_task_linked_to_two_clients_counts_double(): void
+    {
+        $manager = $this->user('Manager', 'view tasks', 'manage tasks');
+        $anika   = $this->user('Anika');
+        $done    = $this->create($manager, $anika, ['client_ids' => $this->clients(2)]);
+
+        $this->actingAs($anika);
+        $this->tasks->changeWorkingStatus($done, $anika, 'In Progress');
+        $this->tasks->submitForReview($done->fresh(), $anika);
+        $this->actingAs($manager);
+        $this->tasks->review($done->fresh(), $manager, true);
+
+        $result = $this->score()->taskCompletion($anika, self::PERIOD);
+
+        $this->assertSame(1, $result['total'], 'still plainly one task');
+        $this->assertSame(2.0, $result['credited_total'], 'but worth double toward Task Completion');
+        $this->assertSame(2.0, $result['credited_completed']);
+        $this->assertSame(100.0, $result['completion_pct']);
+    }
+
+    public function test_a_completed_task_linked_to_three_clients_counts_triple(): void
+    {
+        $manager = $this->user('Manager', 'view tasks', 'manage tasks');
+        $anika   = $this->user('Anika');
+        $done    = $this->create($manager, $anika, ['client_ids' => $this->clients(3)]);
+
+        $this->actingAs($anika);
+        $this->tasks->changeWorkingStatus($done, $anika, 'In Progress');
+        $this->tasks->submitForReview($done->fresh(), $anika);
+        $this->actingAs($manager);
+        $this->tasks->review($done->fresh(), $manager, true);
+
+        $this->assertSame(3.0, $this->score()->taskCompletion($anika, self::PERIOD)['credited_total']);
+    }
+
+    public function test_the_multiplier_scales_each_assignees_own_share_of_a_shared_task(): void
+    {
+        $manager = $this->user('Manager', 'view tasks', 'manage tasks');
+        $anika   = $this->user('Anika');
+        $bashir  = $this->user('Bashir');
+        $task    = $this->create($manager, $anika, ['client_ids' => $this->clients(2)]);
+
+        $this->actingAs($anika);
+        $this->tasks->changeWorkingStatus($task, $anika, 'In Progress');
+        $this->tasks->uploadAttachment($task->fresh(), UploadedFile::fake()->create('draft.pdf', 10));
+        $this->actingAs($manager);
+        $this->tasks->update($task->fresh(), ['assignee_ids' => [$bashir->id]]);
+        $this->actingAs($bashir);
+        $this->tasks->submitForReview($task->fresh(), $bashir);
+        $this->actingAs($manager);
+        $this->tasks->review($task->fresh(), $manager, true);
+
+        // Established by test_shared_work_is_credited_in_proportion: Anika's
+        // plain share is 4/9, Bashir's is 5/9 — each doubled by the 2-client task.
+        $this->assertEqualsWithDelta((4 / 9) * 2, $this->score()->taskCompletion($anika, self::PERIOD)['credited_total'], 0.001);
+        $this->assertEqualsWithDelta((5 / 9) * 2, $this->score()->taskCompletion($bashir, self::PERIOD)['credited_total'], 0.001);
+    }
+
+    public function test_the_multiplier_also_applies_to_on_time_completion(): void
+    {
+        $anika = $this->user('Anika');
+
+        // On time, 3 clients — weighs 3x among the on-time credit.
+        $onTimeMulti = Task::create([
+            'title' => 'On time multi', 'priority' => 'Medium', 'status' => 'Completed', 'type' => 'Other',
+            'due_date' => '2026-09-10', 'completion_date' => '2026-09-10',
+        ]);
+        $onTimeMulti->assignees()->sync([$anika->id]);
+        $onTimeMulti->clients()->sync($this->clients(3));
+
+        // Late, no client — weighs 1x among the late credit.
+        $lateSolo = Task::create([
+            'title' => 'Late solo', 'priority' => 'Medium', 'status' => 'Completed', 'type' => 'Other',
+            'due_date' => '2026-09-05', 'completion_date' => '2026-09-08',
+        ]);
+        $lateSolo->assignees()->sync([$anika->id]);
+
+        // 3 credited on-time of 4 total (3 + 1) → 75%, not the 50% a plain
+        // 1-vs-1 count would give.
+        $this->assertSame(75.0, $this->score()->onTimeCompletion($anika, self::PERIOD)['on_time_rate']);
+    }
+
+    public function test_the_multiplier_also_applies_to_revision_rate(): void
+    {
+        $anika = $this->user('Anika');
+
+        $clean = Task::create([
+            'title' => 'Clean multi', 'priority' => 'Medium', 'status' => 'Completed', 'type' => 'Other',
+            'due_date' => '2026-09-10', 'completion_date' => '2026-09-10',
+        ]);
+        $clean->assignees()->sync([$anika->id]);
+        $clean->clients()->sync($this->clients(3));
+
+        $flawed = Task::create([
+            'title' => 'Flawed solo', 'priority' => 'Medium', 'status' => 'Completed', 'type' => 'Other',
+            'due_date' => '2026-09-10', 'completion_date' => '2026-09-10',
+        ]);
+        $flawed->assignees()->sync([$anika->id]);
+        \App\Models\TaskRevision::create([
+            'task_id' => $flawed->id, 'requested_by' => $anika->id,
+            'reason_category' => 'Employee Mistake', 'previous_status' => 'Completed',
+        ]);
+
+        // 1 mistake of 4 credited submitted (3 clean + 1 flawed) → 25%, not
+        // the 50% a plain 1-vs-2 count would give.
+        $this->assertEqualsWithDelta(25.0, $this->score()->revisionRate($anika, self::PERIOD)['revision_rate_kpi'], 0.01);
+    }
+
+    public function test_task_credit_reports_the_client_count_and_multiplier_per_task(): void
+    {
+        $anika = $this->user('Anika');
+        $imported = Task::create([
+            'title' => 'Imported', 'priority' => 'Medium', 'status' => 'Completed', 'type' => 'Other',
+            'due_date' => '2026-09-10', 'completion_date' => '2026-09-10',
+        ]);
+        $imported->assignees()->sync([$anika->id]);
+        $imported->clients()->sync($this->clients(3));
+
+        $row = $this->score()->taskCredit($anika, self::PERIOD)[0];
+        $this->assertSame(3, $row['clients_count']);
+        $this->assertSame(3, $row['client_multiplier']);
+    }
+
+    public function test_the_scorecard_shows_the_client_multiplier(): void
+    {
+        $manager = $this->user('Manager', 'view tasks', 'manage tasks', 'view performance');
+        $anika   = $this->user('Anika');
+        $task    = $this->create($manager, $anika, ['client_ids' => $this->clients(2)]);
+
+        $this->actingAs($anika);
+        $this->tasks->changeWorkingStatus($task, $anika, 'In Progress');
+        $this->tasks->submitForReview($task->fresh(), $anika);
+        $this->actingAs($manager);
+        $this->tasks->review($task->fresh(), $manager, true);
+
+        $this->actingAs($manager)
+            ->get(route('performance.show', ['user' => $anika, 'period' => self::PERIOD]))
+            ->assertOk()
+            ->assertSee('×2', false);
     }
 
     // ── On-time delivery ─────────────────────────────────────────────────

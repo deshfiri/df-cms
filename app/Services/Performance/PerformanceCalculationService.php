@@ -313,7 +313,11 @@ class PerformanceCalculationService
             // in the brief is never held against the person who did the
             // work — not in the KPI rate, and not in any of the informational
             // counts revisionRate() shows alongside it. See taskGivingQuality().
-            ->withCount(['revisions as revisions_count' => fn ($q) => $q->where('reason_category', '!=', 'Task Giver Mistake')])
+            ->withCount([
+                'revisions as revisions_count' => fn ($q) => $q->where('reason_category', '!=', 'Task Giver Mistake'),
+                // For creditOf()'s client-count multiplier.
+                'clients',
+            ])
             ->with([
                 'revisions' => fn ($q) => $q->where('reason_category', 'Employee Mistake'),
                 'involvements',
@@ -395,6 +399,7 @@ class PerformanceCalculationService
             ->where(fn ($q) => $q
                 ->whereHas('assignees', fn ($aq) => $aq->where('users.id', $user->id))
                 ->orWhereHas('involvements', fn ($inv) => $inv->where('user_id', $user->id)))
+            ->withCount('clients')
             ->with(['involvements', 'assignees:id'])
             ->orderBy('due_date')->orderBy('id')
             ->get(['id', 'title', 'status', 'created_by', 'due_date', 'due_at']);
@@ -402,6 +407,9 @@ class PerformanceCalculationService
         return $tasks->map(function (Task $task) use ($user) {
             $mine  = $task->involvements->first(fn ($inv) => (int) $inv->user_id === (int) $user->id);
             $share = self::workSharesOf($task)[$user->id] ?? 0.0;
+            // See creditOf() — feeds Task Completion, On-Time Delivery and
+            // Revision Rate alike.
+            $clientMultiplier = max(1, (int) $task->clients_count);
 
             return [
                 'task_id'   => $task->id,
@@ -415,6 +423,8 @@ class PerformanceCalculationService
                 'review_points' => (float) ($mine?->review_points ?? 0),
                 'breakdown' => $mine?->breakdown ?? [],
                 'share'     => $share,
+                'clients_count' => $task->clients_count,
+                'client_multiplier' => $clientMultiplier,
                 'counted'   => $share > 0,
                 'tracked'   => $task->involvements->isNotEmpty(),
             ];
@@ -472,12 +482,32 @@ class PerformanceCalculationService
         return (float) ($task->getAttribute('work_share') ?? 1.0);
     }
 
-    /** Sum of shares — how many whole tasks' worth of credit a set represents. */
+    /**
+     * This user's credit for one task: their share of it, weighted by how
+     * many clients it's linked to (Task::clients — the multi-client
+     * feature). A task linked to more than one client counts
+     * proportionally more — double for 2 clients, triple for 3, and so on
+     * — because clearing one task that serves several clients at once is
+     * more done for the business than clearing one that serves a single
+     * client, even though both are "one task" by count. A task with no
+     * client, or exactly one, credits exactly as it always did.
+     *
+     * Feeds every task KPI that measures how much got done or how well:
+     * Task Completion, On-Time Delivery, Revision Rate. Output Volume
+     * deliberately excludes tasks entirely (see its own docblock), so it
+     * never sees this multiplier either way.
+     */
+    private static function creditOf(Task $task): float
+    {
+        return self::shareOf($task) * max(1, (int) ($task->clients_count ?? 1));
+    }
+
+    /** Sum of credit — how many whole tasks' worth of credit a set represents. */
     private static function credit(iterable $tasks): float
     {
         $sum = 0.0;
         foreach ($tasks as $task) {
-            $sum += self::shareOf($task);
+            $sum += self::creditOf($task);
         }
 
         return $sum;
@@ -494,7 +524,7 @@ class PerformanceCalculationService
         $creditedOnTime = $creditedLate = $weightedDelay = 0.0;
 
         foreach ($completed as $task) {
-            $share = self::shareOf($task);
+            $share = self::creditOf($task);
             $delay = self::delayDays($task);
 
             if ($delay > 0) {
