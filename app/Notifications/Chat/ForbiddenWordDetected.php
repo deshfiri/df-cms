@@ -45,7 +45,11 @@ class ForbiddenWordDetected extends Notification
             'title'   => 'Restricted word used in chat',
             'message' => "{$this->sender->name} used a restricted word (" . implode(', ', $this->matchedWords) . ") in {$where}: "
                 . '"' . Str::limit((string) $this->message->body, 200) . '"',
-            'url'     => route('chat.monitor.show', $this->conversation),
+            // The monitor *page*, not the AJAX endpoint that feeds it — that
+            // returns raw JSON and isn't a page a click should land on. The
+            // page reads ?conversation= itself and opens it once the list
+            // has loaded; see chat/monitor.blade.php.
+            'url'     => route('chat.monitor', ['conversation' => $this->conversation->id]),
         ];
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use App\Services\Chat\ChatWordFilter;
 use App\Services\ChatService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,6 +19,7 @@ class ChatController extends Controller
 {
     public function __construct(
         private readonly ChatService $chat,
+        private readonly ChatWordFilter $wordFilter,
     ) {
     }
 
@@ -482,6 +484,9 @@ class ChatController extends Controller
             'sender_id' => $m->sender_id,
             'sender_name' => $m->sender->name ?? '—',
             'body' => $redact ? null : $m->body,
+            // Safe HTML with any forbidden word the message tripped wrapped
+            // for a red highlight — see ChatWordFilter::highlight().
+            'body_html' => $redact ? null : $this->wordFilter->highlight((string) $m->body),
             'created_at' => $m->created_at->toIso8601String(),
             'deleted' => $m->isDeleted(),
             'can_delete' => !$m->isDeleted() && $m->sender_id === Auth::id(),

@@ -16,6 +16,10 @@ class NotificationController extends Controller
             'id'         => $n->id,
             'title'      => $n->data['title'] ?? '',
             'message'    => $n->data['message'] ?? '',
+            // Pre-escaped, trusted HTML a notification type may set for a
+            // highlighted word (see ForbiddenWordUsedBySender) — shell-b.js
+            // uses it in place of the plain-text message when present.
+            'message_html' => $n->data['message_html'] ?? null,
             'url'        => $n->data['url'] ?? '#',
             'read'       => $n->read_at !== null,
             'created_at' => $n->created_at->diffForHumans(),

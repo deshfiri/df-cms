@@ -34,6 +34,8 @@
     /* Line breaks as they were typed. Scoped to the text, not the bubble, so the
        surrounding markup's indentation is not rendered along with it. */
     .mmsg-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+    /* A word that tripped the forbidden-word list — see ChatWordFilter::highlight(). */
+    .chat-flagged-word { background: none; color: var(--c-red); font-weight: 700; }
     .mmsg-quote {
         border-left: 2px solid var(--primary); border-radius: 4px;
         background: rgba(var(--primary-rgb), .08);
@@ -92,7 +94,7 @@ $(function () {
     const timeOf = iso => { try { return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
 
     function loadList() {
-        $.get('{{ route('chat.monitor.conversations') }}').done(function (r) {
+        return $.get('{{ route('chat.monitor.conversations') }}').done(function (r) {
             if (!r.conversations.length) { $('#monList').html('<div class="text-center py-4 small" style="color:var(--text3)">No conversations.</div>'); return; }
             let html = '';
             r.conversations.forEach(c => {
@@ -105,9 +107,9 @@ $(function () {
         });
     }
 
-    $(document).on('click', '.mon-item', function () {
-        activeConvId = $(this).data('id');
-        $('.mon-item').removeClass('active'); $(this).addClass('active');
+    function openConversation(id) {
+        activeConvId = id;
+        $('.mon-item').removeClass('active'); $(`.mon-item[data-id="${id}"]`).addClass('active');
         $('#monEmpty').addClass('d-none'); $('#monThread').removeClass('d-none');
         $('#monMsgs').html('<div class="text-center py-4 small" style="color:var(--text3)">Loading…</div>');
         sideA = null;
@@ -118,7 +120,19 @@ $(function () {
             scrollBottom();
             subscribe(activeConvId);
         });
+    }
+
+    $(document).on('click', '.mon-item', function () {
+        openConversation($(this).data('id'));
     });
+
+    // A moderator notification links straight here with ?conversation=<id> —
+    // opened once the list has loaded, so the matching row can be marked active too.
+    (function openFromQueryString() {
+        const requested = new URLSearchParams(window.location.search).get('conversation');
+        if (requested) loadList().done(function () { openConversation(parseInt(requested, 10)); });
+        else loadList();
+    })();
 
     function appendMsg(m) {
         if (sideA === null) sideA = m.sender_id;
@@ -151,7 +165,7 @@ $(function () {
         $('#monMsgs').append(
             `<div class="mmsg ${side} ${m.deleted ? 'is-deleted' : ''}">
                 <div class="mmsg-who">${esc(m.sender_name)}${deletedTag}</div>
-                ${quote}${m.body ? `<span class="mmsg-text">${esc(m.body)}</span>` : ''}${attachment}
+                ${quote}${m.body_html ? `<span class="mmsg-text">${m.body_html}</span>` : ''}${attachment}
                 <div class="mmsg-meta">${timeOf(m.created_at)}</div>
                 ${reacts}
             </div>`
@@ -171,8 +185,6 @@ $(function () {
         });
         $('#monLive').show();
     }
-
-    loadList();
 });
 </script>
 @endpush

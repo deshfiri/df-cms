@@ -61,6 +61,11 @@
     .wa-msg { max-width: 72%; padding: .45rem .7rem; border-radius: 12px; font-size: .84rem; line-height: 1.4; word-wrap: break-word; }
     .wa-msg.in  { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; }
     .wa-msg.out { align-self: flex-end; background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
+    /* Same reasoning as .msg.me .auto-link in chat/index.blade.php: this
+       bubble's background is the theme color itself, so a fixed link color
+       can still vanish into it — inherit the bubble's own contrast-safe
+       text color instead of guessing at a palette color. */
+    .wa-msg.out .auto-link { color: inherit; }
     .wa-msg-meta { font-size: .62rem; opacity: .75; margin-top: 3px; display: flex; gap: 5px; align-items: center; justify-content: flex-end; }
     .wa-msg.in .wa-msg-meta { justify-content: flex-start; }
     .wa-msg-img { display: block; max-width: 220px; max-height: 220px; border-radius: 8px; cursor: pointer; margin-top: .2rem; }

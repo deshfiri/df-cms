@@ -117,7 +117,12 @@
 
     function start() {
         var style = document.createElement('style');
-        style.textContent = '.auto-link{color:var(--primary,#2563eb);text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}'
+        // A fixed, recognizable "link blue" — dynamic across light/dark mode
+        // via --c-blue, but deliberately not var(--primary): the admin's
+        // configurable brand color can match a bubble/background it sits on
+        // (e.g. a green theme rendering a chat link unreadable on a green
+        // bubble) and a link's color shouldn't be at the mercy of that pick.
+        style.textContent = '.auto-link{color:var(--c-blue,#2563eb);text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}'
             + '.auto-link:hover{opacity:.85}';
         document.head.appendChild(style);
 

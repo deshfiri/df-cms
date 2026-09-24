@@ -177,11 +177,14 @@
                 var html = '';
                 r.notifications.forEach(function (n) {
                     // Titles and messages carry client, task and person names —
-                    // escaped here rather than trusted as markup.
+                    // escaped here rather than trusted as markup. message_html
+                    // is the one opt-in exception: a notification type may set
+                    // it to pre-escaped HTML of its own (e.g. a flagged word
+                    // highlighted in red) — never raw user input.
                     html += '<a href="' + esc(n.url) + '" class="d-block px-3 py-2 notif-item" data-id="' + esc(n.id) + '" '
                         + 'style="text-decoration:none;border-bottom:1px solid var(--border);' + (n.read ? '' : 'background:rgba(var(--primary-rgb),.05)') + '">'
                         + '<div style="font-size:.78rem;font-weight:600;color:var(--text)">' + esc(n.title) + '</div>'
-                        + '<div style="font-size:.72rem;color:var(--text2)">' + esc(n.message) + '</div>'
+                        + '<div style="font-size:.72rem;color:var(--text2)">' + (n.message_html || esc(n.message)) + '</div>'
                         + '<div style="font-size:.66rem;color:var(--text3)" class="mt-1">' + esc(n.created_at) + '</div>'
                         + '</a>';
                 });

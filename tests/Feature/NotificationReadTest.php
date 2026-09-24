@@ -97,6 +97,26 @@ class NotificationReadTest extends TestCase
         $this->assertNull($other->notifications()->find($theirs)->read_at);
     }
 
+    public function test_message_html_is_exposed_when_a_notification_type_sets_it_and_null_otherwise(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $this->notify($user); // no message_html in its data
+        $user->notifications()->create([
+            'id'   => (string) Str::uuid(),
+            'type' => 'App\\Notifications\\Chat\\ForbiddenWordUsedBySender',
+            'data' => ['title' => 'Message flagged', 'message' => 'plain', 'message_html' => '<span class="notif-flagged-word">badword</span>', 'url' => '/chat'],
+        ]);
+
+        $response = $this->actingAs($user)->getJson(route('notifications.index'))->assertOk();
+        $notifications = collect($response->json('notifications'));
+
+        $this->assertNull($notifications->firstWhere('title', 'A task for you')['message_html']);
+        $this->assertSame(
+            '<span class="notif-flagged-word">badword</span>',
+            $notifications->firstWhere('title', 'Message flagged')['message_html'],
+        );
+    }
+
     public function test_a_guest_gets_nothing(): void
     {
         // The endpoints are per-user, so a guest gets bounced rather than a count.

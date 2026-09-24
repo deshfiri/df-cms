@@ -99,4 +99,57 @@ class ChatWordFilterTest extends TestCase
         ChatWordFilter::flushCache();
         $this->assertSame([], $this->filter()->match('a badword here'));
     }
+
+    // ── highlight() ─────────────────────────────────────────────────────
+
+    public function test_highlight_wraps_the_matched_word_and_escapes_the_rest(): void
+    {
+        ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
+
+        $this->assertSame(
+            'this has a <mark class="chat-flagged-word">badword</mark> in it &lt;b&gt;',
+            $this->filter()->highlight('this has a badword in it <b>'),
+        );
+    }
+
+    public function test_highlight_keeps_the_case_the_sender_actually_typed(): void
+    {
+        ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
+
+        $this->assertSame(
+            'this has a <mark class="chat-flagged-word">BadWord</mark> in it',
+            $this->filter()->highlight('this has a BadWord in it'),
+        );
+    }
+
+    public function test_highlight_wraps_every_matched_word_separately(): void
+    {
+        ForbiddenWord::create(['word' => 'foo', 'is_active' => true]);
+        ForbiddenWord::create(['word' => 'bar', 'is_active' => true]);
+
+        $this->assertSame(
+            '<mark class="chat-flagged-word">foo</mark> and <mark class="chat-flagged-word">bar</mark> together',
+            $this->filter()->highlight('foo and bar together'),
+        );
+    }
+
+    public function test_highlight_on_a_clean_message_only_escapes_it(): void
+    {
+        ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
+
+        $this->assertSame('a perfectly &lt;i&gt;ordinary&lt;/i&gt; message &amp; safe', $this->filter()->highlight('a perfectly <i>ordinary</i> message & safe'));
+    }
+
+    public function test_highlight_of_an_empty_body_is_empty(): void
+    {
+        ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
+
+        $this->assertSame('', $this->filter()->highlight(null));
+        $this->assertSame('', $this->filter()->highlight(''));
+    }
+
+    public function test_highlight_with_no_active_words_only_escapes(): void
+    {
+        $this->assertSame('nothing &lt;script&gt; to flag here', $this->filter()->highlight('nothing <script> to flag here'));
+    }
 }

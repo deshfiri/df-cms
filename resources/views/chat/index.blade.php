@@ -176,12 +176,31 @@
             border-bottom-right-radius: 4px;
         }
 
+        /* linkify.js colors an auto-linked URL with --c-blue so it survives
+           any theme color on a neutral background — but this bubble's own
+           background *is* the theme color, so a fixed blue can still vanish
+           into it (e.g. a blue theme). Inheriting the bubble's own text
+           color is the only choice that's correct for every theme color,
+           not just the ones tested against. */
+        .msg.me .auto-link {
+            color: inherit;
+        }
+
         /* Keeps the line breaks someone actually typed. Scoped to the text itself,
                                    never the bubble, so the surrounding markup's indentation is not rendered. */
         .msg-text {
             display: block;
             white-space: pre-wrap;
             overflow-wrap: anywhere;
+        }
+
+        /* A word that tripped the forbidden-word list — see
+           ChatWordFilter::highlight(). Plain <mark>, not a background
+           highlight: the point is to flag the word, not the whole message. */
+        .chat-flagged-word {
+            background: none;
+            color: var(--c-red);
+            font-weight: 700;
         }
 
         .msg-meta {
@@ -1484,7 +1503,11 @@
                 // Wrapped in its own element rather than dropped straight into the
                 // bubble: pre-wrap has to apply to the message text alone, or the
                 // indentation of the template below would render as whitespace too.
-                const text = m.body ? `<span class="msg-text">${esc(m.body)}</span>` : '';
+                //
+                // body_html is server-built, pre-escaped HTML (see
+                // ChatWordFilter::highlight()) with any forbidden word already
+                // wrapped for a red highlight — used as-is, not re-escaped.
+                const text = m.body_html ? `<span class="msg-text">${m.body_html}</span>` : '';
 
                 return `<div class="msg ${mine ? 'me' : 'them'}" data-id="${m.id}">
                                                 <div class="msg-tools">

@@ -68,7 +68,7 @@ class ChatForbiddenWordTest extends TestCase
         Notification::assertSentTo($sender, ForbiddenWordUsedBySender::class);
     }
 
-    public function test_the_sender_is_not_told_which_word_matched(): void
+    public function test_the_sender_is_told_which_word_matched_highlighted_in_red(): void
     {
         ForbiddenWord::create(['word' => 'sneakyword', 'is_active' => true]);
         $sender = $this->user();
@@ -78,7 +78,39 @@ class ChatForbiddenWordTest extends TestCase
         Notification::assertSentTo($sender, function (ForbiddenWordUsedBySender $notification) use ($sender) {
             $payload = $notification->toDatabase($sender);
 
-            return !str_contains($payload['message'], 'sneakyword');
+            return str_contains($payload['message'], 'sneakyword')
+                && $payload['message_html'] === 'A message you just sent used a restricted word (<span class="notif-flagged-word">sneakyword</span>). Please keep it professional.';
+        });
+    }
+
+    public function test_the_senders_notification_opens_the_chat_page_not_the_json_endpoint(): void
+    {
+        ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
+        $sender = $this->user();
+        $other  = $this->user();
+
+        $this->send($sender, $other, 'this has a badword in it');
+
+        Notification::assertSentTo($sender, function (ForbiddenWordUsedBySender $notification) use ($sender, $other) {
+            $payload = $notification->toDatabase($sender);
+
+            return $payload['url'] === route('chat.index', ['user' => $other->id]);
+        });
+    }
+
+    public function test_the_moderator_notification_opens_the_monitor_page_not_the_json_endpoint(): void
+    {
+        ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
+        $sender    = $this->user();
+        $moderator = $this->user('manage chat moderation');
+
+        $this->send($sender, $this->user(), 'this has a badword in it');
+
+        Notification::assertSentTo($moderator, function (ForbiddenWordDetected $notification) use ($moderator) {
+            $payload = $notification->toDatabase($moderator);
+            $conversation = \App\Models\Conversation::latest('id')->firstOrFail();
+
+            return $payload['url'] === route('chat.monitor', ['conversation' => $conversation->id]);
         });
     }
 
@@ -155,6 +187,64 @@ class ChatForbiddenWordTest extends TestCase
         $this->send($this->user(), $this->user(), 'this has a badword in it');
 
         $this->assertDatabaseHas('activity_logs', ['module' => 'Chat', 'action' => 'Forbidden Word Used']);
+    }
+
+    public function test_the_flagged_word_is_highlighted_in_the_chat_message_itself(): void
+    {
+        ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
+        $sender = $this->user();
+        $other  = $this->user();
+
+        $response = $this->actingAs($sender)->postJson(route('chat.send', $other), ['body' => 'this has a BadWord in it'])->assertOk();
+
+        $this->assertSame(
+            'this has a <mark class="chat-flagged-word">BadWord</mark> in it',
+            $response->json('message.body_html'),
+        );
+
+        // The same highlighting is what a recipient (or the sender's other
+        // tab) sees on the initial page load, not only on the send response.
+        $this->actingAs($other)->getJson(route('chat.open', $sender))
+            ->assertOk()
+            ->assertJsonPath('messages.0.body_html', 'this has a <mark class="chat-flagged-word">BadWord</mark> in it');
+    }
+
+    public function test_the_live_broadcast_also_carries_the_highlighted_word(): void
+    {
+        ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
+        $sender = $this->user();
+        $other  = $this->user();
+
+        $message = app(\App\Services\ChatService::class)->sendMessage(
+            \App\Models\Conversation::between($sender->id, $other->id), $sender, 'this has a badword in it',
+        );
+
+        $payload = (new \App\Events\MessageSent($message->fresh(), [$other->id]))->broadcastWith();
+
+        $this->assertSame(
+            'this has a <mark class="chat-flagged-word">badword</mark> in it',
+            $payload['body_html'],
+        );
+    }
+
+    public function test_the_notification_links_land_on_real_pages_not_json(): void
+    {
+        ForbiddenWord::create(['word' => 'badword', 'is_active' => true]);
+        $sender    = $this->user();
+        $other     = $this->user();
+        $moderator = $this->user('manage chat moderation', 'monitor chats');
+
+        $this->send($sender, $other, 'this has a badword in it');
+
+        // The sender's own notification: chat.index, not the chat.open AJAX
+        // endpoint (which returns raw JSON — the reported bug).
+        $senderUrl = route('chat.index', ['user' => $other->id]);
+        $this->actingAs($sender)->get($senderUrl)->assertOk()->assertViewIs('chat.index');
+
+        // The moderator's notification: the monitor page, not chat.monitor.show.
+        $conversation = \App\Models\Conversation::latest('id')->firstOrFail();
+        $moderatorUrl = route('chat.monitor', ['conversation' => $conversation->id]);
+        $this->actingAs($moderator)->get($moderatorUrl)->assertOk()->assertViewIs('chat.monitor');
     }
 
     public function test_a_matching_message_still_broadcasts_and_is_readable_normally(): void

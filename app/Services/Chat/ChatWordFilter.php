@@ -40,6 +40,35 @@ class ChatWordFilter
         return $matched;
     }
 
+    /**
+     * The message body as safe HTML, with every forbidden word it triggered
+     * wrapped in a highlight span so it can be shown in red — the same
+     * word-boundary, case-insensitive rule as match(), but keeping whatever
+     * case the sender actually typed. Everything else is escaped exactly as
+     * plain text would be.
+     */
+    public function highlight(?string $body): string
+    {
+        $body = (string) $body;
+        if ($body === '') {
+            return '';
+        }
+
+        $words = $this->activeWords();
+        if ($words->isEmpty()) {
+            return e($body);
+        }
+
+        $pattern = '/\b(' . $words->map(fn (string $word) => preg_quote($word, '/'))->implode('|') . ')\b/iu';
+
+        $html = '';
+        foreach (preg_split($pattern, $body, -1, PREG_SPLIT_DELIM_CAPTURE) as $i => $part) {
+            $html .= $i % 2 === 0 ? e($part) : '<mark class="chat-flagged-word">' . e($part) . '</mark>';
+        }
+
+        return $html;
+    }
+
     /** @return Collection<int,string> */
     private function activeWords(): Collection
     {

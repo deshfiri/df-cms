@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use App\Models\Message;
+use App\Services\Chat\ChatWordFilter;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
@@ -59,6 +60,10 @@ class MessageSent implements ShouldBroadcastNow
             'sender_id'       => $this->message->sender_id,
             'sender_name'     => $this->message->sender->name,
             'body'            => $this->message->body,
+            // Safe HTML with any forbidden word highlighted — see
+            // ChatWordFilter::highlight() and ChatController::messageResource(),
+            // which builds the same field for the initial page load.
+            'body_html'       => app(ChatWordFilter::class)->highlight($this->message->body),
             'created_at'      => $this->message->created_at->toIso8601String(),
             // A quote of an earlier message, carried so the reply renders with
             // its context on arrival instead of only after a reload. `mine` is

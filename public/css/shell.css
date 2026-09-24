@@ -869,6 +869,13 @@
             opacity: .85;
         }
 
+        /* A forbidden word, called out in the notification bell — see
+           ForbiddenWordUsedBySender and shell-b.js. */
+        .notif-flagged-word {
+            color: var(--c-red);
+            font-weight: 700;
+        }
+
         /* Workflow stage statuses */
         .spill-pending {
             background: var(--c-slate-bg);

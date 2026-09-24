@@ -35,7 +35,7 @@ class ChatModerationService
             return;
         }
 
-        $sender->notify(new ForbiddenWordUsedBySender($conversation, $sender->id));
+        $sender->notify(new ForbiddenWordUsedBySender($conversation, $sender->id, $matched));
 
         // Direct query rather than NotifiesStaff::staffRecipients(): that
         // helper narrows to specific roles first, but 'manage chat
