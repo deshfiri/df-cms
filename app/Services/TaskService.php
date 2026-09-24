@@ -12,6 +12,7 @@ use App\Models\TaskRevision;
 use App\Models\User;
 use App\Notifications\TaskAssigned;
 use App\Notifications\TaskReviewed;
+use App\Notifications\TaskRevisionRequested;
 use App\Notifications\TaskSubmitted;
 use App\Services\Storage\UploadStaging;
 use Illuminate\Http\UploadedFile;
@@ -422,8 +423,29 @@ class TaskService
             ]));
             $this->logForClients($task, 'Revision Requested', null, ['reason_category' => $data['reason_category']]);
 
+            $this->notifyRevisionRequested($task, $data);
+
             return $revision->load('requestedBy:id,name');
         });
+    }
+
+    /**
+     * Tell whoever created the task that an assignee sent it back — the
+     * mirror of notifyReviewVerdict()'s assignee-facing notice. When the
+     * creator is the one requesting the revision (rejecting a submission
+     * via review(), or sending it back directly), they already know, so
+     * nothing fires here; review() notifies the assignees itself.
+     */
+    private function notifyRevisionRequested(Task $task, array $data): void
+    {
+        $actorId = Auth::id();
+        if (!$task->created_by || (int) $task->created_by === (int) $actorId) {
+            return;
+        }
+
+        $actor = Auth::user();
+        $creator = User::find($task->created_by);
+        $creator?->notify(new TaskRevisionRequested($task, $actor, $data['reason_category'], $data['note'] ?? null));
     }
 
     public function delete(Task $task): void

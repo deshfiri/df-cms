@@ -6,6 +6,7 @@ use App\Models\KpiWeightConfig;
 use App\Models\Task;
 use App\Models\TaskRevision;
 use App\Models\User;
+use App\Notifications\TaskRevisionRequested;
 use App\Services\Performance\PerformanceCalculationService;
 use App\Services\TaskService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -95,6 +96,100 @@ class TaskGivingQualityPerformanceTest extends TestCase
         $this->assertTrue($task->fresh()->assignees->contains($userB->id));
         $this->actingAs($userB)->postJson(route('tasks.submit', $task), [])->assertOk();
         $this->assertSame(\App\Models\Task::STATUS_SUBMITTED, $task->fresh()->status);
+    }
+
+    public function test_b_can_send_it_back_before_even_starting_and_a_is_notified_and_can_fix_it(): void
+    {
+        Notification::fake();
+        $userA = $this->worker(); // task giver
+        $userB = $this->worker(); // assignee
+
+        $this->actingAs($userA);
+        $task = app(TaskService::class)->create([
+            'title' => 'Design the landing page', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other',
+            'assignee_ids' => [$userB->id], 'due_date' => '2026-09-25',
+        ]);
+
+        // B never even started it — spots the missing brief and sends it
+        // straight back, without progressing or submitting anything.
+        $this->actingAs($userB)->postJson(route('tasks.revisions.store', $task), [
+            'reason_category' => 'Task Giver Mistake',
+            'note' => 'Which brand colours should this use?',
+        ])->assertOk();
+
+        $task->refresh();
+        $this->assertSame('Pending', $task->status, 'nothing was in progress to reopen');
+        $this->assertDatabaseHas('task_revisions', [
+            'task_id' => $task->id, 'requested_by' => $userB->id, 'reason_category' => 'Task Giver Mistake',
+        ]);
+
+        // A finds out about it — there's no status change to notice it by otherwise.
+        Notification::assertSentTo($userA, TaskRevisionRequested::class);
+        Notification::assertNotSentTo($userB, TaskRevisionRequested::class);
+
+        // A's performance reflects it; B's quality KPI is untouched — B never
+        // touched the task, so it shouldn't even appear in their own stats.
+        $calc = app(PerformanceCalculationService::class);
+        $giving = $calc->taskGivingQuality($userA, self::PERIOD);
+        $this->assertSame(1, $giving['flawed']);
+
+        $bsRevision = $calc->revisionRate($userB, self::PERIOD);
+        $this->assertSame(0, $bsRevision['total_submitted'], "a task B never worked must not count in B's revision stats at all");
+
+        // A fixes the brief and sends it back — B can now start and complete it.
+        $this->actingAs($userA)->putJson(route('tasks.update', $task), [
+            'title' => 'Design the landing page', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other',
+            'description' => 'Use the navy/orange brand palette.', 'assignee_ids' => [$userB->id],
+        ])->assertOk();
+
+        $this->actingAs($userB)->postJson(route('tasks.progress', $task), ['status' => 'In Progress'])->assertOk();
+        $this->actingAs($userB)->postJson(route('tasks.submit', $task), [])->assertOk();
+        $this->assertSame(\App\Models\Task::STATUS_SUBMITTED, $task->fresh()->status);
+    }
+
+    public function test_b_can_also_send_it_back_mid_work_before_submitting(): void
+    {
+        Notification::fake();
+        $userA = $this->worker();
+        $userB = $this->worker();
+
+        $this->actingAs($userA);
+        $task = app(TaskService::class)->create([
+            'title' => 'x', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other',
+            'assignee_ids' => [$userB->id], 'due_date' => '2026-09-25',
+        ]);
+        $this->actingAs($userB)->postJson(route('tasks.progress', $task), ['status' => 'In Progress'])->assertOk();
+
+        $this->actingAs($userB)->postJson(route('tasks.revisions.store', $task), [
+            'reason_category' => 'Task Giver Mistake',
+            'note' => 'The reference file link is broken.',
+        ])->assertOk();
+
+        Notification::assertSentTo($userA, TaskRevisionRequested::class);
+        $this->assertSame(1, $task->fresh()->revisions()->count());
+    }
+
+    public function test_the_creator_rejecting_a_submission_does_not_also_self_notify(): void
+    {
+        Notification::fake();
+        $userA = $this->worker();
+        $userB = $this->worker();
+
+        $this->actingAs($userA);
+        $task = app(TaskService::class)->create([
+            'title' => 'x', 'priority' => 'Medium', 'status' => 'Pending', 'type' => 'Other',
+            'assignee_ids' => [$userB->id], 'due_date' => '2026-09-25',
+        ]);
+        $this->actingAs($userB)->postJson(route('tasks.progress', $task), ['status' => 'In Progress'])->assertOk();
+        $this->actingAs($userB)->postJson(route('tasks.submit', $task), [])->assertOk();
+
+        // A rejects it via the normal review flow — this already notifies B
+        // through TaskReviewed; it must not also fire TaskRevisionRequested at A.
+        $this->actingAs($userA)->postJson(route('tasks.review', $task), [
+            'accept' => false, 'reason_category' => 'Employee Mistake',
+        ])->assertOk();
+
+        Notification::assertNotSentTo($userA, TaskRevisionRequested::class);
     }
 
     public function test_an_employee_mistake_revision_does_not_affect_the_giver(): void

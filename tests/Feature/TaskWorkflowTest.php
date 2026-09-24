@@ -332,12 +332,27 @@ class TaskWorkflowTest extends TestCase
     }
 
     /** Nothing has been handed in yet, so there is nothing to send back. */
-    public function test_the_assignee_cannot_request_a_revision_before_submitting(): void
+    public function test_the_assignee_can_send_it_back_before_submitting(): void
     {
+        // A flaw in the brief can surface before the assignee ever hands work
+        // in — they don't have to start or submit it first to send it back.
         $worker = $this->worker();
         $task   = $this->task($worker, $this->manager(), 'In Progress');
 
         $this->actingAs($worker)
+            ->postJson(route('tasks.revisions.store', $task), ['reason_category' => 'Task Giver Mistake'])
+            ->assertOk();
+
+        $this->assertSame('In Progress', $task->fresh()->status, 'nothing was submitted, so there is nothing to reopen');
+    }
+
+    public function test_a_bystander_still_cannot_request_a_revision_before_submitting(): void
+    {
+        $worker    = $this->worker();
+        $bystander = $this->worker();
+        $task      = $this->task($worker, $this->manager(), 'In Progress');
+
+        $this->actingAs($bystander)
             ->postJson(route('tasks.revisions.store', $task), ['reason_category' => 'Employee Mistake'])
             ->assertForbidden();
     }

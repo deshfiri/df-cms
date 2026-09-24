@@ -145,10 +145,11 @@ class TaskPolicy
 
     /**
      * Sending work back for rework: whoever asked for it always could, via
-     * update() — reopening a finished task is a management call. The assignee
-     * can now do the same to their own handed-in work, Submitted or Completed,
-     * to correct it themselves before (or after) anyone else reviews it. Either
-     * way it is recorded the same way, on the same quality KPI — see
+     * update() — reopening a finished task is a management call. An assignee
+     * can send it back too, at any working stage — before they've even
+     * started, mid-work, or after handing it in — not only once it has been
+     * submitted, since a flawed brief can surface at any point. Either way
+     * it is recorded the same way, on the same quality KPI — see
      * TaskService::requestRevision() and PerformanceCalculationService::revisionRate().
      */
     public function requestRevision(User $user, Task $task): bool
@@ -157,8 +158,11 @@ class TaskPolicy
             return true;
         }
 
+        // An assignee may send it back at any working stage — before they've
+        // even started, mid-work, or after handing it in — not only once it's
+        // been submitted. A flaw in the brief can surface at any point.
         return $task->assignees->contains($user->id)
-            && in_array($task->status, [Task::STATUS_SUBMITTED, 'Completed'], true);
+            && in_array($task->status, [...Task::$workingStatuses, Task::STATUS_SUBMITTED, 'Completed'], true);
     }
 
     /** Created it, or holds it. */

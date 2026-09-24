@@ -202,17 +202,24 @@ class TaskVisibilityTest extends TestCase
      * assignee may request a revision on it too — see
      * TaskWorkflowTest::test_the_assignee_can_send_their_own_submitted_work_back_for_revision().
      */
-    public function test_a_revision_request_on_unsubmitted_work_is_a_management_call(): void
+    public function test_a_revision_request_on_unsubmitted_work_is_allowed_for_the_assignee_or_the_giver(): void
     {
-        [$me, , $manager, $assigned] = $this->world();
+        [$me, $colleague, $manager, $assigned] = $this->world();
 
+        // $me is the assignee here — they may send unsubmitted work back too,
+        // not only whoever gave it out.
         $this->actingAs($me)
-            ->postJson(route('tasks.revisions.store', $assigned), ['reason_category' => 'Employee Mistake'])
-            ->assertForbidden();
+            ->postJson(route('tasks.revisions.store', $assigned), ['reason_category' => 'Task Giver Mistake'])
+            ->assertOk();
 
         $this->actingAs($manager)
             ->postJson(route('tasks.revisions.store', $assigned), ['reason_category' => 'Employee Mistake'])
             ->assertOk();
+
+        // A bystander still may not.
+        $this->actingAs($colleague)
+            ->postJson(route('tasks.revisions.store', $assigned), ['reason_category' => 'Employee Mistake'])
+            ->assertForbidden();
     }
 
     public function test_comments_and_files_on_someone_elses_task_are_refused(): void

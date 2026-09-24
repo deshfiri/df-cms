@@ -84,8 +84,8 @@ class TaskPolicyRevisionTest extends TestCase
         $this->assertFalse($this->policy->requestRevision($creator, $task));
     }
 
-    #[DataProvider('handedInStatuses')]
-    public function test_the_assignee_may_request_a_revision_on_their_own_handed_in_work(string $status): void
+    #[DataProvider('workingOrHandedInStatuses')]
+    public function test_the_assignee_may_send_a_task_back_at_any_working_stage(string $status): void
     {
         $assignee = $this->worker();
         $task     = $this->task($assignee, $this->manager(), $status);
@@ -93,30 +93,23 @@ class TaskPolicyRevisionTest extends TestCase
         $this->assertTrue($this->policy->requestRevision($assignee, $task));
     }
 
-    public static function handedInStatuses(): array
+    public static function workingOrHandedInStatuses(): array
     {
         return [
+            'pending, not started yet' => ['Pending'],
+            'in progress'               => ['In Progress'],
+            'on hold'                   => ['On Hold'],
             'submitted, awaiting review' => [Task::STATUS_SUBMITTED],
             'completed'                  => ['Completed'],
         ];
     }
 
-    #[DataProvider('notYetHandedInStatuses')]
-    public function test_the_assignee_may_not_request_a_revision_before_handing_it_in(string $status): void
+    public function test_the_assignee_may_not_request_a_revision_on_a_cancelled_task(): void
     {
         $assignee = $this->worker();
-        $task     = $this->task($assignee, $this->manager(), $status);
+        $task     = $this->task($assignee, $this->manager(), 'Cancelled');
 
         $this->assertFalse($this->policy->requestRevision($assignee, $task));
-    }
-
-    public static function notYetHandedInStatuses(): array
-    {
-        return [
-            'pending'     => ['Pending'],
-            'in progress' => ['In Progress'],
-            'on hold'     => ['On Hold'],
-        ];
     }
 
     public function test_a_bystander_may_never_request_a_revision(): void
