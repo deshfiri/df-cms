@@ -31,8 +31,10 @@ class UpdateTaskRequest extends FormRequest
             'due_date'         => ['nullable', 'date'],
             'due_at'           => ['nullable', 'date'],
             'reminder_at'      => ['nullable', 'date'],
-            'estimated_hours'  => ['nullable', 'numeric', 'min:0'],
-            'actual_hours'     => ['nullable', 'numeric', 'min:0'],
+            // See StoreTaskRequest: the editor's minutes/hours/days picker
+            // always converts to hours before it gets here.
+            'estimated_hours'  => ['nullable', 'numeric', 'min:0', 'max:9999.99'],
+            'actual_hours'     => ['nullable', 'numeric', 'min:0', 'max:9999.99'],
             'label_ids'        => ['nullable', 'array'],
             'label_ids.*'      => ['exists:labels,id'],
         ];

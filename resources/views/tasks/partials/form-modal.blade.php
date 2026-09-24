@@ -110,8 +110,15 @@
                         <span class="when-help" id="dueHint"></span>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label fw-semibold small">Estimated Hours</label>
-                        <input type="number" step="0.5" min="0" id="taskEstHours" class="form-control form-control-sm">
+                        <label class="form-label fw-semibold small">Estimated Time</label>
+                        <div class="d-flex gap-1">
+                            <input type="number" step="0.5" min="0" id="taskEstValue" class="form-control form-control-sm" placeholder="e.g. 2">
+                            <select id="taskEstUnit" class="form-select form-select-sm" style="max-width:112px">
+                                <option value="minutes">Minutes</option>
+                                <option value="hours" selected>Hours</option>
+                                <option value="days">Days</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-semibold small">Labels</label>
@@ -153,7 +160,8 @@ $(function () {
 function resetTaskModal() {
     $('#taskEditId').val('');
     $('#taskModalTitle').html('<i class="bi bi-plus-lg me-2"></i>New Task');
-    $('#taskTitle,#taskDescription,#taskStart,#taskDue,#taskDueTime,#taskEstHours').val('');
+    $('#taskTitle,#taskDescription,#taskStart,#taskDue,#taskDueTime,#taskEstValue').val('');
+    $('#taskEstUnit').val('hours');
     $('#taskAssigned,#taskClient,#taskLabels').val([]).trigger('change');
     $('#taskPriority').val('Medium');
     $('#taskStatus').val('Pending');
@@ -161,6 +169,33 @@ function resetTaskModal() {
     $('#taskRequiresAttachment').prop('checked', false);
     syncWhenChips();
 }
+
+// ── Estimated time: minutes / hours / days, stored as decimal hours ─────
+// The server only ever sees hours (Task.estimated_hours); the unit picker
+// is purely an input/display convenience layered on top of it.
+
+function estimateToHours(value, unit) {
+    if (value === '' || value === null || value === undefined) return null;
+    const v = parseFloat(value);
+    if (!isFinite(v) || v < 0) return null;
+    if (unit === 'minutes') return v / 60;
+    if (unit === 'days') return v * 24;
+    return v;
+}
+
+/** Best-fit {value, unit} for prefilling the editor from a stored hours figure. */
+function hoursToEstimate(hours) {
+    if (hours === null || hours === undefined || hours === '') return { value: '', unit: 'hours' };
+    const h = parseFloat(hours);
+    if (!isFinite(h)) return { value: '', unit: 'hours' };
+    if (h !== 0 && h % 24 === 0) return { value: h / 24, unit: 'days' };
+    if (h > 0 && h < 1) return { value: Math.round(h * 60), unit: 'minutes' };
+    return { value: h, unit: 'hours' };
+}
+
+$(document).on('change', '#taskEstUnit', function () {
+    $('#taskEstValue').attr('step', $(this).val() === 'minutes' ? '1' : '0.5');
+});
 
 // ── Quick date picks ─────────────────────────────────────────────────────
 // A task for today is the common case, so it should not cost two trips
@@ -241,7 +276,9 @@ function openTaskEditor(id) {
             $('#taskDue').val(t.due_date ? t.due_date.substring(0, 10) : '');
             $('#taskDueTime').val('');
         }
-        $('#taskEstHours').val(t.estimated_hours);
+        const est = hoursToEstimate(t.estimated_hours);
+        $('#taskEstValue').val(est.value);
+        $('#taskEstUnit').val(est.unit).trigger('change');
         $('#taskRequiresAttachment').prop('checked', !!t.requires_attachment);
         $('#taskLabels').val((t.labels || []).map(l => l.id)).trigger('change');
         syncWhenChips();
@@ -269,7 +306,7 @@ $('#saveTaskBtn').on('click', function () {
         due_at: ($('#taskDue').val() && $('#taskDueTime').val())
             ? new Date($('#taskDue').val() + 'T' + $('#taskDueTime').val()).toISOString()
             : null,
-        estimated_hours: $('#taskEstHours').val() || null,
+        estimated_hours: estimateToHours($('#taskEstValue').val(), $('#taskEstUnit').val()),
         description: $('#taskDescription').val(),
         requires_attachment: $('#taskRequiresAttachment').is(':checked') ? 1 : 0,
         label_ids: $('#taskLabels').val() || [],

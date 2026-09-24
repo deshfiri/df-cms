@@ -37,7 +37,11 @@ class StoreTaskRequest extends FormRequest
             // time picked in Dhaka means that moment, whatever the server's zone.
             'due_at'           => ['nullable', 'date'],
             'reminder_at'      => ['nullable', 'date'],
-            'estimated_hours'  => ['nullable', 'numeric', 'min:0'],
+            // The editor lets someone enter minutes, hours or days, but
+            // always converts to hours before it gets here — this stays the
+            // one unit the model and the timer work in. Capped at what
+            // tasks.estimated_hours (decimal(6,2)) can actually hold.
+            'estimated_hours'  => ['nullable', 'numeric', 'min:0', 'max:9999.99'],
             'label_ids'        => ['nullable', 'array'],
             'label_ids.*'      => ['exists:labels,id'],
         ];
