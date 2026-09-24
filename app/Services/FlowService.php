@@ -220,7 +220,7 @@ class FlowService
             throw new FlowException('Only an open item can be cancelled.');
         }
         if (!$this->canManageItem($user, $item)) {
-            throw new FlowException('Only the item creator or a workflow admin can cancel it.');
+            throw new FlowException('Only the person this item is currently assigned to, or a workflow admin, can cancel it.');
         }
 
         return DB::transaction(function () use ($item, $user, $reason) {
@@ -232,10 +232,17 @@ class FlowService
         });
     }
 
-    /** Creator of the item, or a workflow admin — may edit/cancel it. */
+    /**
+     * Whoever the item is currently assigned to, or a workflow admin — may
+     * edit or cancel it. Not the creator: once an item is handed off, control
+     * of it belongs to whoever is holding it (or an admin), the same rule
+     * advancing and sending it back already follow (see canAct()). Someone
+     * who merely created an unclaimed item cannot edit or cancel it either —
+     * claim it first, or ask an admin.
+     */
     public function canManageItem(User $user, FlowItem $item): bool
     {
-        return $item->created_by === $user->id || $user->can('manage workflows');
+        return $item->assigned_to === $user->id || $user->can('manage workflows');
     }
 
     /** Notify participants (current-stage assignees + creator, minus the author) of a new comment. */
