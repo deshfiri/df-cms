@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\AdCampaign;
 use App\Models\Brand;
 use App\Models\BrandIntegration;
+use App\Models\BugReport;
 use App\Models\Client;
 use App\Models\EmployeeRequest;
 use App\Models\Refund;
@@ -13,6 +14,7 @@ use App\Models\User;
 use App\Models\WhatsAppConversation;
 use App\Policies\AdCampaignPolicy;
 use App\Policies\BrandIntegrationPolicy;
+use App\Policies\BugReportPolicy;
 use App\Policies\ClientPolicy;
 use App\Policies\EmployeeRequestPolicy;
 use App\Policies\RefundPolicy;
@@ -38,6 +40,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Client::class, ClientPolicy::class);
         Gate::policy(Task::class, TaskPolicy::class);
         Gate::policy(EmployeeRequest::class, EmployeeRequestPolicy::class);
+        Gate::policy(BugReport::class, BugReportPolicy::class);
         Gate::policy(AdCampaign::class, AdCampaignPolicy::class);
         // Brand-level marketing access: dashboards, integrations, syncing.
         Gate::policy(Brand::class, BrandIntegrationPolicy::class);

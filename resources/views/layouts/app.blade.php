@@ -416,6 +416,13 @@
                 data-bs-toggle="tooltip" data-bs-placement="right">
                 <i class="bi bi-inbox"></i><span class="sb-lbl">Requests</span>
             </a>
+            {{-- Open to everyone, same reasoning as Requests. 'manage bug reports'
+                 decides who reviews and resolves them. --}}
+            <a href="{{ route('bug-reports.index') }}"
+                class="sb-link {{ request()->routeIs('bug-reports.*') ? 'active' : '' }}" title="Bug Reports"
+                data-bs-toggle="tooltip" data-bs-placement="right">
+                <i class="bi bi-bug"></i><span class="sb-lbl">Bug Reports</span>
+            </a>
             {{-- Deliberately open — outside the stage-user trim, since department
                  staff are exactly who this is for: anyone may post a review or
                  report. Reading other people's is gated by 'view reviews', both
