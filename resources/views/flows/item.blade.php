@@ -245,18 +245,19 @@
                             <button class="btn btn-sm p-0 comment-delete" data-id="{{ $c->id }}" style="color:var(--text3)" title="Delete"><i class="bi bi-x-circle" style="font-size:.8rem"></i></button>
                         @endif
                     </div>
-                    <div class="small" style="color:var(--text2);white-space:pre-wrap">{{ $c->body }}</div>
+                    <div class="small" style="color:var(--text2);white-space:pre-wrap">{!! \App\Support\MentionParser::highlight($c->body, $mentionable) !!}</div>
                 </div>
             @empty
                 <div class="text-center py-2 small" style="color:var(--text3)">No comments yet — start the discussion.</div>
             @endforelse
         </div>
         <div class="d-flex gap-2 mt-2">
-            <input type="text" id="commentInput" class="form-control form-control-sm" placeholder="Write a comment…" maxlength="5000">
+            <textarea id="commentInput" class="form-control form-control-sm" rows="1" placeholder="Write a comment… (Ctrl+Enter to send) — type @ to mention anyone" maxlength="5000"></textarea>
             <button class="btn btn-sm btn-primary" id="commentSend"><i class="bi bi-send"></i></button>
         </div>
     </div>
 </div>
+@include('partials.mention-autocomplete')
 
 @if($canManage && $item->isOpen())
     <div class="modal fade" id="editItemModal" tabindex="-1">
@@ -455,6 +456,7 @@
     @endif
 
     // ── Discussion ──────────────────────────────────────────────────
+    makeMentionAutocomplete('#commentInput', @json($mentionable->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values()));
     $('#commentSend').on('click', function () {
         const body = $.trim($('#commentInput').val());
         if (!body) return;
@@ -462,7 +464,10 @@
             .done(() => location.reload())
             .fail(x => Swal.fire('Error', x.responseJSON?.message || 'Failed', 'error'));
     });
-    $('#commentInput').on('keydown', e => { if (e.key === 'Enter') $('#commentSend').click(); });
+    // Ctrl/Cmd+Enter submits — plain Enter is left free for the mention
+    // dropdown (and for a normal newline) since the box now spans more than
+    // one line.
+    $('#commentInput').on('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('#commentSend').click(); });
     $(document).on('click', '.comment-delete', function () {
         $.ajax({ url: '/flow-items/' + ITEM + '/comments/' + $(this).data('id'), type: 'DELETE' }).done(() => location.reload());
     });

@@ -11,11 +11,13 @@ use App\Models\TaskNote;
 use App\Models\TaskRevision;
 use App\Models\User;
 use App\Notifications\TaskAssigned;
+use App\Notifications\TaskCommentMention;
 use App\Notifications\TaskPartiallySubmitted;
 use App\Notifications\TaskReviewed;
 use App\Notifications\TaskRevisionRequested;
 use App\Notifications\TaskSubmitted;
 use App\Services\Storage\UploadStaging;
+use App\Support\MentionParser;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -510,8 +512,29 @@ class TaskService
         ]);
 
         $this->logActivity($task, 'Comment Added', $comment, event: 'comment', meta: ['comment_id' => $created->id]);
+        $this->notifyMentions($task, $comment);
 
         return $created->load('user:id,name');
+    }
+
+    /**
+     * A task's discussion can only @mention the people actually party to
+     * it — its assignees and whoever created it — not anyone in the system.
+     * Only those who were named get notified; commenting itself notifies
+     * no one.
+     */
+    private function notifyMentions(Task $task, string $comment): void
+    {
+        $task->loadMissing(['assignees:id,name', 'createdBy:id,name']);
+        $candidates = $task->assignees->push($task->createdBy)->filter()->unique('id');
+
+        $author = Auth::user();
+        $mentioned = MentionParser::extract($comment, $candidates)
+            ->reject(fn (User $u) => $author && $u->id === $author->id);
+
+        foreach ($mentioned as $user) {
+            $user->notify(new TaskCommentMention($task, $author, $comment));
+        }
     }
 
     public function deleteComment(TaskComment $comment): void

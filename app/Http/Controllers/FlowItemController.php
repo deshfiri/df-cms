@@ -199,6 +199,9 @@ class FlowItemController extends Controller
             'canSendBack' => $canAct && $item->currentStage
                 && \App\Models\FlowStage::where('flow_id', $item->flow_id)
                     ->where('position', '<', $item->currentStage->position)->exists(),
+            // A workflow discussion may @mention anyone — not just this
+            // item's own participants.
+            'mentionable' => User::where('is_active', true)->orderBy('name')->get(['id', 'name']),
         ]);
     }
 
@@ -271,6 +274,7 @@ class FlowItemController extends Controller
         ]);
 
         $this->flow->notifyNewComment($item, $request->user(), $data['body']);
+        $this->flow->notifyMentions($item, $request->user(), $data['body']);
 
         return response()->json(['success' => true]);
     }

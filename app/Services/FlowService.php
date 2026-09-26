@@ -10,8 +10,10 @@ use App\Models\FlowStage;
 use App\Models\FlowTransition;
 use App\Models\User;
 use App\Notifications\FlowItemAwaitingYou;
+use App\Notifications\FlowItemCommentMention;
 use App\Notifications\FlowItemCompleted;
 use App\Notifications\FlowItemNewComment;
+use App\Support\MentionParser;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -261,6 +263,25 @@ class FlowService
         foreach ($recipients as $recipient) {
             try {
                 $recipient->notify(new FlowItemNewComment($item, $author, $body));
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+    }
+
+    /**
+     * A workflow's discussion is open — unlike a task's, anyone in the
+     * system can be @mentioned, not just whoever's already party to the
+     * item. Only those actually named get notified.
+     */
+    public function notifyMentions(FlowItem $item, User $author, string $body): void
+    {
+        $candidates = User::where('is_active', true)->get(['id', 'name']);
+        $mentioned = MentionParser::extract($body, $candidates)->reject(fn (User $u) => $u->id === $author->id);
+
+        foreach ($mentioned as $user) {
+            try {
+                $user->notify(new FlowItemCommentMention($item, $author, $body));
             } catch (\Throwable $e) {
                 report($e);
             }

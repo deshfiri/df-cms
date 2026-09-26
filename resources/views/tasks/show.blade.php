@@ -465,6 +465,11 @@
                 <span class="tp-count">{{ $task->comments->count() }}</span>
             </div>
             <div class="card-body">
+                @php
+                    // Who this discussion's @mentions may name — the task's
+                    // own assignees and creator, not anyone in the system.
+                    $mentionable = $task->assignees->push($task->createdBy)->filter()->unique('id')->values();
+                @endphp
                 <div id="taskComments">
                     @forelse($task->comments as $c)
                         <div class="tp-comment">
@@ -477,7 +482,7 @@
                                         <button type="button" class="tp-icon-btn is-danger ms-auto tp-comment-delete" data-id="{{ $c->id }}" title="Delete comment"><i class="bi bi-x-lg" style="font-size:.7rem"></i></button>
                                     @endif
                                 </div>
-                                <div class="tp-comment-body">{{ $c->comment }}</div>
+                                <div class="tp-comment-body">{!! \App\Support\MentionParser::highlight($c->comment, $mentionable) !!}</div>
                             </div>
                         </div>
                     @empty
@@ -486,13 +491,14 @@
                 </div>
                 <form id="taskCommentForm" class="mt-2">
                     <label for="taskCommentInput" class="visually-hidden">Add a comment</label>
-                    <textarea id="taskCommentInput" class="form-control form-control-sm" rows="2" maxlength="2000" placeholder="Write a comment… (Ctrl+Enter to send)"></textarea>
+                    <textarea id="taskCommentInput" class="form-control form-control-sm" rows="2" maxlength="2000" placeholder="Write a comment… (Ctrl+Enter to send) — type @ to mention the assignee(s) or creator"></textarea>
                     <div class="d-flex justify-content-end mt-2">
                         <button type="submit" class="btn btn-sm btn-primary" id="taskCommentSend"><i class="bi bi-send me-1"></i>Comment</button>
                     </div>
                 </form>
             </div>
         </div>
+        @include('partials.mention-autocomplete')
 
         @if($task->revisions->isNotEmpty() || $can['requestRevision'])
             <div class="card section-card mb-3">
@@ -926,6 +932,7 @@
 
     // ── Discussion ───────────────────────────────────────────────────────
     const commentInput = document.getElementById('taskCommentInput');
+    makeMentionAutocomplete(commentInput, @json($mentionable->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values()));
     jQuery('#taskCommentForm').on('submit', function (e) {
         e.preventDefault();
         const comment = commentInput.value.trim();
