@@ -4,7 +4,7 @@
 @section('content')
     @php
         $statusClr = ['Running' => 'success', 'Warning' => 'warning', 'Completed' => 'primary', 'Hold' => 'secondary', 'Cancelled' => 'danger'][$client->client_status] ?? 'dark';
-        $progress = $client->progress;
+        $progress = $progressBreakdown['percent'];
         $prgClr = $progress === 100 ? 'success' : ($progress >= 50 ? 'warning' : 'danger');
     @endphp
 
@@ -56,7 +56,7 @@
                             </div>
                             <span class="small fw-semibold">{{ $progress }}% complete</span>
                             <span
-                                class="small text-muted">({{ $client->stageProgress->where('is_completed', true)->count() }}/{{ $stages->count() }}
+                                class="small text-muted">({{ $progressBreakdown['done'] }}/{{ $progressBreakdown['total'] }}
                                 stages)</span>
                         </div>
                     </div>

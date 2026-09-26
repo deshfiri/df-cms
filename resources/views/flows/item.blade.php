@@ -191,7 +191,7 @@
                         : (str_contains($a->mime_type ?? '', 'pdf') ? 'bi-file-earmark-pdf'
                         : (str_starts_with($a->mime_type ?? '', 'video/') ? 'bi-camera-video' : 'bi-paperclip'))));
                 @endphp
-                <div class="d-flex align-items-start gap-2 p-2 rounded mb-1" style="background:var(--surface);border:1px solid var(--border)">
+                <div class="d-flex align-items-start gap-2 p-2 rounded mb-1" style="background:var(--c-blue-bg);border:1px solid color-mix(in srgb, var(--c-blue) 25%, transparent)">
                     @if($a->isPreviewableImage())
                         <button type="button" class="fp-thumb"
                                 data-preview-src="{{ route('flow-items.attachments.preview', [$item, $a]) }}"
@@ -201,7 +201,7 @@
                             <img src="{{ route('flow-items.attachments.preview', [$item, $a]) }}" alt="" loading="lazy">
                         </button>
                     @else
-                        <i class="bi {{ $icon }}" style="color:var(--primary);font-size:1rem;margin-top:2px"></i>
+                        <i class="bi {{ $icon }}" style="color:var(--c-blue);font-size:1rem;margin-top:2px"></i>
                     @endif
                     <div class="flex-grow-1 min-w-0">
                         @if($a->isFile())

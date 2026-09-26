@@ -14,14 +14,13 @@ use Tests\TestCase;
 
 /**
  * A workflow item can pass through several stages, each worked by a
- * different person — so a completed one credits everyone who was actually
- * party to it: the creator, everyone who claimed and moved it along (either
- * direction), and whoever's move finished it. Each earns their own full,
- * independent Workflow Items credit for it, feeding Output Volume and Daily
- * Target the same way a task's own doers feed Task Completion.
- *
- * An item still open credits only whoever currently holds it, same as
- * before — it isn't "shared" until it's actually done.
+ * different person — every one of them earns their own full, independent
+ * Workflow Items credit for it: the creator (their move into the first
+ * stage), everyone who's ever claimed and moved it along at any stage, and
+ * whoever currently holds it. Status decides nothing here any more —
+ * Output Volume counts one still in progress the same as one already
+ * finished, and being part of an item's history is enough regardless of
+ * who happens to be holding it right now.
  *
  * These tests go through the real FlowService (claim/advance/sendBack),
  * unlike the synthetic FlowItem::create() fixtures elsewhere in this suite,
@@ -86,6 +85,57 @@ class FlowItemCompletionCreditTest extends TestCase
         $this->assertSame(1.0, $scope['mine']);
         $this->assertSame(2.0, $scope['cohort_max']);
         $this->assertSame(50.0, $scope['pct']);
+    }
+
+    public function test_the_cohort_max_also_counts_items_still_in_progress(): void
+    {
+        // A different, uninvolved creator per item, so the comparison below
+        // is purely about who's currently carrying open items — the
+        // creator's own credit is exercised separately elsewhere.
+        $leader = $this->user();
+        $trailing = $this->user();
+
+        $itemA = $this->flow->createItem($this->oneStageFlow($leader)->refresh(), ['title' => 'A', 'due_date' => '2026-09-10'], $this->user());
+        $this->flow->claim($itemA->fresh(), $leader);
+        $itemB = $this->flow->createItem($this->oneStageFlow($leader)->refresh(), ['title' => 'B', 'due_date' => '2026-09-11'], $this->user());
+        $this->flow->claim($itemB->fresh(), $leader);
+        $itemC = $this->flow->createItem($this->oneStageFlow($trailing)->refresh(), ['title' => 'C', 'due_date' => '2026-09-12'], $this->user());
+        $this->flow->claim($itemC->fresh(), $trailing);
+
+        $scope = $this->performance->outputVolume($trailing, '2026-09')['scopes']['workflow'];
+
+        $this->assertSame(1.0, $scope['mine']);
+        $this->assertSame(2.0, $scope['cohort_max']);
+        $this->assertSame(50.0, $scope['pct']);
+    }
+
+    /** A one-stage flow whose only stage $worker can claim, created by a throwaway admin. */
+    private function oneStageFlow(User $worker): Flow
+    {
+        $flow = Flow::create(['name' => 'Flow ' . uniqid(), 'is_active' => true, 'created_by' => $this->user()->id]);
+        $flow->stages()->create(['name' => 'Only Stage', 'position' => 1])->users()->sync([$worker->id]);
+
+        return $flow;
+    }
+
+    /**
+     * The rule this whole change exists for: a manager who mostly creates
+     * and delegates workflow items — never personally claiming most of
+     * them — still earns Workflow Items credit for every one they created,
+     * not just the ones they happen to be holding.
+     */
+    public function test_a_creator_who_never_personally_claims_it_is_still_credited(): void
+    {
+        $manager = $this->user();
+        $worker  = $this->user();
+        $flow = Flow::create(['name' => 'Delegated Work', 'is_active' => true, 'created_by' => $manager->id]);
+        $flow->stages()->create(['name' => 'Only Stage', 'position' => 1])->users()->sync([$worker->id]);
+
+        $item = $this->flow->createItem($flow->refresh(), ['title' => 'Item', 'due_date' => '2026-09-10'], $manager);
+        $this->flow->claim($item->fresh(), $worker); // manager never claims it themselves
+
+        $scope = $this->performance->outputVolume($manager, '2026-09')['scopes']['workflow'];
+        $this->assertSame(1.0, $scope['mine']);
     }
 
     public function test_daily_targets_workflow_scope_also_counts_a_real_completion(): void
@@ -177,7 +227,8 @@ class FlowItemCompletionCreditTest extends TestCase
         $this->assertSame(1.0, $firstsScope['mine']);
     }
 
-    public function test_an_item_still_open_credits_only_its_current_holder_not_past_movers(): void
+    /** Crediting no longer depends on currently holding it — being part of its history is enough, whether or not it's claimed right now. */
+    public function test_an_unclaimed_open_item_still_credits_everyone_who_touched_it_so_far(): void
     {
         $creator = $this->user();
         $first   = $this->user();
@@ -192,12 +243,40 @@ class FlowItemCompletionCreditTest extends TestCase
         $item = $this->flow->advance($item, $first); // now sits open at Review, unclaimed
 
         $this->assertSame(FlowItem::STATUS_OPEN, $item->status);
+        $this->assertNull($item->assigned_to);
 
-        // Nobody who merely moved it so far is credited yet — it hasn't finished.
         foreach ([$creator, $first] as $person) {
-            $scope = $this->performance->outputVolume($person, '2026-09')['scopes']['workflow'] ?? null;
-            $this->assertNull($scope, "{$person->id} should not be credited before the item is done");
+            $scope = $this->performance->outputVolume($person, '2026-09')['scopes']['workflow'];
+            $this->assertSame(1.0, $scope['mine'], "{$person->id} was part of it and should be credited regardless of who holds it now");
         }
+
+        // Second hasn't been party to it at all yet.
+        $secondsScope = $this->performance->outputVolume($second, '2026-09')['scopes']['workflow'] ?? null;
+        $this->assertNull($secondsScope);
+    }
+
+    /**
+     * Output Volume measures how much you're carrying, not just what you've
+     * finished — an in-progress item counts fully for whoever currently
+     * holds it, the same as a completed one, so it doesn't take finishing
+     * something to show up here.
+     */
+    public function test_a_claimed_in_progress_item_counts_the_same_as_a_finished_one(): void
+    {
+        $creator = $this->user();
+        $worker  = $this->user();
+
+        $flow = Flow::create(['name' => 'In Progress', 'is_active' => true, 'created_by' => $creator->id]);
+        $flow->stages()->create(['name' => 'Only Stage', 'position' => 1])->users()->sync([$worker->id]);
+
+        $item = $this->flow->createItem($flow->refresh(), ['title' => 'Item', 'due_date' => '2026-09-10'], $creator);
+        $item = $this->flow->claim($item->fresh(), $worker);
+
+        $this->assertSame(FlowItem::STATUS_OPEN, $item->status);
+        $this->assertSame($worker->id, $item->assigned_to);
+
+        $scope = $this->performance->outputVolume($worker, '2026-09')['scopes']['workflow'];
+        $this->assertSame(1.0, $scope['mine']);
     }
 
     /**

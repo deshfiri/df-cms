@@ -15,12 +15,20 @@ use App\Models\SalesTarget;
 use App\Models\Task;
 use App\Models\TaskActivity;
 use App\Models\User;
+use App\Services\ClientProgressService;
 use App\Services\TaskInvolvementService;
 use Carbon\Carbon;
 
 class PerformanceCalculationService
 {
     private const ACTIVE_STATUSES = ['Pending', 'In Progress', 'On Hold'];
+
+    public function __construct(
+        private readonly ClientProgressService $clientProgress,
+    ) {}
+
+    /** Request-lifetime memo: one query per distinct client, however many employees' workflow items reference it. */
+    private array $clientQualifiesCache = [];
 
     // Request-lifetime memo of the singletons that are otherwise re-queried once
     // per employee — the scoreboard and snapshot command reuse one service
@@ -278,7 +286,7 @@ class PerformanceCalculationService
                 ->whereIn('assigned_to', $ids)
                 ->orWhereHas('transitions', fn ($t) => $t->whereIn('moved_by', $ids)))
             ->with(['transitions:id,flow_item_id,moved_by'])
-            ->get(['id', 'assigned_to', 'due_date', 'completed_at', 'status']);
+            ->get(['id', 'client_id', 'assigned_to', 'due_date', 'completed_at', 'status']);
 
         $byUser = [];
         foreach ($items as $item) {
@@ -293,28 +301,56 @@ class PerformanceCalculationService
     }
 
     /**
-     * Who one workflow item counts for.
+     * Who one workflow item counts for — the creator (their move into the
+     * first stage), everyone who's ever claimed and moved it along at any
+     * stage, and whoever currently holds it, whether it's still open or
+     * already done. Status decides nothing here any more: an item due this
+     * period counts for everyone who was ever part of its journey the
+     * moment it's due, not only once — or only if — it's finished.
      *
      * @return array<int,int>
      */
     private static function creditedUsersFor(FlowItem $item): array
     {
-        if ($item->status !== FlowItem::STATUS_COMPLETED) {
-            return $item->assigned_to ? [(int) $item->assigned_to] : [];
+        $ids = $item->transitions->pluck('moved_by')->filter()->map(fn ($id) => (int) $id);
+
+        if ($item->assigned_to) {
+            $ids->push((int) $item->assigned_to);
         }
 
-        $movers = $item->transitions->pluck('moved_by')->filter()->unique()
-            ->map(fn ($id) => (int) $id)->values();
+        return $ids->unique()->values()->all();
+    }
 
-        // No transition history to credit from (imported data, or a record
-        // built directly rather than through the real claim/advance flow) —
-        // the same "nothing recorded, so credit whoever it's on record as"
-        // fallback this app already uses for a task with no involvement rows.
-        if ($movers->isEmpty() && $item->assigned_to) {
-            return [(int) $item->assigned_to];
+    /**
+     * How many "workflow items" a set of items actually represents for
+     * Output Volume — per the client list's own progress bar (0%, partway,
+     * or finished), not a raw count of FlowItem rows. A client can run
+     * several flow items at once; they all move the same needle, so they
+     * count once per CLIENT, and only once that client has actually moved
+     * (0% doesn't count yet — see ClientProgressService). An item with no
+     * client attached (pure internal work) has no such needle to check
+     * against, so it still counts on its own, same as before.
+     */
+    private function workflowVolumeCount(\Illuminate\Support\Collection $items): int
+    {
+        $clientIds = $items->pluck('client_id')->filter()->unique();
+        $standalone = $items->whereNull('client_id')->count();
+
+        $qualifyingClients = $clientIds->filter(fn ($id) => $this->clientQualifies((int) $id))->count();
+
+        return $qualifyingClients + $standalone;
+    }
+
+    private function clientQualifies(int $clientId): bool
+    {
+        if (!array_key_exists($clientId, $this->clientQualifiesCache)) {
+            // percentFor() eager-loads its own flowItems (ClientProgressService::EAGER_LOAD)
+            // when the relation isn't already loaded, so a bare Client is enough here.
+            $client = Client::find($clientId);
+            $this->clientQualifiesCache[$clientId] = $client && $this->clientProgress->percentFor($client) > 0;
         }
 
-        return $movers->all();
+        return $this->clientQualifiesCache[$clientId];
     }
 
     /**
@@ -1063,9 +1099,13 @@ class PerformanceCalculationService
 
         $flowItems = $this->flowItemsFor($user, $period);
         if ($flowItems->isNotEmpty()) {
+            // Counts a workflow item whether it's still in progress or
+            // already finished — this is volume of engagement, not a
+            // completion rate (that's Task Completion's job). See
+            // workflowVolumeCount() for how a client-linked item is counted.
             $scopes['workflow'] = $this->volumeScope(
-                $flowItems->where('status', FlowItem::STATUS_COMPLETED)->count(),
-                $this->cohortMaxWorkflowCompleted($period),
+                $this->workflowVolumeCount($flowItems),
+                $this->cohortMaxWorkflowTouched($period),
             );
         }
 
@@ -1104,12 +1144,12 @@ class PerformanceCalculationService
      * was called with, so the number can't shift depending on which
      * filtered scoreboard view triggered the calculation.
      */
-    private function cohortMaxWorkflowCompleted(string $period): float
+    private function cohortMaxWorkflowTouched(string $period): float
     {
-        return $this->cohortMaxWorkflowByPeriod[$period] ??= $this->computeCohortMaxWorkflowCompleted($period);
+        return $this->cohortMaxWorkflowByPeriod[$period] ??= $this->computeCohortMaxWorkflowTouched($period);
     }
 
-    private function computeCohortMaxWorkflowCompleted(string $period): float
+    private function computeCohortMaxWorkflowTouched(string $period): float
     {
         [$start, $end] = $this->periodBounds($period);
         $inPeriod = fn ($q) => self::inFlowPeriod($q, $start, $end);
@@ -1129,7 +1169,7 @@ class PerformanceCalculationService
 
         $max = 0.0;
         foreach ($this->loadFlowItems($ids, $period) as $items) {
-            $max = max($max, $items->where('status', FlowItem::STATUS_COMPLETED)->count());
+            $max = max($max, $this->workflowVolumeCount($items));
         }
 
         return $max;

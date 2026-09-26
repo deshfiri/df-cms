@@ -154,11 +154,13 @@ class ClientController extends Controller
     {
         $this->authorize('view', $client);
         $client = $this->clientRepo->findById($client->id);
-        $stages        = \App\Models\WorkflowStage::active()->get();
-        $progress_map  = $client->stageProgress->keyBy('stage_id');
+        // Same source as the clients list's own progress bar (ClientProgressService)
+        // — this page used to show a different number, worked out from the
+        // old, retired WorkflowStage pipeline.
+        $progressBreakdown = $this->progress->breakdownFor($client);
         $documentTypes = \App\Models\DocumentType::active()->get();
         $users         = User::where('is_active', true)->orderBy('name')->get(['id', 'name']);
-        return view('clients.show', compact('client', 'stages', 'progress_map', 'documentTypes', 'users'));
+        return view('clients.show', compact('client', 'progressBreakdown', 'documentTypes', 'users'));
     }
 
     public function edit(Client $client)
