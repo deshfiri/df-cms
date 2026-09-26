@@ -273,12 +273,12 @@ class PerformanceCalculationService
         // at any stage, and whoever's move finished it — see
         // creditedUsersFor(). Each of them independently gets it in full.
         $items = FlowItem::query()
-            ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
+            ->where(fn ($q) => self::inFlowPeriod($q, $start, $end))
             ->where(fn ($q) => $q
                 ->whereIn('assigned_to', $ids)
                 ->orWhereHas('transitions', fn ($t) => $t->whereIn('moved_by', $ids)))
             ->with(['transitions:id,flow_item_id,moved_by'])
-            ->get(['id', 'assigned_to', 'due_date', 'status']);
+            ->get(['id', 'assigned_to', 'due_date', 'completed_at', 'status']);
 
         $byUser = [];
         foreach ($items as $item) {
@@ -315,6 +315,21 @@ class PerformanceCalculationService
         }
 
         return $movers->all();
+    }
+
+    /**
+     * Which period a workflow item belongs to — its due_date if it has one
+     * (a due_date is optional; plenty of items are started without one), or
+     * once it's done, when it actually completed. An open item with neither
+     * has nothing to anchor it to any period yet, so it simply doesn't count
+     * until one of those two dates exists.
+     */
+    private static function inFlowPeriod($query, Carbon $start, Carbon $end)
+    {
+        return $query->where(function ($q) use ($start, $end) {
+            $q->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
+                ->orWhere(fn ($q2) => $q2->whereNull('due_date')->whereBetween('completed_at', [$start, $end]));
+        });
     }
 
     // ── Task credit ──────────────────────────────────────────────────────
@@ -1097,14 +1112,14 @@ class PerformanceCalculationService
     private function computeCohortMaxWorkflowCompleted(string $period): float
     {
         [$start, $end] = $this->periodBounds($period);
-        $dueWithin = fn ($q) => $q->whereBetween('due_date', [$start->toDateString(), $end->toDateString()]);
+        $inPeriod = fn ($q) => self::inFlowPeriod($q, $start, $end);
 
         // Whoever currently holds an open item, plus everyone who ever
         // claimed and moved a completed one along — same reasoning as
         // loadFlowItems()/creditedUsersFor().
-        $ids = $dueWithin(FlowItem::query())->whereNotNull('assigned_to')->distinct()->pluck('assigned_to')
+        $ids = $inPeriod(FlowItem::query())->whereNotNull('assigned_to')->distinct()->pluck('assigned_to')
             ->merge(
-                FlowTransition::whereHas('item', $dueWithin)->whereNotNull('moved_by')->distinct()->pluck('moved_by')
+                FlowTransition::whereHas('item', $inPeriod)->whereNotNull('moved_by')->distinct()->pluck('moved_by')
             )
             ->filter()->unique();
 

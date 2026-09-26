@@ -199,4 +199,51 @@ class FlowItemCompletionCreditTest extends TestCase
             $this->assertNull($scope, "{$person->id} should not be credited before the item is done");
         }
     }
+
+    /**
+     * A due_date is optional — plenty of workflow items are started without
+     * one — so an item with none must still land in a period once it's
+     * actually completed, by its completed_at, rather than never counting
+     * for anyone at all.
+     */
+    public function test_an_item_with_no_due_date_is_credited_by_when_it_actually_completed(): void
+    {
+        $worker = $this->user();
+        $admin  = $this->user();
+        $flow   = Flow::create(['name' => 'No Due Date', 'is_active' => true, 'created_by' => $admin->id]);
+        $flow->stages()->create(['name' => 'Only Stage', 'position' => 1])->users()->sync([$worker->id]);
+
+        $item = $this->flow->createItem($flow->refresh(), ['title' => 'Item'], $admin); // no due_date at all
+        $this->assertNull($item->due_date);
+
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-09-18 10:00:00'));
+        $item = $this->flow->claim($item->fresh(), $worker);
+        $item = $this->flow->advance($item, $worker);
+
+        $this->assertSame(FlowItem::STATUS_COMPLETED, $item->status);
+
+        $scope = $this->performance->outputVolume($worker, '2026-09')['scopes']['workflow'];
+        $this->assertSame(1.0, $scope['mine']);
+
+        // A different period than the one it actually finished in still sees nothing.
+        $elsewhere = $this->performance->outputVolume($worker, '2026-08')['scopes']['workflow'] ?? null;
+        $this->assertNull($elsewhere);
+    }
+
+    /** An open item with neither a due_date nor (not being done yet) a completed_at has nothing to anchor it to any period, so it doesn't count anywhere until one exists. */
+    public function test_an_open_item_with_no_due_date_counts_in_no_period_yet(): void
+    {
+        $worker = $this->user();
+        $admin  = $this->user();
+        $flow   = Flow::create(['name' => 'Open No Due Date', 'is_active' => true, 'created_by' => $admin->id]);
+        $flow->stages()->create(['name' => 'Only Stage', 'position' => 1])->users()->sync([$worker->id]);
+
+        $item = $this->flow->createItem($flow->refresh(), ['title' => 'Item'], $admin);
+        $item = $this->flow->claim($item->fresh(), $worker);
+
+        $this->assertSame(FlowItem::STATUS_OPEN, $item->status);
+
+        $scope = $this->performance->outputVolume($worker, '2026-09')['scopes']['workflow'] ?? null;
+        $this->assertNull($scope);
+    }
 }
