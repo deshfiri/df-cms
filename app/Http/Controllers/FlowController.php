@@ -77,6 +77,24 @@ class FlowController extends Controller
         return response()->json(['success' => true, 'is_active' => $flow->is_active]);
     }
 
+    /**
+     * The lead workflow is what the admin/manager dashboard's pipeline
+     * widgets read from — only one at a time, so setting a new one clears
+     * whichever flow held it before. Clicking the current lead again unsets it.
+     */
+    public function setLead(Flow $flow): JsonResponse
+    {
+        DB::transaction(function () use ($flow) {
+            $makingLead = !$flow->is_lead;
+            Flow::where('is_lead', true)->update(['is_lead' => false]);
+            if ($makingLead) {
+                $flow->update(['is_lead' => true]);
+            }
+        });
+
+        return response()->json(['success' => true, 'is_lead' => $flow->refresh()->is_lead]);
+    }
+
     public function destroy(Flow $flow): JsonResponse
     {
         $flow->delete(); // soft delete — items + history are retained

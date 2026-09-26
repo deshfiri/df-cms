@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Cache;
 
 class FlowItem extends Model
 {
@@ -21,6 +22,15 @@ class FlowItem extends Model
     protected function casts(): array
     {
         return ['completed_at' => 'datetime', 'due_date' => 'date'];
+    }
+
+    /** The dashboard's workflow widgets read the lead flow's items directly, so any move needs a fresh chart. */
+    protected static function booted(): void
+    {
+        $flush = fn () => Cache::forget('dash.workflow_completion') + Cache::forget('dash.pipeline_segments');
+
+        static::saved($flush);
+        static::deleted($flush);
     }
 
     public function flow(): BelongsTo

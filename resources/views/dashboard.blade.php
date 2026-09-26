@@ -158,32 +158,44 @@ $topCards = [
 {{-- ── 2. Workflow Pipeline ────────────────────────────────────── --}}
 <div class="dash-widget mb-4">
     <div class="wh d-flex align-items-center justify-content-between">
-        <h6><i class="bi bi-diagram-3-fill me-2" style="color:var(--primary)"></i>Workflow Pipeline</h6>
-        <span style="font-size:var(--fs-2xs);color:var(--text3)">{{ $activeCount }} active client{{ $activeCount != 1 ? 's' : '' }}</span>
+        <h6>
+            <i class="bi bi-diagram-3-fill me-2" style="color:var(--primary)"></i>Workflow Pipeline
+            @if($leadFlow)<span style="font-weight:400;color:var(--text3)">— {{ $leadFlow->name }}</span>@endif
+        </h6>
+        @if($leadFlow && count($pipeline))
+        <span style="font-size:var(--fs-2xs);color:var(--text3)">{{ collect($pipeline)->sum('active') }} item{{ collect($pipeline)->sum('active') != 1 ? 's' : '' }} in progress</span>
+        @endif
     </div>
     <div class="p-3">
-        @php
-        $segmentIcons = [
-            'Deal' => 'bi-briefcase-fill', 'Meeting' => 'bi-calendar-event-fill', 'Documents' => 'bi-file-earmark-text-fill',
-            'Design' => 'bi-palette-fill', 'Website' => 'bi-globe', 'Products' => 'bi-box-seam-fill',
-            'Marketing' => 'bi-megaphone-fill', 'Support' => 'bi-headset',
-        ];
-        @endphp
+        @if(!$leadFlow)
+        <div class="text-center py-4" style="color:var(--text3)">
+            <i class="bi bi-signpost-split" style="font-size:1.6rem"></i>
+            <p class="small mb-2 mt-2">No lead workflow is set, so there's nothing to show here yet.</p>
+            @can('manage workflows')
+            <a href="{{ route('workflows.index') }}" class="btn btn-sm btn-primary">Choose a lead workflow</a>
+            @endcan
+        </div>
+        @elseif(empty($pipeline))
+        <div class="text-center py-4" style="color:var(--text3)">
+            <p class="small mb-0">"{{ $leadFlow->name }}" has no stages yet.</p>
+        </div>
+        @else
         <div class="pipeline-track">
             @foreach($pipeline as $seg)
             <div class="pipeline-card">
-                <div class="pipeline-icon"><i class="bi {{ $segmentIcons[$seg['label']] ?? 'bi-circle' }}"></i></div>
+                <div class="pipeline-icon"><i class="bi bi-flag-fill"></i></div>
                 <div class="pipeline-label">{{ $seg['label'] }}</div>
                 <div class="pipeline-count">{{ $seg['active'] }}</div>
                 <div class="pipeline-count-lbl">in progress</div>
                 <div class="pipeline-progress-track"><div class="pipeline-progress-fill" style="width:{{ $seg['progress'] }}%"></div></div>
-                <div class="pipeline-progress-pct">{{ $seg['progress'] }}% of clients cleared</div>
+                <div class="pipeline-progress-pct">{{ $seg['progress'] }}% of items cleared</div>
                 @if($seg['delayed'] > 0)
                 <div class="pipeline-delayed"><i class="bi bi-exclamation-triangle-fill"></i>{{ $seg['delayed'] }} delayed</div>
                 @endif
             </div>
             @endforeach
         </div>
+        @endif
     </div>
 </div>
 
@@ -361,8 +373,14 @@ $topCards = [
 <div class="row g-3 mb-4">
     <div class="col-md-7">
         <div class="chart-card p-3">
-            <div class="chart-title mb-3">Workflow Stage Completion (detailed)</div>
+            <div class="chart-title mb-3">Workflow Stage Completion (detailed){{ $leadFlow ? ' — ' . $leadFlow->name : '' }}</div>
+            @if(empty($workflowData['labels']))
+            <div class="d-flex align-items-center justify-content-center" style="height:180px;color:var(--text3)">
+                <span class="small">{{ $leadFlow ? 'No stages yet.' : 'No lead workflow is set.' }}</span>
+            </div>
+            @else
             <div style="height:180px"><canvas id="workflowChart"></canvas></div>
+            @endif
         </div>
     </div>
     <div class="col-md-5">
@@ -628,28 +646,31 @@ var paymentChart = new Chart(payCtx, {
 var wfColors = isDark
     ? ['#3B82F6','#F43F5E','#06B6D4','#F59E0B','#A78BFA','#22C55E']
     : ['#2563eb','#e11d48','#0891b2','#d97706','#7c3aed','#059669'];
-var workflowChart = new Chart(document.getElementById('workflowChart'), {
-    type: 'bar',
-    data: {
-        labels: @json($workflowData['labels']),
-        datasets: [{
-            label: 'Completed',
-            data: @json($workflowData['data']),
-            backgroundColor: wfColors,
-            borderRadius: 6,
-            borderSkipped: false,
-        }]
-    },
-    options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        indexAxis: 'y',
-        scales: {
-            x: { beginAtZero: true, grid: { color: ct.gridColor, drawTicks: false }, ticks: { color: ct.textColor, stepSize: 1, padding: 8 }, border: { display: false } },
-            y: { grid: { display: false }, ticks: { color: ct.textColor, font: { size: 11 }, padding: 6 }, border: { display: false } }
+var workflowChartEl = document.getElementById('workflowChart');
+if (workflowChartEl) {
+    var workflowChart = new Chart(workflowChartEl, {
+        type: 'bar',
+        data: {
+            labels: @json($workflowData['labels']),
+            datasets: [{
+                label: 'Completed',
+                data: @json($workflowData['data']),
+                backgroundColor: wfColors,
+                borderRadius: 6,
+                borderSkipped: false,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            indexAxis: 'y',
+            scales: {
+                x: { beginAtZero: true, grid: { color: ct.gridColor, drawTicks: false }, ticks: { color: ct.textColor, stepSize: 1, padding: 8 }, border: { display: false } },
+                y: { grid: { display: false }, ticks: { color: ct.textColor, font: { size: 11 }, padding: 6 }, border: { display: false } }
+            }
         }
-    }
-});
+    });
+}
 
 var catColors = isDark
     ? ['#3B82F6','#F43F5E','#06B6D4','#F59E0B','#A78BFA','#22C55E','#EF4444','#60A5FA','#FB923C','#94A3B8']

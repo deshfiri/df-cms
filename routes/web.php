@@ -464,6 +464,7 @@ Route::middleware(['auth'])->group(function () {
         Route::put('{flow}', [FlowController::class, 'update'])->name('update');
         Route::delete('{flow}', [FlowController::class, 'destroy'])->name('destroy');
         Route::post('{flow}/toggle', [FlowController::class, 'toggleActive'])->name('toggle');
+        Route::post('{flow}/set-lead', [FlowController::class, 'setLead'])->name('set-lead');
         Route::post('{flow}/stages', [FlowController::class, 'storeStage'])->name('stages.store');
         Route::post('{flow}/reorder', [FlowController::class, 'reorderStages'])->name('reorder');
         Route::put('stages/{stage}', [FlowController::class, 'updateStage'])->name('stages.update');

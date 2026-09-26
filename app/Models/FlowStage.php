@@ -6,10 +6,20 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Cache;
 
 class FlowStage extends Model
 {
     protected $fillable = ['flow_id', 'name', 'position'];
+
+    /** Adding, renaming or removing a stage changes the dashboard's workflow widgets when this is the lead flow. */
+    protected static function booted(): void
+    {
+        $flush = fn () => Cache::forget('dash.workflow_completion') + Cache::forget('dash.pipeline_segments');
+
+        static::saved($flush);
+        static::deleted($flush);
+    }
 
     public function flow(): BelongsTo
     {

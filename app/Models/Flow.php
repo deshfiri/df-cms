@@ -6,16 +6,26 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Cache;
 
 class Flow extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = ['name', 'description', 'is_active', 'client_visible', 'created_by'];
+    protected $fillable = ['name', 'description', 'is_active', 'client_visible', 'is_lead', 'created_by'];
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean', 'client_visible' => 'boolean'];
+        return ['is_active' => 'boolean', 'client_visible' => 'boolean', 'is_lead' => 'boolean'];
+    }
+
+    /** Switching which flow is lead — or deleting it — changes what the dashboard's workflow widgets show. */
+    protected static function booted(): void
+    {
+        $flush = fn () => Cache::forget('dash.workflow_completion') + Cache::forget('dash.pipeline_segments');
+
+        static::saved($flush);
+        static::deleted($flush);
     }
 
     public function stages(): HasMany

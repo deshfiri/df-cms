@@ -21,6 +21,9 @@
                     <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
                         <div class="min-w-0">
                             <a href="{{ route('workflows.show', $flow) }}" class="fw-bold text-decoration-none" style="color:var(--text);font-size:.95rem">{{ $flow->name }}</a>
+                            @if($flow->is_lead)
+                                <span class="spill spill-running" style="font-size:.6rem"><i class="bi bi-star-fill me-1"></i>Lead</span>
+                            @endif
                             <div style="font-size:.72rem;color:var(--text3)">
                                 {{ $flow->stages_count }} stage(s) · {{ $flow->items_count }} item(s)
                                 @unless($flow->client_visible)
@@ -38,6 +41,7 @@
                     <div class="d-flex gap-2">
                         <a href="{{ route('workflows.show', $flow) }}" class="btn btn-sm btn-primary flex-fill"><i class="bi bi-diagram-3 me-1"></i>Build</a>
                         <a href="{{ route('workflows.items', ['flow' => $flow->id]) }}" class="btn btn-sm btn-outline-secondary" title="Items"><i class="bi bi-list-task"></i></a>
+                        <button class="btn btn-sm {{ $flow->is_lead ? 'btn-warning' : 'btn-outline-secondary' }} flow-set-lead" data-id="{{ $flow->id }}" title="{{ $flow->is_lead ? 'Unset as lead workflow' : 'Set as lead workflow — shown on the dashboard' }}"><i class="bi {{ $flow->is_lead ? 'bi-star-fill' : 'bi-star' }}"></i></button>
                         <button class="btn btn-sm btn-outline-secondary flow-edit" data-id="{{ $flow->id }}" data-name="{{ e($flow->name) }}" data-desc="{{ e($flow->description) }}" data-client-visible="{{ $flow->client_visible ? 1 : 0 }}" title="Edit"><i class="bi bi-pencil"></i></button>
                         <button class="btn btn-sm btn-outline-danger flow-delete" data-id="{{ $flow->id }}" title="Delete"><i class="bi bi-trash"></i></button>
                     </div>
@@ -121,6 +125,9 @@
     });
     $(document).on('click', '.flow-status', function () {
         $.post('/workflows/' + $(this).data('id') + '/toggle').done(() => location.reload()).fail(fail);
+    });
+    $(document).on('click', '.flow-set-lead', function () {
+        $.post('/workflows/' + $(this).data('id') + '/set-lead').done(() => location.reload()).fail(fail);
     });
     $(document).on('click', '.flow-delete', function () {
         const id = $(this).data('id');
