@@ -7,6 +7,7 @@ use App\Models\Client;
 use App\Models\ClientSatisfactionRating;
 use App\Models\DailyTarget;
 use App\Models\FlowItem;
+use App\Models\FlowTransition;
 use App\Models\KpiWeightConfig;
 use App\Models\Payment;
 use App\Models\PerformanceSetting;
@@ -264,16 +265,56 @@ class PerformanceCalculationService
     {
         [$start, $end] = $this->periodBounds($period);
 
-        // assigned_to is who currently holds an open item; it's cleared to
-        // null the moment one completes (see FlowService::advance()), so a
-        // finished item is only findable by completed_by from then on —
-        // matching whichever of the two is actually set.
-        return FlowItem::query()
-            ->where(fn ($q) => $q->whereIn('assigned_to', $ids)->orWhereIn('completed_by', $ids))
+        // Every stage of a workflow item can be worked by someone different,
+        // so an open item still counts only for whoever currently holds it —
+        // it isn't "shared" until it's finished. A completed one credits
+        // everyone who ever claimed and moved it along: the creator (their
+        // move into the first stage), everyone who advanced or sent it back
+        // at any stage, and whoever's move finished it — see
+        // creditedUsersFor(). Each of them independently gets it in full.
+        $items = FlowItem::query()
             ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
-            ->get(['id', 'assigned_to', 'completed_by', 'due_date', 'status'])
-            ->groupBy(fn (FlowItem $item) => $item->completed_by ?? $item->assigned_to)
-            ->all();
+            ->where(fn ($q) => $q
+                ->whereIn('assigned_to', $ids)
+                ->orWhereHas('transitions', fn ($t) => $t->whereIn('moved_by', $ids)))
+            ->with(['transitions:id,flow_item_id,moved_by'])
+            ->get(['id', 'assigned_to', 'due_date', 'status']);
+
+        $byUser = [];
+        foreach ($items as $item) {
+            foreach (self::creditedUsersFor($item) as $userId) {
+                if ($ids->contains($userId)) {
+                    $byUser[$userId][] = $item;
+                }
+            }
+        }
+
+        return array_map(fn (array $list) => collect($list), $byUser);
+    }
+
+    /**
+     * Who one workflow item counts for.
+     *
+     * @return array<int,int>
+     */
+    private static function creditedUsersFor(FlowItem $item): array
+    {
+        if ($item->status !== FlowItem::STATUS_COMPLETED) {
+            return $item->assigned_to ? [(int) $item->assigned_to] : [];
+        }
+
+        $movers = $item->transitions->pluck('moved_by')->filter()->unique()
+            ->map(fn ($id) => (int) $id)->values();
+
+        // No transition history to credit from (imported data, or a record
+        // built directly rather than through the real claim/advance flow) —
+        // the same "nothing recorded, so credit whoever it's on record as"
+        // fallback this app already uses for a task with no involvement rows.
+        if ($movers->isEmpty() && $item->assigned_to) {
+            return [(int) $item->assigned_to];
+        }
+
+        return $movers->all();
     }
 
     // ── Task credit ──────────────────────────────────────────────────────
@@ -1058,11 +1099,14 @@ class PerformanceCalculationService
         [$start, $end] = $this->periodBounds($period);
         $dueWithin = fn ($q) => $q->whereBetween('due_date', [$start->toDateString(), $end->toDateString()]);
 
-        // Whoever currently holds an open item, plus whoever actually
-        // finished a completed one — same reasoning as loadFlowItems().
+        // Whoever currently holds an open item, plus everyone who ever
+        // claimed and moved a completed one along — same reasoning as
+        // loadFlowItems()/creditedUsersFor().
         $ids = $dueWithin(FlowItem::query())->whereNotNull('assigned_to')->distinct()->pluck('assigned_to')
-            ->merge($dueWithin(FlowItem::query())->whereNotNull('completed_by')->distinct()->pluck('completed_by'))
-            ->unique();
+            ->merge(
+                FlowTransition::whereHas('item', $dueWithin)->whereNotNull('moved_by')->distinct()->pluck('moved_by')
+            )
+            ->filter()->unique();
 
         if ($ids->isEmpty()) {
             return 0.0;

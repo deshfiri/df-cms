@@ -13,15 +13,19 @@ use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
 /**
- * FlowService::advance() clears assigned_to the instant an item completes —
- * it's "who currently holds it," not a record of who did the work. Every
- * KPI that counted "workflow items completed" filtered on assigned_to, so a
- * genuinely-completed item — reached through the real claim → advance flow,
- * not a synthetic fixture — was invisible to its own completer from the
- * moment it finished: Output Volume's Workflow Items row, and Daily Target's
- * workflow scope, both silently stayed at zero for everyone. These tests go
- * through the real FlowService, unlike the synthetic FlowItem::create()
- * fixtures elsewhere in this suite, which don't reproduce that condition.
+ * A workflow item can pass through several stages, each worked by a
+ * different person — so a completed one credits everyone who was actually
+ * party to it: the creator, everyone who claimed and moved it along (either
+ * direction), and whoever's move finished it. Each earns their own full,
+ * independent Workflow Items credit for it, feeding Output Volume and Daily
+ * Target the same way a task's own doers feed Task Completion.
+ *
+ * An item still open credits only whoever currently holds it, same as
+ * before — it isn't "shared" until it's actually done.
+ *
+ * These tests go through the real FlowService (claim/advance/sendBack),
+ * unlike the synthetic FlowItem::create() fixtures elsewhere in this suite,
+ * which don't reproduce a real transition history.
  */
 class FlowItemCompletionCreditTest extends TestCase
 {
@@ -106,5 +110,93 @@ class FlowItemCompletionCreditTest extends TestCase
         $scope = $this->performance->outputVolume($worker, '2026-09')['scopes']['workflow'];
 
         $this->assertSame(1.0, $scope['mine']);
+    }
+
+    /**
+     * The rule this whole change exists for: a workflow item can pass through
+     * several stages, each worked by a different person, and every one of
+     * them — the creator, everyone who claimed and moved it along, and
+     * whoever finally finished it — earns their own full, independent
+     * Workflow Items credit for it.
+     */
+    public function test_everyone_who_created_moved_or_finished_a_multi_stage_item_is_credited(): void
+    {
+        $creator = $this->user();
+        $first   = $this->user();
+        $second  = $this->user();
+        $third   = $this->user();
+
+        $flow = Flow::create(['name' => 'Onboarding', 'is_active' => true, 'created_by' => $creator->id]);
+        $flow->stages()->create(['name' => 'Draft', 'position' => 1])->users()->sync([$first->id]);
+        $flow->stages()->create(['name' => 'Review', 'position' => 2])->users()->sync([$second->id]);
+        $flow->stages()->create(['name' => 'Finalize', 'position' => 3])->users()->sync([$third->id]);
+
+        $item = $this->flow->createItem($flow->refresh(), ['title' => 'Item', 'due_date' => '2026-09-10'], $creator);
+        $item = $this->flow->claim($item->fresh(), $first);
+        $item = $this->flow->advance($item, $first);
+        $item = $this->flow->claim($item->fresh(), $second);
+        $item = $this->flow->advance($item, $second);
+        $item = $this->flow->claim($item->fresh(), $third);
+        $item = $this->flow->advance($item, $third);
+
+        $this->assertSame(FlowItem::STATUS_COMPLETED, $item->status);
+
+        foreach ([$creator, $first, $second, $third] as $person) {
+            $scope = $this->performance->outputVolume($person, '2026-09')['scopes']['workflow'];
+            $this->assertSame(1.0, $scope['mine'], "{$person->id} should be credited for it");
+        }
+    }
+
+    /** "next or previous stage" — sending it backward is still a move that earns credit. */
+    public function test_sending_an_item_back_a_stage_still_earns_credit_once_it_later_completes(): void
+    {
+        $creator = $this->user();
+        $first   = $this->user();
+        $second  = $this->user();
+
+        $flow = Flow::create(['name' => 'Review Flow', 'is_active' => true, 'created_by' => $creator->id]);
+        $flow->stages()->create(['name' => 'Draft', 'position' => 1])->users()->sync([$first->id]);
+        $flow->stages()->create(['name' => 'Review', 'position' => 2])->users()->sync([$second->id]);
+
+        $item = $this->flow->createItem($flow->refresh(), ['title' => 'Item', 'due_date' => '2026-09-10'], $creator);
+        $item = $this->flow->claim($item->fresh(), $first);
+        $item = $this->flow->advance($item, $first);           // Draft -> Review
+        $item = $this->flow->claim($item->fresh(), $second);
+        $item = $this->flow->sendBack($item, $second, 'Needs another pass'); // Review -> Draft
+        $item = $this->flow->advance($item->fresh(), $first);  // Draft -> Review (auto-reclaimed by first)
+        $item = $this->flow->claim($item->fresh(), $second);
+        $item = $this->flow->advance($item, $second);          // Review -> done
+
+        $this->assertSame(FlowItem::STATUS_COMPLETED, $item->status);
+
+        // Second sent it back before ultimately finishing it — one credit, not two.
+        $secondsScope = $this->performance->outputVolume($second, '2026-09')['scopes']['workflow'];
+        $this->assertSame(1.0, $secondsScope['mine']);
+
+        $firstsScope = $this->performance->outputVolume($first, '2026-09')['scopes']['workflow'];
+        $this->assertSame(1.0, $firstsScope['mine']);
+    }
+
+    public function test_an_item_still_open_credits_only_its_current_holder_not_past_movers(): void
+    {
+        $creator = $this->user();
+        $first   = $this->user();
+        $second  = $this->user();
+
+        $flow = Flow::create(['name' => 'Still Open', 'is_active' => true, 'created_by' => $creator->id]);
+        $flow->stages()->create(['name' => 'Draft', 'position' => 1])->users()->sync([$first->id]);
+        $flow->stages()->create(['name' => 'Review', 'position' => 2])->users()->sync([$second->id]);
+
+        $item = $this->flow->createItem($flow->refresh(), ['title' => 'Item', 'due_date' => '2026-09-10'], $creator);
+        $item = $this->flow->claim($item->fresh(), $first);
+        $item = $this->flow->advance($item, $first); // now sits open at Review, unclaimed
+
+        $this->assertSame(FlowItem::STATUS_OPEN, $item->status);
+
+        // Nobody who merely moved it so far is credited yet — it hasn't finished.
+        foreach ([$creator, $first] as $person) {
+            $scope = $this->performance->outputVolume($person, '2026-09')['scopes']['workflow'] ?? null;
+            $this->assertNull($scope, "{$person->id} should not be credited before the item is done");
+        }
     }
 }
