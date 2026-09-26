@@ -153,7 +153,7 @@ class PerformanceTaskCreditTest extends TestCase
         $this->assertEqualsWithDelta(5 / 9, $bashirs['credited_total'], 0.001);
     }
 
-    public function test_creating_or_reviewing_a_task_earns_no_task_credit(): void
+    public function test_creating_a_task_earns_no_credit_but_reviewing_it_earns_a_full_share(): void
     {
         $manager = $this->user('Manager', 'view tasks', 'manage tasks');
         $anika   = $this->user('Anika');
@@ -164,13 +164,104 @@ class PerformanceTaskCreditTest extends TestCase
         $this->tasks->addComment($this->create($manager, $anika), 'Use the new logo');
 
         $result = $this->score()->finalScore($manager, self::PERIOD);
-        $this->assertSame(0, $result['components']['taskCompletion']['total']);
-        $this->assertNull($result['scores']['task_completion']);
+        // Only the reviewed task counts — it's the manager's own full,
+        // independent share, on top of whoever did the work, not instead of it.
+        $this->assertSame(1, $result['components']['taskCompletion']['total']);
+        $this->assertSame(100.0, $result['scores']['task_completion']);
 
         $credit = collect($this->score()->taskCredit($manager, self::PERIOD));
-        $this->assertCount(2, $credit, 'The audit trail still lists them, to show why they did not count.');
-        $this->assertFalse($credit->contains('counted', true));
+        $this->assertCount(2, $credit, 'Both tasks the manager touched appear in the audit trail.');
         $this->assertSame(['reviewer', 'creator'], $credit->pluck('role')->all());
+        $this->assertSame([true, false], $credit->pluck('counted')->all());
+        $this->assertSame([1.0, 0.0], $credit->pluck('share')->all());
+    }
+
+    public function test_the_reviewers_own_full_share_never_reduces_the_assignees(): void
+    {
+        $manager = $this->user('Manager', 'view tasks', 'manage tasks');
+        $anika   = $this->user('Anika');
+        $done    = $this->create($manager, $anika);
+
+        $this->actingAs($anika);
+        $this->tasks->changeWorkingStatus($done, $anika, 'In Progress');
+        $this->tasks->submitForReview($done->fresh(), $anika);
+        $this->actingAs($manager);
+        $this->tasks->review($done->fresh(), $manager, true);
+
+        // The assignee keeps the exact same full share as before this change...
+        $this->assertSame(1, $this->score()->taskCompletion($anika, self::PERIOD)['total']);
+        $this->assertSame(100.0, $this->score()->taskCompletion($anika, self::PERIOD)['completion_pct']);
+
+        // ...and the reviewer independently earns their own full share of the
+        // very same task, on top rather than carved out of Anika's.
+        $managers = $this->score()->taskCompletion($manager, self::PERIOD);
+        $this->assertSame(1, $managers['total']);
+        $this->assertSame(100.0, $managers['completion_pct']);
+    }
+
+    public function test_sending_a_task_back_still_earns_the_reviewer_credit(): void
+    {
+        $manager = $this->user('Manager', 'view tasks', 'manage tasks');
+        $anika   = $this->user('Anika');
+        $task    = $this->create($manager, $anika);
+
+        $this->actingAs($anika);
+        $this->tasks->changeWorkingStatus($task, $anika, 'In Progress');
+        $this->tasks->submitForReview($task->fresh(), $anika);
+        $this->actingAs($manager);
+        $this->tasks->review($task->fresh(), $manager, false); // sent back, not accepted
+
+        $credit = collect($this->score()->taskCredit($manager, self::PERIOD));
+        $this->assertSame('reviewer', $credit->first()['role']);
+        $this->assertSame(1.0, $credit->first()['share'], 'Sending it back is still reviewing it.');
+    }
+
+    /**
+     * The load-bearing rule this change exists to protect: a reviewer who
+     * catches a real mistake and sends it back must never see that show up
+     * as a mistake on their OWN revision-rate KPI — only the assignee whose
+     * work actually needed fixing is scored on it.
+     */
+    public function test_a_reviewers_own_revision_rate_never_includes_a_task_they_only_reviewed(): void
+    {
+        $manager = $this->user('Manager', 'view tasks', 'manage tasks');
+        $anika   = $this->user('Anika');
+        $task    = $this->create($manager, $anika);
+
+        $this->actingAs($anika);
+        $this->tasks->changeWorkingStatus($task, $anika, 'In Progress');
+        $this->tasks->submitForReview($task->fresh(), $anika);
+        $this->actingAs($manager);
+        $this->tasks->review($task->fresh(), $manager, false, ['reason_category' => 'Employee Mistake']);
+
+        // Anika's own work needed fixing — this correctly counts against her.
+        $anikas = $this->score()->revisionRate($anika, self::PERIOD);
+        $this->assertSame(1, $anikas['total_submitted']);
+        $this->assertSame(1, $anikas['requiring_revision']);
+
+        // The manager reviewed (and rightly rejected) it — that must not
+        // look like a mistake, or count at all, on the manager's own rate.
+        $managers = $this->score()->revisionRate($manager, self::PERIOD);
+        $this->assertSame(0, $managers['total_submitted'], 'Nothing the manager submitted themselves, so nothing to rate.');
+        $this->assertSame(0, $managers['requiring_revision']);
+    }
+
+    public function test_a_reviewers_credit_also_counts_toward_on_time_delivery(): void
+    {
+        $manager = $this->user('Manager', 'view tasks', 'manage tasks');
+        $anika   = $this->user('Anika');
+        $task    = $this->create($manager, $anika, ['due_date' => '2026-09-20']);
+
+        $this->actingAs($anika);
+        $this->tasks->changeWorkingStatus($task, $anika, 'In Progress');
+        $this->tasks->submitForReview($task->fresh(), $anika);
+        $this->actingAs($manager);
+        $this->travelTo(Carbon::parse('2026-09-18 10:00:00'));
+        $this->tasks->review($task->fresh(), $manager, true);
+
+        $managers = $this->score()->onTimeCompletion($manager, self::PERIOD);
+        $this->assertSame(1, $managers['total_completed']);
+        $this->assertSame(100.0, $managers['on_time_rate']);
     }
 
     public function test_a_task_with_no_recorded_history_counts_in_full_for_its_assignee(): void

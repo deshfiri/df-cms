@@ -264,11 +264,15 @@ class PerformanceCalculationService
     {
         [$start, $end] = $this->periodBounds($period);
 
+        // assigned_to is who currently holds an open item; it's cleared to
+        // null the moment one completes (see FlowService::advance()), so a
+        // finished item is only findable by completed_by from then on —
+        // matching whichever of the two is actually set.
         return FlowItem::query()
-            ->whereIn('assigned_to', $ids)
+            ->where(fn ($q) => $q->whereIn('assigned_to', $ids)->orWhereIn('completed_by', $ids))
             ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
-            ->get(['id', 'assigned_to', 'due_date', 'status'])
-            ->groupBy('assigned_to')
+            ->get(['id', 'assigned_to', 'completed_by', 'due_date', 'status'])
+            ->groupBy(fn (FlowItem $item) => $item->completed_by ?? $item->assigned_to)
             ->all();
     }
 
@@ -276,9 +280,11 @@ class PerformanceCalculationService
     //
     // A task counts for a person in proportion to the work they did on it, as
     // recorded by TaskInvolvementService: whoever holds it now and anyone who
-    // contributed share it by their work points. Someone it merely passed
-    // through, whoever created it, and whoever reviewed it get no share, so it
-    // neither helps nor hurts their task KPIs.
+    // contributed share it by their work points. Whoever reviewed it — approved
+    // or sent it back — earns their own full, independent share too, on top of
+    // the doers' pool rather than out of it (see workSharesOf()). Someone it
+    // merely passed through, or whoever created it, still gets no share, so
+    // that neither helps nor hurts their task KPIs.
     //
     // Every task-based KPI is then a share-weighted rate:
     //
@@ -307,7 +313,8 @@ class PerformanceCalculationService
             ->whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
             ->where(fn ($q) => $q
                 ->whereHas('assignees', fn ($aq) => $aq->whereIn('users.id', $ids))
-                ->orWhereHas('involvements', fn ($inv) => $inv->whereIn('user_id', $ids)->where('points', '>', 0)))
+                ->orWhereHas('involvements', fn ($inv) => $inv->whereIn('user_id', $ids)
+                    ->where(fn ($iq) => $iq->where('points', '>', 0)->orWhere('review_points', '>', 0))))
             // Every count and relation here deliberately excludes "Task Giver
             // Mistake" revisions: that reason exists precisely so a mistake
             // in the brief is never held against the person who did the
@@ -339,7 +346,8 @@ class PerformanceCalculationService
     }
 
     /**
-     * Each doer's share of one task (loaded with its involvements and assignees).
+     * Each doer's share of one task (loaded with its involvements and assignees),
+     * plus a reviewer's own full share on top.
      *
      * Every current assignee is treated as a holder whatever the involvement
      * rows last recorded, so credit follows the task even if something
@@ -348,16 +356,36 @@ class PerformanceCalculationService
      * independently, since a share is a per-(user, task) number, never summed
      * across users — the direct generalization of "solo work has share 1".
      *
+     * Reviewing (approving or sending back) earns a full, independent share
+     * of its own — it never dilutes the doers' pool above, and a reviewer who
+     * also did doer work simply keeps whichever is already 1.0. It feeds Task
+     * Completion and On-Time Delivery like any other share; revisionRate()
+     * deliberately excludes it (see there) since a reviewer catching someone
+     * else's mistake must never look like a mistake on the reviewer's own
+     * record.
+     *
      * @return array<int,float>
      */
     public static function workSharesOf(Task $task): array
     {
         $holderIds = $task->assignees->pluck('id')->map(fn ($id) => (int) $id)->all();
 
-        if ($task->involvements->isEmpty()) {
-            return array_fill_keys($holderIds, 1.0);
+        $shares = $task->involvements->isEmpty()
+            ? array_fill_keys($holderIds, 1.0)
+            : self::doerSharesOf($task, $holderIds);
+
+        foreach ($task->involvements as $inv) {
+            if ((float) $inv->review_points > 0) {
+                $shares[(int) $inv->user_id] = 1.0;
+            }
         }
 
+        return $shares;
+    }
+
+    /** @param array<int,int> $holderIds */
+    private static function doerSharesOf(Task $task, array $holderIds): array
+    {
         $rows = $task->involvements->map(fn ($inv) => [
             'user_id' => (int) $inv->user_id,
             'points'  => (float) $inv->points,
@@ -378,6 +406,18 @@ class PerformanceCalculationService
         }
 
         return TaskInvolvementService::workShares($rows);
+    }
+
+    /** Whether $task's credit for $user came purely from reviewing it, not from doing any of the work. */
+    private static function isReviewOnlyCredit(Task $task, int $userId): bool
+    {
+        if ($task->assignees->contains($userId)) {
+            return false;
+        }
+
+        $inv = $task->involvements->first(fn ($i) => (int) $i->user_id === $userId);
+
+        return $inv && (float) $inv->points <= 0 && (float) $inv->review_points > 0;
     }
 
     /**
@@ -597,8 +637,13 @@ class PerformanceCalculationService
     public function revisionRate(User $user, string $period): array
     {
         // Same filter the query applied: completed work, plus anything that was
-        // sent back regardless of where it ended up.
+        // sent back regardless of where it ended up. A task credited to this
+        // user purely for reviewing it is excluded here — this KPI measures
+        // whether YOUR work needed fixing, and a reviewer who correctly sent
+        // someone else's task back must never have that look like a mistake
+        // on their own record.
         $tasks = $this->tasksFor($user, $period)
+            ->reject(fn (Task $t) => self::isReviewOnlyCredit($t, $user->id))
             ->filter(fn (Task $t) => $t->status === 'Completed' || $t->revisions_count > 0)
             ->values();
 
@@ -1011,11 +1056,13 @@ class PerformanceCalculationService
     private function computeCohortMaxWorkflowCompleted(string $period): float
     {
         [$start, $end] = $this->periodBounds($period);
+        $dueWithin = fn ($q) => $q->whereBetween('due_date', [$start->toDateString(), $end->toDateString()]);
 
-        $ids = FlowItem::whereBetween('due_date', [$start->toDateString(), $end->toDateString()])
-            ->whereNotNull('assigned_to')
-            ->distinct()
-            ->pluck('assigned_to');
+        // Whoever currently holds an open item, plus whoever actually
+        // finished a completed one — same reasoning as loadFlowItems().
+        $ids = $dueWithin(FlowItem::query())->whereNotNull('assigned_to')->distinct()->pluck('assigned_to')
+            ->merge($dueWithin(FlowItem::query())->whereNotNull('completed_by')->distinct()->pluck('completed_by'))
+            ->unique();
 
         if ($ids->isEmpty()) {
             return 0.0;

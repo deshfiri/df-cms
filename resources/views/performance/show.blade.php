@@ -435,7 +435,7 @@
                         · comment {{ \App\Services\TaskInvolvementService::WORK_POINTS['comment'] + 0 }} (max {{ \App\Services\TaskInvolvementService::CAPS['comment'] + 0 }})
                         · link or note {{ \App\Services\TaskInvolvementService::WORK_POINTS['note_added'] + 0 }} (max {{ \App\Services\TaskInvolvementService::CAPS['note_added'] + 0 }})
                         · submitted {{ \App\Services\TaskInvolvementService::WORK_POINTS['submitted'] + 0 }}.
-                        Creating, reviewing or only holding a task that passed on earns no share. Rates weight each task by its share.
+                        Creating or only holding a task that passed on earns no share. Reviewing it — approving or sending it back — earns its own full share on top, without reducing anyone else's. Rates weight each task by its share.
                         A task linked to more than one client counts extra toward all three task KPIs — double for 2 clients, triple for 3, and so on, scaled by your share of it.
                     </div>
                 @else
