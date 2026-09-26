@@ -413,7 +413,7 @@
                                                 <span class="sc-event">Reviewed</span>
                                             @endif
                                         </td>
-                                        <td class="text-end">{{ rtrim(rtrim(number_format($row['points'], 2), '0'), '.') }}</td>
+                                        <td class="text-end">{{ rtrim(rtrim(number_format($row['points'] + $row['review_points'], 2), '0'), '.') }}</td>
                                         <td>
                                             {{ round($row['share'] * 100) }}%
                                             <div class="sc-share-bar"><span style="width: {{ round($row['share'] * 100) }}%"></span></div>
@@ -434,8 +434,9 @@
                         Started {{ \App\Services\TaskInvolvementService::WORK_POINTS['started'] + 0 }} · file {{ \App\Services\TaskInvolvementService::WORK_POINTS['attachment_added'] + 0 }} (max {{ \App\Services\TaskInvolvementService::CAPS['attachment_added'] + 0 }})
                         · comment {{ \App\Services\TaskInvolvementService::WORK_POINTS['comment'] + 0 }} (max {{ \App\Services\TaskInvolvementService::CAPS['comment'] + 0 }})
                         · link or note {{ \App\Services\TaskInvolvementService::WORK_POINTS['note_added'] + 0 }} (max {{ \App\Services\TaskInvolvementService::CAPS['note_added'] + 0 }})
-                        · submitted {{ \App\Services\TaskInvolvementService::WORK_POINTS['submitted'] + 0 }}.
-                        Creating or only holding a task that passed on earns no share. Reviewing it — approving or sending it back — earns its own full share on top, without reducing anyone else's. Rates weight each task by its share.
+                        · submitted {{ \App\Services\TaskInvolvementService::WORK_POINTS['submitted'] + 0 }}
+                        · reviewed (approved or sent back) {{ \App\Services\TaskInvolvementService::REVIEW_POINTS['approved'] + 0 }}.
+                        Creating or only holding a task that passed on earns no share. Reviewing it — approving or sending it back — earns its own points and its own full share on top, without reducing anyone else's. Rates weight each task by its share.
                         A task linked to more than one client counts extra toward all three task KPIs — double for 2 clients, triple for 3, and so on, scaled by your share of it.
                     </div>
                 @else

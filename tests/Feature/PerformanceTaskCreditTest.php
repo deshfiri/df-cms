@@ -514,4 +514,35 @@ class PerformanceTaskCreditTest extends TestCase
             ->assertSee('Attachment Added +2')
             ->assertSee('44%');
     }
+
+    /**
+     * The Points column used to show the flat TaskInvolvement.points value,
+     * which is always 0 for a pure reviewer — reading as "0 points, 100%
+     * share" side by side, as if the two contradicted each other. It now
+     * includes review_points too, so a reviewer's own earned points actually
+     * show up next to their own full share.
+     */
+    public function test_the_scorecards_points_column_includes_review_points_not_just_work_points(): void
+    {
+        $manager = $this->user('Manager', 'view tasks', 'manage tasks', 'view performance');
+        $anika   = $this->user('Anika');
+        $task    = $this->create($manager, $anika);
+
+        $this->actingAs($anika);
+        $this->tasks->changeWorkingStatus($task, $anika, 'In Progress');
+        $this->tasks->submitForReview($task->fresh(), $anika);
+        $this->actingAs($manager);
+        $this->tasks->review($task->fresh(), $manager, true);
+
+        $credit = collect($this->score()->taskCredit($manager, self::PERIOD))->first();
+        $this->assertSame(0.0, $credit['points'], 'the raw work-points value is still 0 for a reviewer');
+        $this->assertSame(2.0, $credit['review_points']);
+
+        $this->actingAs($manager)
+            ->get(route('performance.show', ['user' => $manager, 'period' => self::PERIOD]))
+            ->assertOk()
+            ->assertSee('Reviewer')
+            ->assertSee('100%')
+            ->assertSee('class="text-end">2</td>', false); // the reviewer's earned points, not the old flat 0
+    }
 }
