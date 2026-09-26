@@ -3,22 +3,27 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\FlowException;
+use App\Models\DocumentType;
 use App\Models\Flow;
 use App\Models\FlowItem;
 use App\Models\FlowItemAttachment;
 use App\Models\FlowItemComment;
 use App\Models\User;
+use App\Services\DocumentService;
 use App\Services\FlowService;
 use App\Services\Storage\UploadStaging;
 use App\Services\Storage\StoredFileResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 /**
  * User side of the workflow engine — a person's own queue of items waiting on
@@ -31,6 +36,7 @@ class FlowItemController extends Controller
     public function __construct(
         private readonly FlowService $flow,
         private readonly UploadStaging $uploads,
+        private readonly DocumentService $documentService,
     ) {}
 
     public function queue(Request $request)
@@ -333,7 +339,52 @@ class FlowItemController extends Controller
         $attachment = FlowItemAttachment::create($payload);
         $this->uploads->pushLater($attachment);
 
+        if ($data['kind'] === 'file') {
+            $this->fileIntoClientDocuments($item, $file, $data['title'] ?? null);
+        }
+
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * A file attached while an item sits at its workflow's very first stage
+     * also gets filed into the client's own Documents tab, under the
+     * "Agreement" type (or "Other" if that type's been renamed or retired) —
+     * the first stage of any workflow is where a client's agreement gets
+     * settled, so whatever gets attached there also belongs in their
+     * permanent record. Best-effort and never blocks the attachment itself,
+     * same as DocumentService::mirrorToFileManager for the same reason.
+     */
+    private function fileIntoClientDocuments(FlowItem $item, UploadedFile $file, ?string $title): void
+    {
+        if (!$item->client_id) {
+            return;
+        }
+
+        $item->loadMissing('flow');
+        $firstStage = $item->flow?->firstStage();
+        if (!$firstStage || (int) $item->current_stage_id !== (int) $firstStage->id) {
+            return;
+        }
+
+        $documentType = DocumentType::where('slug', 'agreement')->where('is_active', true)->first()
+            ?? DocumentType::where('slug', 'other')->where('is_active', true)->first();
+
+        if (!$documentType) {
+            return;
+        }
+
+        try {
+            $this->documentService->uploadClientDocument($item->client, $file, [
+                'document_type_id' => $documentType->id,
+                'title'            => $title ?: pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME),
+            ]);
+        } catch (Throwable $e) {
+            Log::warning('Failed to auto-file first-stage workflow attachment into client documents', [
+                'flow_item_id' => $item->id,
+                'error'        => $e->getMessage(),
+            ]);
+        }
     }
 
     public function downloadAttachment(Request $request, FlowItem $item, FlowItemAttachment $attachment): StreamedResponse
