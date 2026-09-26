@@ -111,6 +111,10 @@ class FlowService
                     'assigned_to'      => null,
                     'status'           => FlowItem::STATUS_COMPLETED,
                     'completed_at'     => now(),
+                    // assigned_to is cleared above — this is the durable
+                    // record of who actually finished it, since nothing else
+                    // survives completion to answer that.
+                    'completed_by'     => $user->id,
                 ]);
             }
 

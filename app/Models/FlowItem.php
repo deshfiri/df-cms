@@ -15,7 +15,7 @@ class FlowItem extends Model
     public static array $priorities = ['Low', 'Normal', 'High', 'Urgent'];
 
     protected $fillable = [
-        'flow_id', 'client_id', 'current_stage_id', 'assigned_to', 'title', 'description', 'priority', 'due_date', 'status', 'created_by', 'completed_at',
+        'flow_id', 'client_id', 'current_stage_id', 'assigned_to', 'title', 'description', 'priority', 'due_date', 'status', 'created_by', 'completed_at', 'completed_by',
     ];
 
     protected function casts(): array
@@ -75,6 +75,12 @@ class FlowItem extends Model
     public function assignee(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_to');
+    }
+
+    /** Who actually finished it — set once, at completion, and never cleared. */
+    public function completer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'completed_by');
     }
 
     public function isOpen(): bool
