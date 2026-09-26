@@ -82,7 +82,7 @@ class EmployeeRequestTest extends TestCase
         $row = collect($response->json('data'))->firstWhere('subject', 'Column check');
 
         $this->assertSame('Requester Rex', $row['requester']);
-        $this->assertSame('Recipient Rae', $row['recipients']);
+        $this->assertSame('Recipient Rae <span style="color:var(--text3)">(Pending)</span>', $row['recipients']);
     }
 
     public function test_the_sidebar_offers_requests_to_everyone(): void
@@ -210,7 +210,8 @@ class EmployeeRequestTest extends TestCase
         Notification::assertSentTo($employee, RequestResolved::class);
     }
 
-    public function test_one_recipient_resolving_it_closes_it_for_the_others_too(): void
+    /** The bug this whole change exists to fix: one recipient answering must not shut the others out. */
+    public function test_one_recipients_approval_leaves_the_request_open_for_the_others(): void
     {
         $employee = $this->user();
         $a = $this->user();
@@ -221,8 +222,113 @@ class EmployeeRequestTest extends TestCase
 
         $this->actingAs($a)->postJson(route('requests.respond', $request), ['status' => 'Approved'])->assertOk();
 
-        $this->actingAs($b)->postJson(route('requests.respond', $request), ['status' => 'Rejected'])
+        $this->assertSame(EmployeeRequest::STATUS_PENDING, $request->fresh()->status, 'still waiting on b');
+
+        $this->actingAs($b)->postJson(route('requests.respond', $request), ['status' => 'Rejected'])->assertOk();
+
+        $this->assertSame(EmployeeRequest::STATUS_REJECTED, $request->fresh()->status);
+    }
+
+    public function test_it_only_becomes_approved_once_every_recipient_has_approved(): void
+    {
+        Notification::fake();
+        $employee = $this->user();
+        $a = $this->user();
+        $b = $this->user();
+
+        $this->file($employee, [$a, $b])->assertOk();
+        $request = EmployeeRequest::firstOrFail();
+
+        $this->actingAs($a)->postJson(route('requests.respond', $request), ['status' => 'Approved'])->assertOk();
+        $this->assertSame(EmployeeRequest::STATUS_PENDING, $request->fresh()->status);
+        // Not resolved yet — the requester isn't told about a partial approval.
+        Notification::assertNotSentTo($employee, RequestResolved::class);
+
+        $this->actingAs($b)->postJson(route('requests.respond', $request), ['status' => 'Approved'])->assertOk();
+
+        $this->assertSame(EmployeeRequest::STATUS_APPROVED, $request->fresh()->status);
+        Notification::assertSentTo($employee, RequestResolved::class);
+    }
+
+    public function test_a_recipient_who_already_answered_cannot_answer_again(): void
+    {
+        $employee = $this->user();
+        $a = $this->user();
+        $b = $this->user();
+
+        $this->file($employee, [$a, $b])->assertOk();
+        $request = EmployeeRequest::firstOrFail();
+
+        $this->actingAs($a)->postJson(route('requests.respond', $request), ['status' => 'Approved'])->assertOk();
+
+        $this->actingAs($a)->postJson(route('requests.respond', $request), ['status' => 'Rejected'])
             ->assertStatus(422);
+    }
+
+    public function test_a_rejection_still_closes_it_outright_for_whoever_has_not_answered_yet(): void
+    {
+        $employee = $this->user();
+        $a = $this->user();
+        $b = $this->user();
+
+        $this->file($employee, [$a, $b])->assertOk();
+        $request = EmployeeRequest::firstOrFail();
+
+        $this->actingAs($a)->postJson(route('requests.respond', $request), ['status' => 'Rejected'])->assertOk();
+        $this->assertSame(EmployeeRequest::STATUS_REJECTED, $request->fresh()->status);
+
+        $this->actingAs($b)->postJson(route('requests.respond', $request), ['status' => 'Approved'])
+            ->assertStatus(422);
+    }
+
+    /** Each recipient sees only their own name and their own answer — never who else it went to or how they answered. */
+    public function test_a_recipient_sees_only_their_own_name_and_status_not_the_others(): void
+    {
+        $employee = $this->user();
+        $a = tap($this->user())->update(['name' => 'Anika']);
+        $b = tap($this->user())->update(['name' => 'Bashir']);
+
+        $this->file($employee, [$a, $b])->assertOk();
+        $request = EmployeeRequest::firstOrFail();
+        $this->actingAs($a)->postJson(route('requests.respond', $request), ['status' => 'Approved'])->assertOk();
+
+        $row = collect(
+            $this->actingAs($b)->getJson(route('requests.index'), ['X-Requested-With' => 'XMLHttpRequest'])
+                ->assertOk()->json('data')
+        )->firstOrFail();
+
+        $this->assertSame('Bashir', $row['recipients']);
+        $this->assertStringNotContainsString('Anika', $row['recipients']);
+        $this->assertStringContainsString('Pending', $row['status_badge']);
+        $this->assertStringNotContainsString('Approved', $row['status_badge']);
+    }
+
+    /** The requester sees everyone and how each one answered, converging on "Approved by All" once they all have. */
+    public function test_the_requester_sees_every_recipients_answer_and_the_approved_by_all_label(): void
+    {
+        $employee = $this->user();
+        $a = tap($this->user())->update(['name' => 'Anika']);
+        $b = tap($this->user())->update(['name' => 'Bashir']);
+
+        $this->file($employee, [$a, $b])->assertOk();
+        $request = EmployeeRequest::firstOrFail();
+        $this->actingAs($a)->postJson(route('requests.respond', $request), ['status' => 'Approved'])->assertOk();
+
+        $row = fn () => collect(
+            $this->actingAs($employee)->getJson(route('requests.index'), ['X-Requested-With' => 'XMLHttpRequest'])
+                ->assertOk()->json('data')
+        )->firstOrFail();
+
+        $partial = $row();
+        $this->assertStringContainsString('Anika', $partial['recipients']);
+        $this->assertStringContainsString('Bashir', $partial['recipients']);
+        $this->assertStringContainsString('Approved', $partial['recipients']);
+        $this->assertStringNotContainsString('Approved by All', $partial['status_badge']);
+        $this->assertStringContainsString('Pending', $partial['status_badge']);
+
+        $this->actingAs($b)->postJson(route('requests.respond', $request), ['status' => 'Approved'])->assertOk();
+
+        $this->assertStringContainsString('Approved by All', $row()['status_badge']);
     }
 
     public function test_someone_not_sent_the_request_cannot_respond(): void

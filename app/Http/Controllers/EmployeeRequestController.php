@@ -49,8 +49,9 @@ class EmployeeRequestController extends Controller
     {
         $this->authorize('respond', $employeeRequest);
 
-        if ($employeeRequest->status !== EmployeeRequest::STATUS_PENDING) {
-            return response()->json(['message' => 'This request has already been reviewed.'], 422);
+        $employeeRequest->loadMissing('recipients');
+        if ($reason = $employeeRequest->respondBlockerFor($request->user())) {
+            return response()->json(['message' => $reason], 422);
         }
 
         $data = $request->validate([
@@ -96,16 +97,56 @@ class EmployeeRequestController extends Controller
             ->addIndexColumn()
             ->addColumn('subject', fn(EmployeeRequest $r) => e($r->subject))
             ->addColumn('requester', fn(EmployeeRequest $r) => e($r->requestedBy->name ?? '-'))
-            ->addColumn('recipients', fn(EmployeeRequest $r) => e($r->recipients->pluck('name')->implode(', ')))
+            ->addColumn('recipients', fn(EmployeeRequest $r) => $this->recipientsColumn($r, $user))
             ->addColumn('client', fn(EmployeeRequest $r) => e($r->client->client_name ?? '-'))
-            ->addColumn('status_badge', fn(EmployeeRequest $r) => $this->statusBadge($r->status))
+            ->addColumn('status_badge', fn(EmployeeRequest $r) => $this->statusBadgeFor($r, $user))
             ->addColumn('created', fn(EmployeeRequest $r) => $r->created_at->format('d M Y'))
             ->addColumn('actions', fn(EmployeeRequest $r) => $this->actionButtons($r, $user))
-            ->rawColumns(['status_badge', 'actions'])
+            ->rawColumns(['recipients', 'status_badge', 'actions'])
             ->make(true);
     }
 
-    private function statusBadge(string $status): string
+    /**
+     * The requester sees everyone it went to and each one's own answer, so
+     * they can tell who's still holding it up. A recipient sees only their
+     * own name — not who else it was sent to or how anyone else answered.
+     */
+    private function recipientsColumn(EmployeeRequest $r, User $user): string
+    {
+        if ((int) $r->requested_by === (int) $user->id) {
+            return $r->recipients
+                ->map(fn ($u) => e($u->name) . ' <span style="color:var(--text3)">(' . e($u->pivot->status) . ')</span>')
+                ->implode(', ');
+        }
+
+        $mine = $r->recipients->firstWhere('id', $user->id);
+
+        return $mine ? e($mine->name) : '-';
+    }
+
+    /**
+     * The requester sees the request's overall outcome — worded "Approved by
+     * All" once every recipient has, so it reads as unanimous rather than a
+     * single person's call. A recipient sees only their own personal answer,
+     * never the aggregate or anyone else's.
+     */
+    private function statusBadgeFor(EmployeeRequest $r, User $user): string
+    {
+        if ((int) $r->requested_by === (int) $user->id) {
+            $label = $r->status === EmployeeRequest::STATUS_APPROVED && $r->recipients->count() > 1
+                ? 'Approved by All'
+                : $r->status;
+
+            return $this->statusBadge($r->status, $label);
+        }
+
+        $mine = $r->recipients->firstWhere('id', $user->id);
+        $status = $mine->pivot->status ?? EmployeeRequest::STATUS_PENDING;
+
+        return $this->statusBadge($status, $status);
+    }
+
+    private function statusBadge(string $status, ?string $label = null): string
     {
         $map = [
             EmployeeRequest::STATUS_PENDING => 'spill-pending',
@@ -113,15 +154,15 @@ class EmployeeRequestController extends Controller
             EmployeeRequest::STATUS_REJECTED => 'spill-rejected',
         ];
 
-        return '<span class="spill ' . ($map[$status] ?? 'spill-pending') . '">' . e($status) . '</span>';
+        return '<span class="spill ' . ($map[$status] ?? 'spill-pending') . '">' . e($label ?? $status) . '</span>';
     }
 
-    private function actionButtons(EmployeeRequest $r, $user): string
+    private function actionButtons(EmployeeRequest $r, User $user): string
     {
         $isRecipient = $r->recipients->contains($user->id);
         $html = '<button class="btn btn-sm px-2 py-1 req-view" data-id="' . $r->id . '" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="View"><i class="bi bi-eye"></i></button> ';
 
-        if ($isRecipient && $r->status === EmployeeRequest::STATUS_PENDING) {
+        if ($isRecipient && $r->respondBlockerFor($user) === null) {
             $html .= '<button class="btn btn-sm px-2 py-1 req-approve" data-id="' . $r->id . '" style="background:rgba(5,150,105,.08);border:1px solid rgba(5,150,105,.2);color:#059669" title="Approve"><i class="bi bi-check-lg"></i></button> '
                 . '<button class="btn btn-sm px-2 py-1 req-reject" data-id="' . $r->id . '" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#dc2626" title="Reject"><i class="bi bi-x-lg"></i></button> ';
         }
