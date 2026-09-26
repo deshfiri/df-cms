@@ -82,6 +82,9 @@ class DatabaseSeeder extends Seeder
             // Bug Reports: who reviews and resolves what staff report about
             // the system. Filing one needs no permission at all.
             'manage bug reports',
+            // Company-wide activity log — every module's audit trail in one
+            // place, not just a client's own tab.
+            'view activity log',
         ];
 
         foreach ($permissions as $perm) {
@@ -128,6 +131,7 @@ class DatabaseSeeder extends Seeder
         $roles['Manager'][] = 'create chat groups';
         $roles['Manager'][] = 'manage all tasks';
         $roles['Manager'][] = 'manage document types';
+        $roles['Manager'][] = 'view activity log';
         array_push($roles['Manager'], 'request refunds', 'approve refunds', 'process refunds');
         array_push($roles['Accounts'], 'request refunds', 'process refunds');
 

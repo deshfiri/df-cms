@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Models\EmployeeRequest;
+use App\Models\EmployeeRequestForward;
 use App\Models\User;
+use App\Notifications\RequestForwarded;
 use App\Notifications\RequestResolved;
 use App\Notifications\RequestSubmitted;
 use Illuminate\Support\Facades\DB;
@@ -95,6 +97,50 @@ class EmployeeRequestService
             }
 
             return $locked->fresh(['recipients']);
+        });
+    }
+
+    /**
+     * $from hands their own copy of this request to $to instead of
+     * answering it: $to takes over $from's recipient slot (same pending
+     * status, note and responded_at wiped), and the hand-off itself is
+     * recorded in employee_request_forwards so the chain back to whoever
+     * originally held it — "Ahsan -> Moulin -> Salman" — can always be
+     * rebuilt (see EmployeeRequest::chainFor()). All business-rule checks
+     * (still pending, $from is really a current recipient, $to isn't
+     * already one) are the controller's job, via forwardBlockerFor() and
+     * the same validation shape respond() already uses.
+     */
+    public function forward(EmployeeRequest $request, User $from, User $to, ?string $note): EmployeeRequest
+    {
+        return DB::transaction(function () use ($request, $from, $to, $note) {
+            $locked = EmployeeRequest::whereKey($request->id)->lockForUpdate()->firstOrFail();
+
+            $locked->recipients()->detach($from->id);
+            $locked->recipients()->attach($to->id, [
+                'status' => EmployeeRequest::STATUS_PENDING, 'note' => null, 'responded_at' => null,
+            ]);
+
+            EmployeeRequestForward::create([
+                'employee_request_id' => $locked->id,
+                'from_user_id' => $from->id,
+                'to_user_id' => $to->id,
+                'note' => $note,
+            ]);
+
+            $this->activityLog->log(
+                'Request',
+                'Forwarded',
+                $locked->client_id,
+                null,
+                ['subject' => $locked->subject, 'from' => $from->id, 'to' => $to->id]
+            );
+
+            if ($to->is_active) {
+                $to->notify(new RequestForwarded($locked, $from));
+            }
+
+            return $locked->fresh(['recipients', 'forwards.fromUser:id,name', 'forwards.toUser:id,name']);
         });
     }
 

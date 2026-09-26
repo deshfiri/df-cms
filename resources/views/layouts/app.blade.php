@@ -446,6 +446,13 @@
                     <i class="bi bi-graph-up-arrow"></i><span class="sb-lbl">Performance</span>
                 </a>
             @endcan
+            @can('view activity log')
+                <a href="{{ route('activity-log.index') }}"
+                    class="sb-link {{ request()->routeIs('activity-log.*') ? 'active' : '' }}" title="Activity Log"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-clock-history"></i><span class="sb-lbl">Activity Log</span>
+                </a>
+            @endcan
             {{-- Communication: internal staff chat and customer WhatsApp are two
                  separate systems that happen to sit next to each other. They share
                  no route, no table and no unread counter. --}}

@@ -49,6 +49,12 @@ class EmployeeRequestPolicy
         return $employeeRequest->recipients->contains($user->id);
     }
 
+    /** Same authorization as respond() — forwarding is the other thing a recipient may do instead of answering. */
+    public function forward(User $user, EmployeeRequest $employeeRequest): bool
+    {
+        return $employeeRequest->recipients->contains($user->id);
+    }
+
     /** Withdrawing your own request, while it is still waiting. Not a recipient's call. */
     public function delete(User $user, EmployeeRequest $employeeRequest): bool
     {

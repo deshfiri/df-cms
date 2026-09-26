@@ -64,6 +64,38 @@ class EmployeeRequestController extends Controller
         return response()->json(['success' => true, 'request' => $updated]);
     }
 
+    public function forward(Request $request, EmployeeRequest $employeeRequest): JsonResponse
+    {
+        $this->authorize('forward', $employeeRequest);
+
+        $employeeRequest->loadMissing('recipients');
+        if ($reason = $employeeRequest->forwardBlockerFor($request->user())) {
+            return response()->json(['message' => $reason], 422);
+        }
+
+        $data = $request->validate([
+            'to_user_id' => ['required', 'integer', 'exists:users,id'],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $toUserId = (int) $data['to_user_id'];
+
+        if ($toUserId === (int) $request->user()->id) {
+            return response()->json(['message' => 'Choose someone else to forward this to.'], 422);
+        }
+        if ($employeeRequest->recipients->contains($toUserId)) {
+            return response()->json(['message' => 'That person already has this request.'], 422);
+        }
+        if ((int) $employeeRequest->requested_by === $toUserId) {
+            return response()->json(['message' => 'You cannot forward a request back to whoever filed it.'], 422);
+        }
+
+        $to = User::findOrFail($toUserId);
+        $updated = $this->service->forward($employeeRequest, $request->user(), $to, $data['note'] ?? null);
+
+        return response()->json(['success' => true, 'request' => $updated]);
+    }
+
     public function destroy(EmployeeRequest $employeeRequest): JsonResponse
     {
         $this->authorize('delete', $employeeRequest);
@@ -76,7 +108,10 @@ class EmployeeRequestController extends Controller
     {
         $user = $request->user();
 
-        $query = EmployeeRequest::query()->with(['requestedBy:id,name', 'client:id,client_name', 'recipients:id,name']);
+        $query = EmployeeRequest::query()->with([
+            'requestedBy:id,name', 'client:id,client_name', 'recipients:id,name',
+            'forwards.fromUser:id,name', 'forwards.toUser:id,name',
+        ]);
 
         // What you may see at all: your own, or one sent to you. "manage
         // requests" plays no part in this any more — see EmployeeRequestPolicy.
@@ -110,18 +145,34 @@ class EmployeeRequestController extends Controller
      * The requester sees everyone it went to and each one's own answer, so
      * they can tell who's still holding it up. A recipient sees only their
      * own name — not who else it was sent to or how anyone else answered.
+     * Whoever's slot was forwarded at least once shows the whole hand-off
+     * chain ("Ahsan -> Moulin -> Salman") instead of just the current holder.
      */
     private function recipientsColumn(EmployeeRequest $r, User $user): string
     {
         if ((int) $r->requested_by === (int) $user->id) {
             return $r->recipients
-                ->map(fn ($u) => e($u->name) . ' <span style="color:var(--text3)">(' . e($u->pivot->status) . ')</span>')
+                ->map(fn ($u) => $this->chainLabel($r, $u->id) . ' <span style="color:var(--text3)">(' . e($u->pivot->status) . ')</span>')
                 ->implode(', ');
         }
 
         $mine = $r->recipients->firstWhere('id', $user->id);
 
-        return $mine ? e($mine->name) : '-';
+        return $mine ? $this->chainLabel($r, $mine->id) : '-';
+    }
+
+    /** "Ahsan -> Moulin -> Salman" for a slot that's been forwarded, or just the one name for a slot that hasn't. */
+    private function chainLabel(EmployeeRequest $r, int $currentUserId): string
+    {
+        $chain = $r->chainFor($currentUserId);
+
+        if (count($chain) <= 1) {
+            return e($r->recipients->firstWhere('id', $currentUserId)?->name ?? '');
+        }
+
+        $names = User::whereIn('id', $chain)->pluck('name', 'id');
+
+        return collect($chain)->map(fn ($id) => e($names[$id] ?? '?'))->implode(' <i class="bi bi-arrow-right" style="font-size:.6rem"></i> ');
     }
 
     /**
@@ -164,7 +215,8 @@ class EmployeeRequestController extends Controller
 
         if ($isRecipient && $r->respondBlockerFor($user) === null) {
             $html .= '<button class="btn btn-sm px-2 py-1 req-approve" data-id="' . $r->id . '" style="background:rgba(5,150,105,.08);border:1px solid rgba(5,150,105,.2);color:#059669" title="Approve"><i class="bi bi-check-lg"></i></button> '
-                . '<button class="btn btn-sm px-2 py-1 req-reject" data-id="' . $r->id . '" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#dc2626" title="Reject"><i class="bi bi-x-lg"></i></button> ';
+                . '<button class="btn btn-sm px-2 py-1 req-reject" data-id="' . $r->id . '" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#dc2626" title="Reject"><i class="bi bi-x-lg"></i></button> '
+                . '<button class="btn btn-sm px-2 py-1 req-forward" data-id="' . $r->id . '" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="Forward to someone else"><i class="bi bi-send"></i></button> ';
         }
 
         if ($r->status === EmployeeRequest::STATUS_PENDING && $r->requested_by === $user->id) {

@@ -48,9 +48,42 @@ class EmployeeRequest extends Model
             ->withPivot(['status', 'note', 'responded_at']);
     }
 
+    /** Every hand-off ever recorded on this request, in the order they happened. */
+    public function forwards()
+    {
+        return $this->hasMany(EmployeeRequestForward::class)->orderBy('created_at');
+    }
+
     public function scopePending($query)
     {
         return $query->where('status', self::STATUS_PENDING);
+    }
+
+    /**
+     * The full hand-off chain ending at $currentUserId, oldest first — e.g.
+     * [Ahsan, Moulin, Salman] once Ahsan forwarded to Moulin who forwarded to
+     * Salman. Walks forwards() backward from $currentUserId (who received
+     * it last) to whoever originally held it (who received it from nobody).
+     * $this->forwards must already be loaded — this never queries itself, so
+     * it's cheap to call once per recipient row in a list.
+     *
+     * @return array<int,int> user ids, oldest first
+     */
+    public function chainFor(int $currentUserId): array
+    {
+        $byRecipient = $this->forwards->keyBy('to_user_id');
+        $chain = [$currentUserId];
+        $cursor = $currentUserId;
+
+        // A request can only ever be forwarded as many times as it has
+        // recipients + forwards, so this loop is naturally bounded; the count
+        // guard is just a hard stop against a corrupt/cyclical row.
+        for ($i = 0; $i < 50 && $byRecipient->has($cursor); $i++) {
+            $cursor = (int) $byRecipient->get($cursor)->from_user_id;
+            array_unshift($chain, $cursor);
+        }
+
+        return $chain;
     }
 
     /**
@@ -73,6 +106,32 @@ class EmployeeRequest extends Model
 
         if ($mine && $mine->pivot->status !== self::STATUS_PENDING) {
             return 'You already responded to this request — waiting on the other recipient(s).';
+        }
+
+        return null;
+    }
+
+    /**
+     * Why $user personally can't forward this on right now — null means they
+     * can. Same "is it still open, and is this your own unanswered copy"
+     * shape as respondBlockerFor(), since forwarding is just the other thing
+     * a still-pending recipient may do instead of answering.
+     */
+    public function forwardBlockerFor(User $user): ?string
+    {
+        if ($this->status !== self::STATUS_PENDING) {
+            return $this->status === self::STATUS_REJECTED
+                ? 'This request has already been rejected.'
+                : 'This request has already been approved by everyone.';
+        }
+
+        $mine = $this->recipients->firstWhere('id', $user->id);
+
+        if (!$mine) {
+            return 'You are not a recipient of this request.';
+        }
+        if ($mine->pivot->status !== self::STATUS_PENDING) {
+            return 'You already responded to this request — it can no longer be forwarded.';
         }
 
         return null;

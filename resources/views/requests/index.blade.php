@@ -120,6 +120,39 @@
         </div>
     </div>
 </div>
+
+{{-- Forward Request Modal --}}
+<div class="modal fade" id="forwardRequestModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-3">
+                <h6 class="modal-title fw-bold">Forward This Request</h6>
+                <button class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="fwdRequestId">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Forward To <span class="text-danger">*</span></label>
+                    <select id="fwdToUser" class="form-select select2" style="width:100%">
+                        <option value="">Choose someone...</option>
+                        @foreach($users as $u)
+                        <option value="{{ $u->id }}">{{ $u->name }}</option>
+                        @endforeach
+                    </select>
+                    <span style="font-size:.68rem;color:var(--text3)">They'll take over your copy of this request; your name stays on record as who it passed through.</span>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small">Note (optional)</label>
+                    <textarea id="fwdNote" class="form-control" rows="2" placeholder="Why you're passing this along..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button id="saveForward" class="btn btn-sm btn-primary"><i class="bi bi-send me-1"></i>Forward</button>
+            </div>
+        </div>
+    </div>
+</div>
 @endsection
 
 @push('scripts')
@@ -131,6 +164,10 @@ $(function () {
     $('#reqRecipients').select2({
         theme: 'bootstrap-5', width: '100%', placeholder: 'Who should this go to?',
         dropdownParent: $('#newRequestModal'),
+    });
+    $('#fwdToUser').select2({
+        theme: 'bootstrap-5', width: '100%', placeholder: 'Choose someone...',
+        dropdownParent: $('#forwardRequestModal'),
     });
 });
 
@@ -253,6 +290,34 @@ $(document).on('click', '.req-reject', function () {
         .done(function () { window.reqTable.ajax.reload(); Swal.fire({ icon: 'success', title: 'Rejected', timer: 1200, showConfirmButton: false }); })
         .fail(function (x) { Swal.fire('Error', x.responseJSON?.message || 'Could not reject.', 'error'); });
     });
+});
+
+$(document).on('click', '.req-forward', function () {
+    $('#fwdRequestId').val($(this).data('id'));
+    $('#fwdToUser').val('').trigger('change');
+    $('#fwdNote').val('');
+    new bootstrap.Modal('#forwardRequestModal').show();
+});
+
+$('#saveForward').on('click', function () {
+    const id = $('#fwdRequestId').val();
+    const toUserId = $('#fwdToUser').val();
+    const note = $('#fwdNote').val().trim();
+
+    if (!toUserId) {
+        Swal.fire('Missing', 'Choose who to forward this to.', 'warning');
+        return;
+    }
+
+    $.post('{{ url("requests") }}/' + id + '/forward', { to_user_id: toUserId, note: note })
+        .done(function () {
+            bootstrap.Modal.getInstance('#forwardRequestModal').hide();
+            window.reqTable.ajax.reload();
+            Swal.fire({ icon: 'success', title: 'Forwarded', timer: 1200, showConfirmButton: false });
+        })
+        .fail(function (xhr) {
+            Swal.fire('Error', xhr.responseJSON?.message || 'Could not forward this request.', 'error');
+        });
 });
 
 $(document).on('click', '.req-delete', function () {

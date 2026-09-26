@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\AdCampaignController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\CategoryController;
@@ -291,6 +292,11 @@ Route::middleware(['auth'])->group(function () {
         ->only(['index', 'store', 'destroy'])
         ->parameters(['requests' => 'employeeRequest']);
     Route::post('requests/{employeeRequest}/respond', [EmployeeRequestController::class, 'respond'])->name('requests.respond');
+    Route::post('requests/{employeeRequest}/forward', [EmployeeRequestController::class, 'forward'])->name('requests.forward');
+
+    // Company-wide activity log (standalone) — permission-gated in the controller.
+    Route::get('activity-log', [ActivityLogController::class, 'index'])->name('activity-log.index');
+    Route::get('activity-log/{activityLog}', [ActivityLogController::class, 'show'])->name('activity-log.show');
 
     // Bug / issue reports (standalone)
     Route::resource('bug-reports', BugReportController::class)
