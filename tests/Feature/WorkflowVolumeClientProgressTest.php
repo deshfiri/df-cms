@@ -10,6 +10,7 @@ use App\Services\FlowService;
 use App\Services\Performance\PerformanceCalculationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
+use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 /**
@@ -33,13 +34,19 @@ class WorkflowVolumeClientProgressTest extends TestCase
     {
         parent::setUp();
         Notification::fake();
+        Permission::firstOrCreate(['name' => 'view clients', 'guard_name' => 'web']);
         $this->flow = app(FlowService::class);
         $this->performance = app(PerformanceCalculationService::class);
     }
 
+    /**
+     * The client-progress needle this whole file exercises is a client-handling
+     * concept, so these workers carry 'view clients' — see
+     * WorkflowVolumeNoClientAccessTest for the same scenarios without it.
+     */
     private function user(): User
     {
-        return User::factory()->create(['is_active' => true]);
+        return tap(User::factory()->create(['is_active' => true]))->givePermissionTo('view clients')->fresh();
     }
 
     private function client(): Client

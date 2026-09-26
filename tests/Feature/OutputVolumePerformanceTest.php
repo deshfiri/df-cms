@@ -149,7 +149,8 @@ class OutputVolumePerformanceTest extends TestCase
 
     public function test_the_scorecard_shows_every_applicable_scope(): void
     {
-        $sam = User::factory()->create(['is_active' => true]);
+        Permission::firstOrCreate(['name' => 'view clients', 'guard_name' => 'web']);
+        $sam = tap(User::factory()->create(['is_active' => true]))->givePermissionTo('view clients')->fresh();
         $this->task($sam);
         $this->flowItem($sam);
         $this->clientFor($sam);

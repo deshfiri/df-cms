@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Performance\PerformanceCalculationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 /**
@@ -44,8 +45,15 @@ class OutputVolumeScoringTest extends TestCase
     {
         parent::setUp();
         $this->travelTo(Carbon::parse('2026-09-20 12:00:00'));
+        Permission::firstOrCreate(['name' => 'view clients', 'guard_name' => 'web']);
         $this->manager = User::factory()->create(['is_active' => true]);
         $this->flow    = Flow::create(['name' => 'Test Flow', 'is_active' => true]);
+    }
+
+    /** The Client Handling scope is a client-permission concept — see WorkflowVolumeNoClientAccessTest. */
+    private function clientHandler(): User
+    {
+        return tap(User::factory()->create(['is_active' => true]))->givePermissionTo('view clients')->fresh();
     }
 
     private function flowItems(User $assignee, int $count, string $status = FlowItem::STATUS_COMPLETED): void
@@ -136,8 +144,8 @@ class OutputVolumeScoringTest extends TestCase
 
     public function test_the_client_handling_scope_measures_portfolio_size_against_the_leader(): void
     {
-        $leader = User::factory()->create(['is_active' => true]);
-        $mine   = User::factory()->create(['is_active' => true]);
+        $leader = $this->clientHandler();
+        $mine   = $this->clientHandler();
         $this->clientsFor($leader, 4);
         $this->clientsFor($mine, 1);
 
@@ -154,7 +162,7 @@ class OutputVolumeScoringTest extends TestCase
         // Portfolio is a standing assignment, not something that happened
         // this month — it should read the same regardless of which period
         // is being scored.
-        $user = User::factory()->create(['is_active' => true]);
+        $user = $this->clientHandler();
         $this->clientsFor($user, 3);
 
         $calc = app(PerformanceCalculationService::class);
@@ -197,8 +205,8 @@ class OutputVolumeScoringTest extends TestCase
 
     public function test_the_overall_score_is_the_average_of_every_applicable_scope(): void
     {
-        $leader = User::factory()->create(['is_active' => true]);
-        $mine   = User::factory()->create(['is_active' => true]);
+        $leader = $this->clientHandler();
+        $mine   = $this->clientHandler();
 
         $this->flowItems($leader, 4);
         $this->flowItems($mine, 2); // 50%
@@ -222,8 +230,8 @@ class OutputVolumeScoringTest extends TestCase
      */
     public function test_every_scopes_cohort_is_company_wide_even_when_prefetch_covers_a_subset(): void
     {
-        $inFilter    = User::factory()->create(['is_active' => true]);
-        $outOfFilter = User::factory()->create(['is_active' => true]); // the real leader, outside the prefetch
+        $inFilter    = $this->clientHandler();
+        $outOfFilter = $this->clientHandler(); // the real leader, outside the prefetch
 
         $this->flowItems($inFilter, 1);
         $this->flowItems($outOfFilter, 5);

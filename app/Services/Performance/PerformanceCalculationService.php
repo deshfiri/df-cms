@@ -30,6 +30,9 @@ class PerformanceCalculationService
     /** Request-lifetime memo: one query per distinct client, however many employees' workflow items reference it. */
     private array $clientQualifiesCache = [];
 
+    /** Request-lifetime memo of each user's client-permission check — reused across the whole scoreboard loop. */
+    private array $clientAccessCache = [];
+
     // Request-lifetime memo of the singletons that are otherwise re-queried once
     // per employee — the scoreboard and snapshot command reuse one service
     // instance across the whole user loop, so this collapses N lookups into 1.
@@ -330,13 +333,21 @@ class PerformanceCalculationService
      * (0% doesn't count yet — see ClientProgressService). An item with no
      * client attached (pure internal work) has no such needle to check
      * against, so it still counts on its own, same as before.
+     *
+     * That progress needle is a client-handling concept: someone without
+     * client permission never sees or manages a client's overall progress,
+     * so gating their credit on it would dock them for something outside
+     * their role. For them, every distinct client a flow item is linked to
+     * counts as soon as they've touched it, same as a standalone item.
      */
-    private function workflowVolumeCount(\Illuminate\Support\Collection $items): int
+    private function workflowVolumeCount(\Illuminate\Support\Collection $items, User $user): int
     {
         $clientIds = $items->pluck('client_id')->filter()->unique();
         $standalone = $items->whereNull('client_id')->count();
 
-        $qualifyingClients = $clientIds->filter(fn ($id) => $this->clientQualifies((int) $id))->count();
+        $qualifyingClients = $this->hasClientAccess($user)
+            ? $clientIds->filter(fn ($id) => $this->clientQualifies((int) $id))->count()
+            : $clientIds->count();
 
         return $qualifyingClients + $standalone;
     }
@@ -351,6 +362,12 @@ class PerformanceCalculationService
         }
 
         return $this->clientQualifiesCache[$clientId];
+    }
+
+    /** Whether $user can see/manage clients at all — the gate on every client-driven KPI input. */
+    private function hasClientAccess(User $user): bool
+    {
+        return $this->clientAccessCache[$user->id] ??= $user->hasAnyPermission(['view clients', 'manage clients']);
     }
 
     /**
@@ -1104,7 +1121,7 @@ class PerformanceCalculationService
             // completion rate (that's Task Completion's job). See
             // workflowVolumeCount() for how a client-linked item is counted.
             $scopes['workflow'] = $this->volumeScope(
-                $this->workflowVolumeCount($flowItems),
+                $this->workflowVolumeCount($flowItems, $user),
                 $this->cohortMaxWorkflowTouched($period),
             );
         }
@@ -1167,9 +1184,14 @@ class PerformanceCalculationService
             return 0.0;
         }
 
+        $usersById = User::whereIn('id', $ids)->with('roles.permissions', 'permissions')->get()->keyBy('id');
+
         $max = 0.0;
-        foreach ($this->loadFlowItems($ids, $period) as $items) {
-            $max = max($max, $this->workflowVolumeCount($items));
+        foreach ($this->loadFlowItems($ids, $period) as $userId => $items) {
+            $user = $usersById->get($userId);
+            if ($user) {
+                $max = max($max, $this->workflowVolumeCount($items, $user));
+            }
         }
 
         return $max;
@@ -1182,10 +1204,17 @@ class PerformanceCalculationService
      * with nothing to show this period is out of Client Care but still
      * counts here on portfolio size alone. Not period-scoped, since a
      * portfolio is a standing assignment, not something that happened in a
-     * given month. Null (not zero) when they have no clients of their own.
+     * given month. Null (not zero) when they have no clients of their own,
+     * and always null for someone without client permission — an
+     * `assigned_to` row left over from before a role change, say, should
+     * never pull a client-less role into this scope.
      */
     private function clientPortfolioSize(User $user): ?int
     {
+        if (!$this->hasClientAccess($user)) {
+            return null;
+        }
+
         $count = $this->portfoliosPrefetched
             ? ($this->clientPortfolioByUser[$user->id] ?? 0)
             : ($this->loadClientPortfolios(collect([$user->id]))[$user->id] ?? 0);
@@ -1199,7 +1228,9 @@ class PerformanceCalculationService
             return $this->cohortMaxClientPortfolioCache;
         }
 
-        $ids = User::where('is_active', true)->pluck('id');
+        $ids = User::where('is_active', true)->with('roles.permissions', 'permissions')->get(['id'])
+            ->filter(fn (User $u) => $this->hasClientAccess($u))
+            ->pluck('id');
         $counts = $ids->isEmpty() ? [] : $this->loadClientPortfolios($ids);
 
         return $this->cohortMaxClientPortfolioCache = $counts === [] ? 0.0 : (float) max($counts);
