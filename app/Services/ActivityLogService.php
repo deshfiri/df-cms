@@ -19,7 +19,12 @@ class ActivityLogService
         $request ??= request();
 
         ActivityLog::create([
-            'user_id'    => Auth::id(),
+            // Always the 'web' guard specifically: this column is a staff FK,
+            // and Auth::id() would pick up whichever guard most recently
+            // authenticated on this request — including 'client_portal',
+            // whose id space never lines up with this column's users FK. See
+            // the identical fix and reasoning in DocumentService.
+            'user_id'    => Auth::guard('web')->id(),
             'client_id'  => $clientId,
             'module'     => $module,
             'action'     => $action,

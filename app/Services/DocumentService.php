@@ -86,7 +86,15 @@ class DocumentService
             $doc = ClientDocument::create([
                 'client_id'          => $client->id,
                 'document_type_id'   => $data['document_type_id'],
-                'uploaded_by'        => Auth::id(),
+                // Always the 'web' guard specifically, never Auth::id() —
+                // this column is a staff FK, and the portal upload flow runs
+                // under the 'client_portal' guard, which Laravel's own
+                // Authenticate middleware makes the *default* guard for the
+                // rest of the request (Auth::shouldUse()) the moment a portal
+                // user authenticates. Auth::id() would then resolve to the
+                // portal user's own id, which almost never matches a real
+                // users row and trips this column's foreign key outright.
+                'uploaded_by'        => Auth::guard('web')->id(),
                 'title'              => $data['title'],
                 'description'        => $data['description'] ?? null,
                 'remarks'            => $data['remarks'] ?? null,

@@ -38,6 +38,12 @@ class PortalDocumentController extends Controller
         return view('portal.documents.index', compact('documents', 'submittableTypes'));
     }
 
+    /**
+     * One or more files in a single submission. Title is optional and, when
+     * given alongside several files, is numbered per file rather than
+     * applied verbatim to all of them — a blank title falls back to each
+     * file's own name.
+     */
     public function store(Request $request)
     {
         $documentType = DocumentType::findOrFail($request->input('document_type_id'));
@@ -45,28 +51,43 @@ class PortalDocumentController extends Controller
 
         $data = $request->validate([
             'document_type_id' => ['required', 'exists:document_types,id'],
-            'title'            => ['required', 'string', 'max:200'],
-            'file'             => ['required', 'file', 'max:20480', 'mimes:' . implode(',', ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'doc', 'docx', 'xlsx', 'xls', 'csv', 'zip'])],
+            'title'            => ['nullable', 'string', 'max:200'],
+            'files'            => ['required', 'array', 'min:1', 'max:10'],
+            'files.*'          => ['file', 'max:20480', 'mimes:' . implode(',', ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'doc', 'docx', 'xlsx', 'xls', 'csv', 'zip'])],
         ]);
 
         $client = $this->portalUser()->client;
+        $files  = $request->file('files');
+        $title  = trim($data['title'] ?? '');
 
-        $document = $this->documentService->uploadClientDocument($client, $request->file('file'), [
-            'document_type_id' => $data['document_type_id'],
-            'title'            => $data['title'],
-        ]);
+        foreach ($files as $index => $file) {
+            $docTitle = match (true) {
+                $title === ''        => pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME),
+                count($files) > 1    => $title . ' (' . ($index + 1) . ')',
+                default              => $title,
+            };
 
-        $document->update([
-            'is_client_submitted'         => true,
-            'submitted_by_portal_user_id' => $this->portalUser()->id,
-            'client_review_status'        => 'Pending Review',
-            'is_client_visible'           => true,
-            'uploaded_by'                 => null,
-        ]);
+            $document = $this->documentService->uploadClientDocument($client, $file, [
+                'document_type_id' => $data['document_type_id'],
+                'title'            => $docTitle,
+            ]);
 
-        $this->activityLog->log($this->portalUser(), 'Document', 'Uploaded', ClientDocument::class, $document->id);
+            $document->update([
+                'is_client_submitted'         => true,
+                'submitted_by_portal_user_id' => $this->portalUser()->id,
+                'client_review_status'        => 'Pending Review',
+                'is_client_visible'           => true,
+                'uploaded_by'                 => null,
+            ]);
 
-        return redirect()->route('portal.documents.index')->with('success', 'Document submitted for review.');
+            $this->activityLog->log($this->portalUser(), 'Document', 'Uploaded', ClientDocument::class, $document->id);
+        }
+
+        $message = count($files) > 1
+            ? count($files) . ' documents submitted for review.'
+            : 'Document submitted for review.';
+
+        return redirect()->route('portal.documents.index')->with('success', $message);
     }
 
     public function download(ClientDocument $document)

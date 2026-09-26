@@ -73,12 +73,13 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label small">Title</label>
-                        <input type="text" name="title" class="form-control" required>
+                        <label class="form-label small">Title <span style="color:var(--text3)">(optional — defaults to each file's name)</span></label>
+                        <input type="text" name="title" class="form-control">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label small">File</label>
-                        <input type="file" name="file" class="form-control" required>
+                        <label class="form-label small">Files</label>
+                        <input type="file" name="files[]" class="form-control" multiple required>
+                        <span style="font-size:.72rem;color:var(--text3)">Up to 10 files, {{ \App\Support\UploadLimit::label(\App\Support\UploadLimit::bytes(20480)) }} each.</span>
                     </div>
                 </div>
                 <div class="modal-footer">
