@@ -176,6 +176,36 @@ class WorkflowVolumeNoClientAccessTest extends TestCase
         $this->assertSame(100.0, $scope['pct'], 'nothing currently held means nothing left untouched');
     }
 
+    /**
+     * The bug this test guards against: two items for the SAME client must
+     * count as two points, not one — that per-client deduplication is a
+     * client-handling concept (workflowVolumeCount()) that never applies
+     * here. Simple logic: every claim-and-move earns its own point.
+     */
+    public function test_two_items_for_the_same_client_count_as_two_points_not_one(): void
+    {
+        $worker = $this->worker();
+        $client = $this->client();
+
+        $first = $this->flow->createItem($this->flowFor($worker, 2), ['title' => 'First', 'due_date' => '2026-09-10', 'client_id' => $client->id], $this->actor());
+        $first = $this->flow->claim($first->fresh(), $worker);
+        $this->flow->advance($first, $worker);
+
+        $scope = $this->performance->outputVolume($worker, '2026-09')['scopes']['workflow'];
+        $this->assertSame(1.0, $scope['mine']);
+
+        // The same worker then claims and moves a SECOND item for the exact
+        // same client — this must push the count to 2, not leave it at 1.
+        $second = $this->flow->createItem($this->flowFor($worker, 2), ['title' => 'Second', 'due_date' => '2026-09-11', 'client_id' => $client->id], $this->actor());
+        $second = $this->flow->claim($second->fresh(), $worker);
+        $this->flow->advance($second, $worker);
+
+        $scope = $this->performance->outputVolume($worker, '2026-09')['scopes']['workflow'];
+        $this->assertSame(2.0, $scope['mine']);
+        $this->assertSame(2.0, $scope['cohort_max']);
+        $this->assertSame(100.0, $scope['pct']);
+    }
+
     /** A completed item isn't "pending" — it doesn't linger in the held count at all. */
     public function test_a_completed_item_does_not_count_as_held(): void
     {

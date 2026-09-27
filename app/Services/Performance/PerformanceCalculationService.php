@@ -351,21 +351,19 @@ class PerformanceCalculationService
     }
 
     /**
-     * Same shape as workflowVolumeCount() — one per distinct client plus every
-     * standalone item — but without the client-progress gate, since it's only
-     * ever used where that needle is irrelevant: displaying a real activity
-     * count for someone without client permission (see
-     * workflowScopeWithoutClientAccess()). "Without duplicates" by
-     * construction: $items already comes from creditedUsersFor()'s per-item,
-     * per-user crediting, and several items for the same client still count
-     * once here, exactly as they do in the gated version.
+     * Simple logic: one point per workflow item someone without client
+     * permission claimed and moved forward or backward this period — no
+     * per-client deduplication (that needle belongs to workflowVolumeCount(),
+     * a client-handling concept). Two items for the same client are two
+     * points, same as two items for two different clients. "Without
+     * duplicates" by construction: $items already comes from
+     * creditedUsersFor()'s per-item, per-user crediting, so a given item
+     * appears at most once here for this one user, however many times it
+     * was actually moved.
      */
     private function rawWorkflowActivityCount(\Illuminate\Support\Collection $items): int
     {
-        $clientIds = $items->pluck('client_id')->filter()->unique();
-        $standalone = $items->whereNull('client_id')->count();
-
-        return $clientIds->count() + $standalone;
+        return $items->count();
     }
 
     private function clientQualifies(int $clientId): bool
