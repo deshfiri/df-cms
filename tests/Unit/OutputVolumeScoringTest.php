@@ -94,8 +94,8 @@ class OutputVolumeScoringTest extends TestCase
      */
     public function test_two_people_both_at_100_percent_completion_rate_score_differently_by_volume(): void
     {
-        $userA = User::factory()->create(['is_active' => true]);
-        $userB = User::factory()->create(['is_active' => true]);
+        $userA = $this->clientHandler();
+        $userB = $this->clientHandler();
         $this->flowItems($userA, 5);  // all 5 completed -> 100% rate
         $this->flowItems($userB, 10); // all 10 completed -> 100% rate
 
@@ -129,8 +129,8 @@ class OutputVolumeScoringTest extends TestCase
 
     public function test_the_workflow_scope_measures_completed_items_against_the_leader(): void
     {
-        $leader = User::factory()->create(['is_active' => true]);
-        $mine   = User::factory()->create(['is_active' => true]);
+        $leader = $this->clientHandler();
+        $mine   = $this->clientHandler();
         $this->flowItems($leader, 8);
         $this->flowItems($mine, 2);
 
@@ -175,7 +175,7 @@ class OutputVolumeScoringTest extends TestCase
 
     public function test_the_top_performer_in_a_scope_always_scores_exactly_100(): void
     {
-        $leader = User::factory()->create(['is_active' => true]);
+        $leader = $this->clientHandler();
         $this->flowItems($leader, 7);
 
         $this->assertSame(100.0, $this->volume($leader)['scopes']['workflow']['pct']);
@@ -191,8 +191,8 @@ class OutputVolumeScoringTest extends TestCase
      */
     public function test_a_scope_with_no_data_is_left_out_of_the_average_not_scored_zero(): void
     {
-        $leader = User::factory()->create(['is_active' => true]);
-        $mine   = User::factory()->create(['is_active' => true]);
+        $leader = $this->clientHandler();
+        $mine   = $this->clientHandler();
         $this->flowItems($leader, 10);
         $this->flowItems($mine, 5); // workflow-only: no clients for either
 
@@ -249,8 +249,8 @@ class OutputVolumeScoringTest extends TestCase
 
     public function test_batch_scoring_matches_scoring_one_by_one(): void
     {
-        $userA = User::factory()->create(['is_active' => true]);
-        $userB = User::factory()->create(['is_active' => true]);
+        $userA = $this->clientHandler();
+        $userB = $this->clientHandler();
         $this->flowItems($userA, 2);
         $this->clientsFor($userB, 3);
 

@@ -334,20 +334,18 @@ class PerformanceCalculationService
      * client attached (pure internal work) has no such needle to check
      * against, so it still counts on its own, same as before.
      *
-     * That progress needle is a client-handling concept: someone without
-     * client permission never sees or manages a client's overall progress,
-     * so gating their credit on it would dock them for something outside
-     * their role. For them, every distinct client a flow item is linked to
-     * counts as soon as they've touched it, same as a standalone item.
+     * Only ever called for someone who holds client permission — see
+     * outputVolume() and workflowScopeWithoutClientAccess() for why: that
+     * progress needle is a client-handling concept, so someone without
+     * client permission is scored on their own queue instead, never this
+     * company-wide comparison.
      */
-    private function workflowVolumeCount(\Illuminate\Support\Collection $items, User $user): int
+    private function workflowVolumeCount(\Illuminate\Support\Collection $items): int
     {
         $clientIds = $items->pluck('client_id')->filter()->unique();
         $standalone = $items->whereNull('client_id')->count();
 
-        $qualifyingClients = $this->hasClientAccess($user)
-            ? $clientIds->filter(fn ($id) => $this->clientQualifies((int) $id))->count()
-            : $clientIds->count();
+        $qualifyingClients = $clientIds->filter(fn ($id) => $this->clientQualifies((int) $id))->count();
 
         return $qualifyingClients + $standalone;
     }
@@ -368,6 +366,37 @@ class PerformanceCalculationService
     private function hasClientAccess(User $user): bool
     {
         return $this->clientAccessCache[$user->id] ??= $user->hasAnyPermission(['view clients', 'manage clients']);
+    }
+
+    /**
+     * Output Volume's "Workflow Items" scope for someone without client
+     * permission: not a comparison against the busiest person (they never
+     * see or manage that company-wide picture), but simply whether their own
+     * queue is moving. 100% unless they're currently sitting on an open item
+     * — still at the same stage, still in their hands — that they haven't
+     * forwarded or sent back for over a week. That's the same "delayed"
+     * threshold WorkflowPipelineService uses for the dashboard pipeline, and
+     * the same reasoning: an item that's been theirs for under a week is
+     * simply in progress, not evidence of anything left untouched.
+     *
+     * Deliberately not period-scoped — like Client Handling's portfolio,
+     * this is a standing, right-now question ("is anything stuck on your
+     * desk"), not something that happened in a given month.
+     */
+    private function workflowScopeWithoutClientAccess(User $user): array
+    {
+        $held = FlowItem::where('assigned_to', $user->id)
+            ->where('status', FlowItem::STATUS_OPEN)
+            ->get(['id', 'updated_at']);
+
+        $heldCount = $held->count();
+        $stalledCount = $held->where('updated_at', '<', now()->subDays(7))->count();
+
+        return [
+            'mine'       => (float) ($heldCount - $stalledCount),
+            'cohort_max' => (float) $heldCount,
+            'pct'        => $heldCount > 0 ? round(($heldCount - $stalledCount) / $heldCount * 100, 2) : 100.0,
+        ];
     }
 
     /**
@@ -1120,10 +1149,17 @@ class PerformanceCalculationService
             // already finished — this is volume of engagement, not a
             // completion rate (that's Task Completion's job). See
             // workflowVolumeCount() for how a client-linked item is counted.
-            $scopes['workflow'] = $this->volumeScope(
-                $this->workflowVolumeCount($flowItems, $user),
-                $this->cohortMaxWorkflowTouched($period),
-            );
+            //
+            // Someone without client permission never sees or manages that
+            // company-wide comparison at all, so their "workflow" scope
+            // isn't measured against the busiest person — see
+            // workflowScopeWithoutClientAccess().
+            $scopes['workflow'] = $this->hasClientAccess($user)
+                ? $this->volumeScope(
+                    $this->workflowVolumeCount($flowItems),
+                    $this->cohortMaxWorkflowTouched($period),
+                )
+                : $this->workflowScopeWithoutClientAccess($user);
         }
 
         $myPortfolio = $this->clientPortfolioSize($user);
@@ -1186,11 +1222,16 @@ class PerformanceCalculationService
 
         $usersById = User::whereIn('id', $ids)->with('roles.permissions', 'permissions')->get()->keyBy('id');
 
+        // Only counts people actually measured on this comparison — someone
+        // without client permission is scored on their own queue instead
+        // (see workflowScopeWithoutClientAccess()), so including their raw
+        // touch count here would inflate the bar against a metric they were
+        // never being compared on in the first place.
         $max = 0.0;
         foreach ($this->loadFlowItems($ids, $period) as $userId => $items) {
             $user = $usersById->get($userId);
-            if ($user) {
-                $max = max($max, $this->workflowVolumeCount($items, $user));
+            if ($user && $this->hasClientAccess($user)) {
+                $max = max($max, $this->workflowVolumeCount($items));
             }
         }
 

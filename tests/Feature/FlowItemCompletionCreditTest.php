@@ -10,6 +10,7 @@ use App\Services\FlowService;
 use App\Services\Performance\PerformanceCalculationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
+use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 /**
@@ -37,13 +38,20 @@ class FlowItemCompletionCreditTest extends TestCase
     {
         parent::setUp();
         Notification::fake();
+        Permission::firstOrCreate(['name' => 'view clients', 'guard_name' => 'web']);
         $this->flow = app(FlowService::class);
         $this->performance = app(PerformanceCalculationService::class);
     }
 
+    /**
+     * These tests are about crediting across stages/history, not about
+     * client permission — carrying 'view clients' keeps every worker here on
+     * Output Volume's company-wide comparison (see
+     * WorkflowVolumeNoClientAccessTest for the permission-gated formula).
+     */
     private function user(): User
     {
-        return User::factory()->create(['is_active' => true]);
+        return tap(User::factory()->create(['is_active' => true]))->givePermissionTo('view clients')->fresh();
     }
 
     /** Builds and completes a one-stage flow item end to end, the way real usage does it. */
