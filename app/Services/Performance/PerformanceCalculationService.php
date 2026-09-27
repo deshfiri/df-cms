@@ -350,6 +350,24 @@ class PerformanceCalculationService
         return $qualifyingClients + $standalone;
     }
 
+    /**
+     * Same shape as workflowVolumeCount() — one per distinct client plus every
+     * standalone item — but without the client-progress gate, since it's only
+     * ever used where that needle is irrelevant: displaying a real activity
+     * count for someone without client permission (see
+     * workflowScopeWithoutClientAccess()). "Without duplicates" by
+     * construction: $items already comes from creditedUsersFor()'s per-item,
+     * per-user crediting, and several items for the same client still count
+     * once here, exactly as they do in the gated version.
+     */
+    private function rawWorkflowActivityCount(\Illuminate\Support\Collection $items): int
+    {
+        $clientIds = $items->pluck('client_id')->filter()->unique();
+        $standalone = $items->whereNull('client_id')->count();
+
+        return $clientIds->count() + $standalone;
+    }
+
     private function clientQualifies(int $clientId): bool
     {
         if (!array_key_exists($clientId, $this->clientQualifiesCache)) {
@@ -370,21 +388,24 @@ class PerformanceCalculationService
 
     /**
      * Output Volume's "Workflow Items" scope for someone without client
-     * permission: not a comparison against the busiest person (they never
-     * see or manage that company-wide picture), but simply whether their own
-     * queue is moving. 100% unless they're currently sitting on an open item
-     * — still at the same stage, still in their hands — that they haven't
-     * forwarded or sent back for over a week. That's the same "delayed"
-     * threshold WorkflowPipelineService uses for the dashboard pipeline, and
-     * the same reasoning: an item that's been theirs for under a week is
-     * simply in progress, not evidence of anything left untouched.
+     * permission. No company-wide (or peer-wide) comparison at all — they
+     * never see or manage that picture, and simpler is better: every claim
+     * and stage transition credited to them this period earns a point (see
+     * rawWorkflowActivityCount()), shown as "Theirs" — never zero just
+     * because they've since forwarded everything along.
      *
-     * Deliberately not period-scoped — like Client Handling's portfolio,
-     * this is a standing, right-now question ("is anything stuck on your
-     * desk"), not something that happened in a given month.
+     * The Result % is separate and asks a different question: is their own
+     * queue moving right now? 100% unless they're currently sitting on an
+     * open item, still in their hands, that they haven't forwarded or sent
+     * back for over a week — the same "delayed" threshold
+     * WorkflowPipelineService uses for the dashboard pipeline. An item
+     * that's been theirs for under a week is simply in progress, not
+     * evidence of anything left untouched.
      */
-    private function workflowScopeWithoutClientAccess(User $user): array
+    private function workflowScopeWithoutClientAccess(User $user, \Illuminate\Support\Collection $flowItems): array
     {
+        $mine = $this->rawWorkflowActivityCount($flowItems);
+
         $held = FlowItem::where('assigned_to', $user->id)
             ->where('status', FlowItem::STATUS_OPEN)
             ->get(['id', 'updated_at']);
@@ -393,8 +414,8 @@ class PerformanceCalculationService
         $stalledCount = $held->where('updated_at', '<', now()->subDays(7))->count();
 
         return [
-            'mine'       => (float) ($heldCount - $stalledCount),
-            'cohort_max' => (float) $heldCount,
+            'mine'       => (float) $mine,
+            'cohort_max' => (float) $mine,
             'pct'        => $heldCount > 0 ? round(($heldCount - $stalledCount) / $heldCount * 100, 2) : 100.0,
         ];
     }
@@ -1159,7 +1180,7 @@ class PerformanceCalculationService
                     $this->workflowVolumeCount($flowItems),
                     $this->cohortMaxWorkflowTouched($period),
                 )
-                : $this->workflowScopeWithoutClientAccess($user);
+                : $this->workflowScopeWithoutClientAccess($user, $flowItems);
         }
 
         $myPortfolio = $this->clientPortfolioSize($user);
@@ -1195,7 +1216,12 @@ class PerformanceCalculationService
      * The most anyone in the whole company turned in this scope this period
      * — always company-wide and independent of whatever cohort prefetch()
      * was called with, so the number can't shift depending on which
-     * filtered scoreboard view triggered the calculation.
+     * filtered scoreboard view triggered the calculation. Only ever counts
+     * people actually measured on this comparison: someone without client
+     * permission is scored on their own queue instead (see
+     * workflowScopeWithoutClientAccess()), so including their raw touch
+     * count here would inflate the bar against a metric they were never
+     * being compared on in the first place.
      */
     private function cohortMaxWorkflowTouched(string $period): float
     {

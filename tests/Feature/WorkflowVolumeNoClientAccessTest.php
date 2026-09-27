@@ -17,13 +17,14 @@ use Tests\TestCase;
 /**
  * Output Volume's company-wide "who's carrying the most" comparison is a
  * client-handling concept a worker without client permission never sees or
- * manages — so instead of comparing them to the busiest person, their
- * "Workflow Items" scope simply asks whether their own queue is moving:
- * 100% unless they're currently sitting on an open item, still in their
- * hands, that they haven't forwarded or sent back for over a week (the same
- * "delayed" threshold the dashboard pipeline uses). The moment they touch
- * it — forward or backward — it leaves their held count entirely, whatever
- * the client's own progress happens to be. The Client Handling scope never
+ * manages, so their "Workflow Items" scope drops it entirely — no comparison
+ * to anyone, company or peer. "Theirs" is simply a point per qualifying claim
+ * or stage transition credited to them this period (never zero just because
+ * they've since forwarded everything along), and the Result % asks a
+ * separate question: is their own queue moving right now? 100% unless
+ * they're currently sitting on an open item, still in their hands, that
+ * they haven't forwarded or sent back for over a week (the same "delayed"
+ * threshold the dashboard pipeline uses). The Client Handling scope never
  * applies to them regardless of any stray `assigned_to` row.
  */
 class WorkflowVolumeNoClientAccessTest extends TestCase
@@ -105,7 +106,10 @@ class WorkflowVolumeNoClientAccessTest extends TestCase
 
         $scope = $this->performance->outputVolume($worker, '2026-09')['scopes']['workflow'];
 
-        $this->assertSame(0.0, $scope['mine']);
+        // "Theirs" still shows the real activity credited to them this
+        // period — never zero just because it's currently stuck — while the
+        // Result % is independently dragged down by the stale claim.
+        $this->assertSame(1.0, $scope['mine']);
         $this->assertSame(1.0, $scope['cohort_max']);
         $this->assertSame(0.0, $scope['pct']);
     }
@@ -139,7 +143,9 @@ class WorkflowVolumeNoClientAccessTest extends TestCase
 
         $scope = $this->performance->outputVolume($worker, '2026-09')['scopes']['workflow'];
 
-        $this->assertSame(1.0, $scope['mine']);
+        // Both items count toward "Theirs" (real activity, whether stalled
+        // or not) — only the Result % is dragged down by the one that is.
+        $this->assertSame(2.0, $scope['mine']);
         $this->assertSame(2.0, $scope['cohort_max']);
         $this->assertSame(50.0, $scope['pct']);
     }
@@ -163,8 +169,10 @@ class WorkflowVolumeNoClientAccessTest extends TestCase
 
         $scope = $this->performance->outputVolume($worker, '2026-09')['scopes']['workflow'];
 
-        $this->assertSame(0.0, $scope['mine']);
-        $this->assertSame(0.0, $scope['cohort_max']);
+        // All 3 touched clients still show up as real, credited activity —
+        // never 0 just because none of it is still sitting in their hands.
+        $this->assertSame(3.0, $scope['mine']);
+        $this->assertSame(3.0, $scope['cohort_max']);
         $this->assertSame(100.0, $scope['pct'], 'nothing currently held means nothing left untouched');
     }
 
@@ -249,5 +257,58 @@ class WorkflowVolumeNoClientAccessTest extends TestCase
 
         $scope = $this->performance->outputVolume($handler, '2026-09')['scopes']['workflow'];
         $this->assertSame(1.0, $scope['cohort_max'], 'only client-access peers should ever feed the company-wide comparison');
+    }
+
+    /** No comparison to anyone at all — a permission-less worker's own count is simply their own, never measured against a peer or the company. */
+    public function test_no_one_elses_activity_affects_a_workers_own_count(): void
+    {
+        $quiet = $this->worker();
+        $item = $this->flow->createItem($this->flowFor($quiet, 1), ['title' => 'Quiet', 'due_date' => '2026-09-10'], $this->actor());
+        $item = $this->flow->claim($item->fresh(), $quiet);
+        $this->flow->advance($item, $quiet); // 1 credited item, forwarded
+
+        $busy = $this->worker();
+        foreach (range(1, 4) as $i) {
+            $flow = $this->flowFor($busy, 1);
+            $busyItem = $this->flow->createItem($flow, ['title' => "Busy {$i}", 'due_date' => '2026-09-11'], $this->actor());
+            $busyItem = $this->flow->claim($busyItem->fresh(), $busy);
+            $this->flow->advance($busyItem, $busy);
+        }
+
+        $quietScope = $this->performance->outputVolume($quiet, '2026-09')['scopes']['workflow'];
+        $busyScope = $this->performance->outputVolume($busy, '2026-09')['scopes']['workflow'];
+
+        // Each worker's own count, matched by their own "cohort_max" (i.e. no
+        // comparison at all) — the busy worker's 4 items never affect the
+        // quiet worker's own tally or vice versa.
+        $this->assertSame(1.0, $quietScope['mine']);
+        $this->assertSame(1.0, $quietScope['cohort_max']);
+        $this->assertSame(100.0, $quietScope['pct']);
+        $this->assertSame(4.0, $busyScope['mine']);
+        $this->assertSame(4.0, $busyScope['cohort_max']);
+        $this->assertSame(100.0, $busyScope['pct']);
+    }
+
+    /**
+     * No separate backfill job is needed for past months: every number here
+     * is computed live from FlowItem/FlowTransition history, the same as any
+     * other period, so a month closed long ago still reads correctly today.
+     */
+    public function test_a_past_periods_activity_is_still_counted_correctly_with_no_backfill_needed(): void
+    {
+        $worker = $this->worker();
+        $flow = $this->flowFor($worker, 1);
+        $item = $this->flow->createItem($flow, ['title' => 'Old Item', 'due_date' => '2026-06-10'], $this->actor());
+        $item = $this->flow->claim($item->fresh(), $worker);
+        $this->flow->advance($item, $worker);
+
+        $scope = $this->performance->outputVolume($worker, '2026-06')['scopes']['workflow'];
+
+        $this->assertSame(1.0, $scope['mine']);
+        $this->assertSame(100.0, $scope['pct']);
+
+        // A different, uninvolved period sees nothing for it.
+        $elsewhere = $this->performance->outputVolume($worker, '2026-07');
+        $this->assertNull($elsewhere);
     }
 }
