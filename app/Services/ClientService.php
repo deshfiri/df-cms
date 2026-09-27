@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Client;
+use App\Models\User;
 use App\Repositories\Contracts\ClientRepositoryInterface;
 use App\Repositories\Contracts\WorkflowRepositoryInterface;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -44,8 +45,21 @@ class ClientService
         });
     }
 
-    public function update(Client $client, array $data): Client
+    /**
+     * $actor is who the change is credited to — the person who actually
+     * made the edit. It defaults to the current session, but a caller
+     * replaying someone else's already-approved change (see
+     * PendingChangeController::approve()) passes that person explicitly, so
+     * `updated_by` and the activity log correctly name them rather than
+     * whichever approver happened to click the button. $changeApproval is
+     * always guarded against the real current session regardless — its
+     * privilege check is what decides whether this bypasses review at all,
+     * so it must never be swapped for the original requester.
+     */
+    public function update(Client $client, array $data, ?User $actor = null): Client
     {
+        $actor ??= Auth::user();
+
         if (($data['client_status'] ?? null) === 'Terminated' && $client->client_status !== 'Terminated') {
             $this->guardTermination();
         }
@@ -59,12 +73,11 @@ class ClientService
             self::APPROVAL_FIELDS,
         );
 
-        return DB::transaction(function () use ($client, $data) {
-            $old = $client->toArray();
-            $data['updated_by'] = Auth::id();
+        return DB::transaction(function () use ($client, $data, $actor) {
+            $old = $client->only(array_keys($data));
 
-            $updated = $this->clientRepo->update($client, $data);
-            $this->activityLog->log('Client', 'Updated', $client->id, $old, $updated->toArray());
+            $updated = $this->clientRepo->update($client, array_merge($data, ['updated_by' => $actor->id]));
+            $this->activityLog->log('Client', 'Updated', $client->id, $old, $data, actorId: $actor->id);
 
             return $updated;
         });

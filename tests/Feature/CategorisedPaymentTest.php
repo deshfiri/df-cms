@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ActivityLog;
 use App\Models\Category;
 use App\Models\Client;
 use App\Models\Invoice;
@@ -241,6 +242,29 @@ class CategorisedPaymentTest extends TestCase
         // Its own earlier amount doesn't count against it, but the total still does.
         $this->expectException(ValidationException::class);
         $service->requestUpdate($payment->fresh(), ['amount' => 20000.5], 'Typo', $approver);
+    }
+
+    /** The activity log's before/after should show only the corrected field, not the payment's entire row. */
+    public function test_correcting_an_amount_only_logs_the_changed_field_not_the_whole_payment(): void
+    {
+        $charge  = $this->adsChargeHalfPaid();
+        $payment = Payment::sole();
+        $approver = $this->privileged();
+        $this->actingAs($approver);
+
+        app(PaymentService::class)->requestUpdate($payment, ['amount' => 20000], 'Paid in full', $approver);
+
+        $log = ActivityLog::where('module', 'Payment')->where('action', 'Updated')->latest('id')->firstOrFail();
+        $old = json_decode($log->old_value, true);
+        $new = json_decode($log->new_value, true);
+
+        $this->assertArrayHasKey('amount', $old);
+        $this->assertArrayHasKey('amount', $new);
+        $this->assertSame(20000.0, (float) $new['amount']);
+        // The old behavior dumped the payment's whole row as "old" — fields
+        // nobody touched must no longer appear.
+        $this->assertArrayNotHasKey('created_at', $old);
+        $this->assertArrayNotHasKey('client_id', $old);
     }
 
     public function test_moving_a_payment_between_charges_recalculates_both(): void

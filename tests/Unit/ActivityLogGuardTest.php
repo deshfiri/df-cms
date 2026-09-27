@@ -62,4 +62,32 @@ class ActivityLogGuardTest extends TestCase
         $log = ActivityLog::latest('id')->firstOrFail();
         $this->assertSame($staff->id, $log->user_id);
     }
+
+    /**
+     * A caller replaying someone else's change (e.g. an approver applying a
+     * pending change on the original requester's behalf) can name who it's
+     * really credited to — the ambient session must not silently win.
+     */
+    public function test_an_explicit_actor_id_overrides_the_ambient_session(): void
+    {
+        $approver = User::factory()->create();
+        $requester = User::factory()->create();
+        Auth::guard('web')->login($approver);
+
+        app(ActivityLogService::class)->log('Client', 'Updated', null, null, ['x' => 1], actorId: $requester->id);
+
+        $log = ActivityLog::latest('id')->firstOrFail();
+        $this->assertSame($requester->id, $log->user_id);
+    }
+
+    public function test_omitting_the_actor_id_still_falls_back_to_the_ambient_session(): void
+    {
+        $staff = User::factory()->create();
+        Auth::guard('web')->login($staff);
+
+        app(ActivityLogService::class)->log('Client', 'Updated', null, null, ['x' => 1], actorId: null);
+
+        $log = ActivityLog::latest('id')->firstOrFail();
+        $this->assertSame($staff->id, $log->user_id);
+    }
 }

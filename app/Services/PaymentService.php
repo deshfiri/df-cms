@@ -374,7 +374,6 @@ class PaymentService
     private function applyUpdate(Payment $payment, array $data): Payment
     {
         return DB::transaction(function () use ($payment, $data) {
-            $old          = $payment->toArray();
             $oldInvoiceId = $payment->invoice_id;
             $newInvoiceId = array_key_exists('invoice_id', $data) ? $data['invoice_id'] : $oldInvoiceId;
 
@@ -393,6 +392,11 @@ class PaymentService
                 $data['amount'] = $data['amount'] ?? $payment->amount;
                 $data = $this->againstCharge($charge, $data, exceptPaymentId: $payment->id, checkOpen: false);
             }
+
+            // Computed against the final $data (after againstCharge() may have
+            // added derived fields), so old/new line up on the same keys
+            // instead of dumping the payment's entire row.
+            $old = $payment->only(array_keys($data));
 
             $payment->update($data);
             $this->activityLog->log('Payment', 'Updated', $payment->client_id, $old, $data);

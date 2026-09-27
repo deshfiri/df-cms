@@ -52,7 +52,8 @@ class ClientOwnershipService
                 $previousOwnerId ? 'Ownership Transferred' : 'Ownership Assigned',
                 $client->id,
                 ['assigned_to' => $previousOwnerId],
-                ['assigned_to' => $newOwner->id, 'note' => $note]
+                ['assigned_to' => $newOwner->id, 'note' => $note],
+                actorId: $actor->id,
             );
 
             if ($notify) {

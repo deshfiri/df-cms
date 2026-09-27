@@ -2,12 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Models\ActivityLog;
 use App\Models\Category;
 use App\Models\Client;
 use App\Models\ClientOwnershipTransfer;
 use App\Models\User;
 use App\Notifications\ClientOwnershipBulkTransferred;
 use App\Notifications\ClientOwnershipTransferred;
+use App\Services\ClientOwnershipService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Spatie\Permission\Models\Permission;
@@ -116,6 +118,31 @@ class ClientOwnershipTest extends TestCase
 
         Notification::assertSentTo($admin, ClientOwnershipTransferred::class);
         Notification::assertSentTo($newOwner, ClientOwnershipTransferred::class);
+    }
+
+    /**
+     * The activity log must credit whoever the caller says actually did the
+     * transfer, not whatever session happens to be ambient when transfer()
+     * runs — the same actor-plumbing gap fixed across ClientService.
+     */
+    public function test_transfer_credits_the_passed_actor_in_the_activity_log(): void
+    {
+        Notification::fake();
+        $realActor = $this->makeUser('Sales');
+        $someoneElse = $this->makeUser('Manager');
+        $newOwner = $this->makeUser('Sales');
+        $client = $this->makeClient($realActor->id);
+
+        auth()->login($someoneElse); // an ambient session that is NOT the real actor
+
+        app(ClientOwnershipService::class)->transfer($client, $newOwner, $realActor);
+
+        $log = ActivityLog::where('module', 'Client')
+            ->whereIn('action', ['Ownership Transferred', 'Ownership Assigned'])
+            ->where('client_id', $client->id)->latest('id')->firstOrFail();
+
+        $this->assertSame($realActor->id, $log->user_id);
+        $this->assertNotSame($someoneElse->id, $log->user_id);
     }
 
     public function test_transfer_is_blocked_for_someone_who_does_not_own_the_client(): void

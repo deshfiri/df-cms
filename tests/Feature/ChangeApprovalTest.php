@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Exceptions\ChangeRequiresApprovalException;
+use App\Models\ActivityLog;
 use App\Models\Category;
 use App\Models\Client;
 use App\Models\PendingChange;
@@ -173,6 +174,64 @@ class ChangeApprovalTest extends TestCase
         $this->assertSame('Awaiting approval', $client->fresh()->remarks);
         $this->assertSame(PendingChange::STATUS_APPROVED, $pending->fresh()->status);
         $this->assertSame($manager->id, $pending->fresh()->reviewed_by);
+    }
+
+    /**
+     * The bug this whole change exists to fix: approving must credit whoever
+     * actually made the edit, not whoever happened to click Approve — both
+     * the client's own updated_by column and the activity log.
+     */
+    public function test_approving_a_pending_change_credits_the_original_requester_not_the_approver(): void
+    {
+        $client = $this->makeClient();
+        $sales = $this->makeUser('Sales');
+        $manager = $this->makeUser('Manager');
+        auth()->login($sales);
+
+        try {
+            $this->clientService->update($client, $this->watchedEdit($client, 'Awaiting approval'));
+        } catch (ChangeRequiresApprovalException) {
+            // expected
+        }
+
+        $pending = PendingChange::first();
+
+        $this->actingAs($manager)->postJson(route('pending-changes.approve', $pending))->assertOk();
+
+        $this->assertSame($sales->id, $client->fresh()->updated_by, 'the record itself must credit the requester, not the approver');
+
+        $log = ActivityLog::where('module', 'Client')->where('action', 'Updated')
+            ->where('client_id', $client->id)->latest('id')->first();
+        $this->assertNotNull($log);
+        $this->assertSame($sales->id, $log->user_id, 'the activity log must credit the requester, not the approver');
+        $this->assertNotSame($manager->id, $log->user_id);
+    }
+
+    /**
+     * The activity log's before/after should show only the fields that were
+     * actually part of the edit, not the client's entire row — the old
+     * behavior made even a one-field change unreadable.
+     */
+    public function test_a_clients_activity_log_only_shows_the_fields_that_were_actually_edited(): void
+    {
+        $client = $this->makeClient();
+        auth()->login($this->makeUser('Manager'));
+
+        $this->clientService->update($client, [
+            'remarks'     => 'Just a note',
+            'client_name' => $client->client_name,
+            'brand_name'  => $client->brand_name,
+        ]);
+
+        $log = ActivityLog::where('module', 'Client')->where('action', 'Updated')->latest('id')->firstOrFail();
+        $new = json_decode($log->new_value, true);
+
+        $this->assertArrayHasKey('remarks', $new);
+        // Fields nobody touched (and weren't even submitted) never appear —
+        // the old behavior dumped the client's entire row every time.
+        $this->assertArrayNotHasKey('dfid_number', $new);
+        $this->assertArrayNotHasKey('created_at', $new);
+        $this->assertArrayNotHasKey('category_id', $new);
     }
 
     public function test_rejecting_a_pending_change_leaves_the_record_untouched(): void

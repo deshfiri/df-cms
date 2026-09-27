@@ -81,9 +81,13 @@ class PendingChangeController extends Controller
             return response()->json(['message' => 'The original record no longer exists; this change has been auto-rejected.'], 422);
         }
 
+        // Credits the change to whoever actually requested it, not whoever
+        // clicks Approve — see ClientService::update()'s own doc for why.
+        $requester = $pendingChange->requested_by ? User::find($pendingChange->requested_by) : null;
+
         try {
             match ($pendingChange->model_type) {
-                Client::class        => $this->clientService->update($model, $pendingChange->new_values),
+                Client::class        => $this->clientService->update($model, $pendingChange->new_values, $requester),
                 Task::class          => $this->taskService->update($model, $pendingChange->new_values),
                 Category::class      => $this->categoryService->update($model, $pendingChange->new_values),
                 User::class          => $this->userService->update($model, $pendingChange->new_values),
