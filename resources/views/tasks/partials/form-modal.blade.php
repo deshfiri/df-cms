@@ -162,6 +162,10 @@ function resetTaskModal() {
     $('#taskModalTitle').html('<i class="bi bi-plus-lg me-2"></i>New Task');
     $('#taskTitle,#taskDescription,#taskStart,#taskDue,#taskDueTime,#taskEstValue').val('');
     $('#taskEstUnit').val('hours');
+    // Re-lock the current user's own option every time the modal opens fresh —
+    // openTaskEditor() unlocks it again only when they're already on the task
+    // being edited (see there for why it can't just stay disabled).
+    $('#taskAssigned option[value="' + window.CURRENT_USER_ID + '"]').prop('disabled', true);
     $('#taskAssigned,#taskClient,#taskLabels').val([]).trigger('change');
     $('#taskPriority').val('Medium');
     $('#taskStatus').val('Pending');
@@ -261,7 +265,18 @@ function openTaskEditor(id) {
         $('#taskTitle').val(t.title);
         $('#taskDescription').val(t.description);
         $('#taskClient').val((t.clients || []).map(c => c.id)).trigger('change');
-        $('#taskAssigned').val((t.assignees || []).map(a => a.id)).trigger('change');
+        const assigneeIds = (t.assignees || []).map(a => a.id);
+        // The "can't assign yourself" option is disabled to block adding
+        // yourself fresh, but the backend guard only ever blocks new
+        // additions — never removals. If you're already on this task
+        // (assigned by someone else, or from before that rule existed),
+        // the option must stay selectable so you can take yourself off it;
+        // otherwise a disabled-but-selected option can never be unchecked
+        // and you're stuck as a permanent, unremovable assignee.
+        if (assigneeIds.includes(window.CURRENT_USER_ID)) {
+            $('#taskAssigned option[value="' + window.CURRENT_USER_ID + '"]').prop('disabled', false);
+        }
+        $('#taskAssigned').val(assigneeIds).trigger('change');
         $('#taskPriority').val(t.priority);
         $('#taskStatus').val(t.status);
         $('#taskType').val(t.type);
