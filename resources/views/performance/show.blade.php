@@ -364,8 +364,9 @@
                         </tbody></table>
                     </div>
                     <div class="sc-formula mt-2">
-                        Task Completion (and its like) measure whether you finished what you had; this measures how much you're carrying in each scope, against whoever's carrying the most in the company that period —
-                        capped at 100% for whoever leads a scope. Workflow Items counts one still in progress the same as one already finished, so having 5 open or done is still 100% on-rate, but if someone else has 10, this scores 50% on the Workflow Items row, not 100%.
+                        Task Completion (and its like) measure whether you finished what you had; this measures how much you're carrying in each scope.
+                        Workflow Items' Result is 100% unless something claimed to them has sat untouched for over a week — it's never reduced just because someone else moved more items that period. Theirs / Company's highest still show the real volume carried, for context, but don't drive this percentage.
+                        Client Handling's Result is still a straight comparison against whoever holds the most clients, capped at 100% for whoever leads.
                         Tasks aren't scored here — Task Completion already covers them, so counting them again would credit the same work twice.
                         A scope with nothing to measure for them (no workflow items at all, no clients of their own) is left out of the average rather than scored 0.
                     </div>

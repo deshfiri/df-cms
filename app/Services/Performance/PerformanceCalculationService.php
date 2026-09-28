@@ -1302,26 +1302,28 @@ class PerformanceCalculationService
 
     /**
      * Output Volume's "Workflow Items" scope for someone WITH client
-     * permission: still primarily a comparison against the busiest person
-     * (mine ÷ company's highest, same as volumeScope()) — carrying more raw
-     * work than a smaller, fully-caught-up colleague still earns a higher
-     * Result% than them. On top of that, each open item that's been sitting
-     * in this person's own hands, untouched, for over a week docks the
-     * result by STALLED_ITEM_PENALTY points — "cleared your queue" no
-     * longer means an automatic 100%, it just means nothing is subtracted.
+     * permission. Result% is purely a "cleared your queue" compliance
+     * check, same rule as workflowScopeWithoutClientAccess(): 100% unless
+     * an open item has been sitting in this person's own hands, untouched,
+     * for over a week, in which case each such item docks the result by
+     * STALLED_ITEM_PENALTY points. It is never reduced just because someone
+     * else did more work — company comparison plays no part in the
+     * percentage. `mine`/`cohort_max` are still computed and returned
+     * exactly as before, purely as informational "how much work did they
+     * do" figures (the Theirs/Company's Highest columns) — they no longer
+     * feed the percentage at all.
      */
     private function workflowScopeWithClientAccess(User $user, \Illuminate\Support\Collection $items, string $period): array
     {
         $mine = $this->workflowVolumeCount($items);
         $cohortMax = $this->cohortMaxWorkflowTouched($period);
-        $base = $cohortMax > 0 ? min(100, $mine / $cohortMax * 100) : 0.0;
 
         $stalledCount = FlowItem::where('assigned_to', $user->id)
             ->where('status', FlowItem::STATUS_OPEN)
             ->where('updated_at', '<', now()->subDays(7))
             ->count();
 
-        $pct = max(0.0, $base - $stalledCount * self::STALLED_ITEM_PENALTY);
+        $pct = max(0.0, 100.0 - $stalledCount * self::STALLED_ITEM_PENALTY);
 
         return [
             'mine'       => round($mine, 2),

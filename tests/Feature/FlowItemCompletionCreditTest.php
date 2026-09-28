@@ -92,7 +92,9 @@ class FlowItemCompletionCreditTest extends TestCase
 
         $this->assertSame(1.0, $scope['mine']);
         $this->assertSame(2.0, $scope['cohort_max']);
-        $this->assertSame(50.0, $scope['pct']);
+        // Nothing of trailing's is stalled, so Result is 100% even though
+        // leader completed twice as much that period.
+        $this->assertSame(100.0, $scope['pct']);
     }
 
     public function test_the_cohort_max_also_counts_items_still_in_progress(): void
@@ -114,7 +116,8 @@ class FlowItemCompletionCreditTest extends TestCase
 
         $this->assertSame(1.0, $scope['mine']);
         $this->assertSame(2.0, $scope['cohort_max']);
-        $this->assertSame(50.0, $scope['pct']);
+        // Trailing's one open item was just claimed, not stalled -> 100%.
+        $this->assertSame(100.0, $scope['pct']);
     }
 
     /** A one-stage flow whose only stage $worker can claim, created by a throwaway admin. */

@@ -199,9 +199,13 @@ class DepartmentStageWorkflowCreditTest extends TestCase
 
         $quietScope = $this->performance->outputVolume($quiet->fresh(), date('Y-m'))['scopes']['workflow'];
 
+        // Theirs/company's highest are still tracked and shown...
         $this->assertSame(1.0, $quietScope['mine']);
         $this->assertSame(2.0, $quietScope['cohort_max']);
-        $this->assertSame(50.0, $quietScope['pct']);
+        // ...but Result is 100%: nothing of theirs is stalled (a department
+        // pipeline submission has no open/pending state to stall), so
+        // having done less than Busy doesn't reduce it.
+        $this->assertSame(100.0, $quietScope['pct']);
     }
 
     /** No backfill job needed: a past month's submission is already correctly counted, computed live from the same rows. */

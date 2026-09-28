@@ -221,11 +221,11 @@ class WorkflowVolumeNoClientAccessTest extends TestCase
     }
 
     /**
-     * This whole "no comparison" rule is specific to someone without client
-     * access — a client handler is still compared to the company's busiest
-     * person for the bulk of their Result%. They're not entirely exempt from
-     * a stale item, though: see WorkflowScopeWithClientAccessTest for the
-     * separate point-penalty that applies to them instead.
+     * A client handler uses workflowScopeWithClientAccess() instead of this
+     * class's "no comparison" rule — but both land on the same shape now:
+     * 100% unless a stale item docks points. `mine`/`cohort_max` are still
+     * tracked for a client handler (shown for context), unlike someone
+     * without client access, where cohort_max is trivially equal to mine.
      */
     public function test_someone_with_client_access_is_still_scored_against_the_company_not_this_rule(): void
     {
@@ -238,11 +238,9 @@ class WorkflowVolumeNoClientAccessTest extends TestCase
 
         $scope = $this->performance->outputVolume($handler, '2026-09')['scopes']['workflow'];
 
-        // The company-wide comparison formula: they're the only toucher, so
-        // they're their own cohort max — 100% before any penalty. This is the
-        // pre-existing, unrelated formula, not the one this test class
-        // covers; the docked 10 points for the one stale item is
-        // workflowScopeWithClientAccess()'s own, separate rule.
+        // They're the only toucher, so they're their own company max. Result
+        // is 100% minus 10 for the one stale item — workflowScopeWithClientAccess()'s
+        // own, separate stalled-item penalty, not a company-comparison ratio.
         $this->assertSame(1.0, $scope['mine']);
         $this->assertSame(1.0, $scope['cohort_max']);
         $this->assertSame(90.0, $scope['pct']);

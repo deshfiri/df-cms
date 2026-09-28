@@ -14,12 +14,12 @@ use Tests\TestCase;
 
 /**
  * Output Volume's "Workflow Items" scope for someone WITH client permission:
- * still primarily a comparison against the busiest person in the company —
- * carrying more raw volume than a smaller, fully-caught-up colleague still
- * earns a higher Result%. On top of that base ratio, each open item that's
- * been sitting untouched in this person's own hands for over a week docks
- * the result by a flat number of points — clearing your queue no longer
- * guarantees 100% by itself, it just means nothing gets subtracted.
+ * Result% is a pure "cleared your queue" compliance check — 100% unless an
+ * open item has been sitting untouched in this person's own hands for over
+ * a week, in which case each such item docks the result by a flat number of
+ * points. It is never reduced just because someone else moved more items
+ * that period; `mine`/`cohort_max` are still tracked and returned purely as
+ * informational figures.
  */
 class WorkflowScopeWithClientAccessTest extends TestCase
 {
@@ -57,7 +57,7 @@ class WorkflowScopeWithClientAccessTest extends TestCase
         FlowItem::where('id', $item->id)->update(['updated_at' => now()->subDays($daysAgo)]);
     }
 
-    public function test_with_nothing_stalled_the_result_is_the_plain_ratio(): void
+    public function test_with_nothing_stalled_the_result_is_100_regardless_of_how_it_compares(): void
     {
         $leader = $this->handler();
         $mine = $this->handler();
@@ -72,12 +72,15 @@ class WorkflowScopeWithClientAccessTest extends TestCase
 
         $scope = $this->performance->outputVolume($mine, '2026-09')['scopes']['workflow'];
 
+        // Theirs/company's highest are still tracked and shown...
         $this->assertSame(1.0, $scope['mine']);
         $this->assertSame(2.0, $scope['cohort_max']);
-        $this->assertSame(50.0, $scope['pct']);
+        // ...but with nothing stalled, Result is 100% even though someone
+        // else moved more items that period.
+        $this->assertSame(100.0, $scope['pct']);
     }
 
-    public function test_one_stalled_item_docks_a_flat_10_points_off_the_ratio(): void
+    public function test_one_stalled_item_docks_a_flat_10_points(): void
     {
         $handler = $this->handler();
         $flow = $this->flowFor($handler, 1);
@@ -88,7 +91,7 @@ class WorkflowScopeWithClientAccessTest extends TestCase
 
         $scope = $this->performance->outputVolume($handler, '2026-09')['scopes']['workflow'];
 
-        // They're their own cohort max (100% base), minus one stale item.
+        // 100% base minus one stale item.
         $this->assertSame(90.0, $scope['pct']);
     }
 
@@ -138,11 +141,14 @@ class WorkflowScopeWithClientAccessTest extends TestCase
     }
 
     /**
-     * The exact case this rule exists for: a busier person with a small
-     * backlog should still be able to outscore a smaller, fully-caught-up
-     * colleague — raw volume isn't wiped out by a modest penalty.
+     * The exact case this rule exists for: someone with fewer items than a
+     * busier colleague, but nothing currently stuck in their own hands,
+     * must not be marked down just for having done less that period — a
+     * quieter, fully-caught-up colleague scores just as well on Result as
+     * a busier one, even though the busier one is visibly carrying more
+     * (Theirs / Company's highest stay honest about that, separately).
      */
-    public function test_more_volume_with_a_small_backlog_still_outranks_less_volume_with_none(): void
+    public function test_fewer_items_than_a_busier_colleague_does_not_reduce_result_when_nothing_is_stalled(): void
     {
         $busy = $this->handler();
         foreach (range(1, 3) as $i) {
@@ -165,11 +171,16 @@ class WorkflowScopeWithClientAccessTest extends TestCase
         $busyScope = $this->performance->outputVolume($busy, '2026-09')['scopes']['workflow'];
         $quietScope = $this->performance->outputVolume($quiet, '2026-09')['scopes']['workflow'];
 
-        // Busy: 4 items, sets the company max themselves (100% base) minus
-        // 10 for the one stale item = 90%. Quiet: 1 item vs a max of 4 =
-        // 25% base, nothing stale to dock.
+        // Busy: 4 items (visibly the company's highest that period), 100%
+        // base minus 10 for the one stale item = 90%.
+        $this->assertSame(4.0, $busyScope['mine']);
         $this->assertSame(90.0, $busyScope['pct']);
-        $this->assertSame(25.0, $quietScope['pct']);
-        $this->assertGreaterThan($quietScope['pct'], $busyScope['pct']);
+
+        // Quiet: only 1 item, nowhere near the company's highest of 4 — but
+        // nothing of theirs is stalled, so Result is still 100%, not docked
+        // for having done less than Busy.
+        $this->assertSame(1.0, $quietScope['mine']);
+        $this->assertSame(4.0, $quietScope['cohort_max']);
+        $this->assertSame(100.0, $quietScope['pct']);
     }
 }

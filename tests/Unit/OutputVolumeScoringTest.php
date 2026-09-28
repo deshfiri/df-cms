@@ -14,18 +14,21 @@ use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 /**
- * Output Volume: absolute output relative to the most productive person in
- * the company that period, averaged across every scope of work tracked
- * (workflow items, client handling) — not rate alone. Task Completion (and
- * its like) already measure a RATE, where finishing everything you were
- * given hits 100% whether that was 5 tasks or 50; this is what makes higher
- * raw output actually count for more, for scopes Task Completion doesn't
- * already cover.
+ * Output Volume, averaged across every scope of work tracked (workflow
+ * items, client handling). The two scopes score differently now:
+ *
+ * - Workflow Items' Result is a pure "cleared your queue" compliance check
+ *   — 100% unless something claimed is stalled — never reduced just because
+ *   a colleague moved more items. `mine`/`cohort_max` are still tracked and
+ *   shown for context. See WorkflowScopeWithClientAccessTest for the
+ *   stalled-item penalty itself.
+ * - Client Handling is still a straight ratio against the company's largest
+ *   portfolio, uncapped by any compliance concept — this is where "more raw
+ *   output actually counts for more" still lives for Output Volume.
  *
  * Deliberately has no "task" scope: Task Completion already scores every
  * task an assignee is given, so a task scope here would credit the same
- * completed tasks a second time — once for the rate, once for the volume —
- * letting a handful of tasks push both KPIs to 100% at once. See
+ * completed tasks a second time. See
  * PerformanceCalculationService::outputVolume().
  *
  * Called directly against PerformanceCalculationService. HTTP-level
@@ -87,23 +90,26 @@ class OutputVolumeScoringTest extends TestCase
 
     /**
      * Two people both finish 100% of what they were given, but one did
-     * twice the work. On a scope Task Completion doesn't already cover
-     * (workflow items), the higher-output person still scores higher here
-     * — the case Output Volume exists for, without re-scoring the tasks
-     * Task Completion already rated.
+     * twice the work. On Client Handling — the scope that still ranks by
+     * raw volume — the higher-output person scores higher; on Workflow
+     * Items, both are simply caught up and both show 100%.
      */
-    public function test_two_people_both_at_100_percent_completion_rate_score_differently_by_volume(): void
+    public function test_two_people_both_at_100_percent_completion_rate_score_differently_by_client_handling_volume(): void
     {
         $userA = $this->clientHandler();
         $userB = $this->clientHandler();
-        $this->flowItems($userA, 5);  // all 5 completed -> 100% rate
-        $this->flowItems($userB, 10); // all 10 completed -> 100% rate
+        $this->flowItems($userA, 5);  // all 5 completed, nothing stalled -> 100% Result either way
+        $this->flowItems($userB, 10);
+        $this->clientsFor($userA, 2);
+        $this->clientsFor($userB, 4); // twice the portfolio
 
         $volumeA = $this->volume($userA);
         $volumeB = $this->volume($userB);
 
-        $this->assertSame(50.0, $volumeA['scopes']['workflow']['pct']);
+        $this->assertSame(100.0, $volumeA['scopes']['workflow']['pct']);
         $this->assertSame(100.0, $volumeB['scopes']['workflow']['pct']);
+        $this->assertSame(50.0, $volumeA['scopes']['client_handling']['pct']);
+        $this->assertSame(100.0, $volumeB['scopes']['client_handling']['pct']);
         $this->assertGreaterThan($volumeA['pct'], $volumeB['pct']);
     }
 
@@ -127,7 +133,7 @@ class OutputVolumeScoringTest extends TestCase
 
     // ── Each scope on its own ────────────────────────────────────────────
 
-    public function test_the_workflow_scope_measures_completed_items_against_the_leader(): void
+    public function test_the_workflow_scope_tracks_volume_but_scores_on_compliance(): void
     {
         $leader = $this->clientHandler();
         $mine   = $this->clientHandler();
@@ -136,9 +142,12 @@ class OutputVolumeScoringTest extends TestCase
 
         $scope = $this->volume($mine)['scopes']['workflow'];
 
+        // Theirs / company's highest are still tracked and shown...
         $this->assertSame(2.0, $scope['mine']);
         $this->assertSame(8.0, $scope['cohort_max']);
-        $this->assertSame(25.0, $scope['pct']);
+        // ...but Result doesn't come from that ratio — nothing is stalled
+        // (these are completed items), so it's 100%.
+        $this->assertSame(100.0, $scope['pct']);
         $this->assertSame('Workflow Items', $scope['label']);
     }
 
@@ -173,12 +182,12 @@ class OutputVolumeScoringTest extends TestCase
         $this->assertSame($thisMonth, $lastMonth);
     }
 
-    public function test_the_top_performer_in_a_scope_always_scores_exactly_100(): void
+    public function test_the_top_performer_in_client_handling_always_scores_exactly_100(): void
     {
         $leader = $this->clientHandler();
-        $this->flowItems($leader, 7);
+        $this->clientsFor($leader, 7);
 
-        $this->assertSame(100.0, $this->volume($leader)['scopes']['workflow']['pct']);
+        $this->assertSame(100.0, $this->volume($leader)['scopes']['client_handling']['pct']);
     }
 
     // ── Combining scopes ─────────────────────────────────────────────────
@@ -200,7 +209,7 @@ class OutputVolumeScoringTest extends TestCase
 
         $this->assertArrayHasKey('workflow', $result['scopes']);
         $this->assertArrayNotHasKey('client_handling', $result['scopes']);
-        $this->assertSame(50.0, $result['pct']); // the workflow scope alone, not averaged down by an absent scope
+        $this->assertSame(100.0, $result['pct']); // the workflow scope alone (nothing stalled), not averaged down by an absent scope
     }
 
     public function test_the_overall_score_is_the_average_of_every_applicable_scope(): void
@@ -209,15 +218,15 @@ class OutputVolumeScoringTest extends TestCase
         $mine   = $this->clientHandler();
 
         $this->flowItems($leader, 4);
-        $this->flowItems($mine, 2); // 50%
+        $this->flowItems($mine, 2); // nothing stalled -> 100% Result regardless of the 4-vs-2 split
         $this->clientsFor($leader, 4);
         $this->clientsFor($mine, 1); // 25%
 
         $result = $this->volume($mine);
 
-        $this->assertSame(50.0, $result['scopes']['workflow']['pct']);
+        $this->assertSame(100.0, $result['scopes']['workflow']['pct']);
         $this->assertSame(25.0, $result['scopes']['client_handling']['pct']);
-        $this->assertSame(37.5, $result['pct']); // (50 + 25) / 2
+        $this->assertSame(62.5, $result['pct']); // (100 + 25) / 2
     }
 
     // ── Company-wide, batch-consistent ───────────────────────────────────
