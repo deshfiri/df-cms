@@ -5,6 +5,7 @@ namespace App\Services\Performance;
 use App\Models\ActivityLog;
 use App\Models\Client;
 use App\Models\ClientSatisfactionRating;
+use App\Models\ClientStageProgress;
 use App\Models\DailyTarget;
 use App\Models\FlowItem;
 use App\Models\FlowTransition;
@@ -131,6 +132,12 @@ class PerformanceCalculationService
 
         $this->flowItemsByUser = $this->loadFlowItems($ids, $period);
 
+        // Department-pipeline stage submissions (the older, separate
+        // WorkflowStage/ClientStageProgress system — still actively worked
+        // today alongside, or instead of, the Flow engine) blended into the
+        // same "workflow" scope. See stageSubmissionUnitsFor().
+        $this->stageSubmissionUnitsByUser = $this->loadStageSubmissionUnits($ids, $period);
+
         // Standing sizes, not period-scoped, so one load covers this cohort
         // for every period scored in the same request.
         $this->clientPortfolioByUser = $this->loadClientPortfolios($ids);
@@ -147,6 +154,9 @@ class PerformanceCalculationService
 
     /** @var array<int,\Illuminate\Support\Collection<int,FlowItem>> */
     private array $flowItemsByUser = [];
+
+    /** @var array<int,\Illuminate\Support\Collection<int,array{client_id:int}>> */
+    private array $stageSubmissionUnitsByUser = [];
 
     /**
      * The most any one person in the whole company did, per scope, in a
@@ -304,6 +314,64 @@ class PerformanceCalculationService
     }
 
     /**
+     * Output Volume's "workflow" scope also credits the older, separate
+     * department pipeline (WorkflowStage/ClientStageProgress) — still
+     * actively worked today, alongside or instead of the Flow engine, and
+     * until now never counted toward anyone's Output Volume at all. Each
+     * qualifying stage submission is one credit unit, whether a person
+     * clicked Submit themselves or it was auto-submitted as a side effect of
+     * an unrelated action (e.g. booking a meeting auto-submits its stage,
+     * credited to whoever booked it — see WorkflowService::submitStage()
+     * and systemSubmitByCode()). Only the submitter earns credit here —
+     * approving is a separate role, not double-counted.
+     *
+     * Deliberately not merged into flowItemsFor()'s own return value: that
+     * method also feeds Daily Target's workflow scope, which needs real
+     * FlowItem rows (due_date, status) that a stage submission has no
+     * equivalent of. This is only ever combined with flowItemsFor()'s
+     * output at the Output Volume call sites below.
+     *
+     * @return \Illuminate\Support\Collection<int,array{client_id:int}>
+     */
+    private function stageSubmissionUnitsFor(User $user, string $period): \Illuminate\Support\Collection
+    {
+        if ($this->prefetched($period)) {
+            return $this->stageSubmissionUnitsByUser[$user->id] ?? collect();
+        }
+
+        return $this->loadStageSubmissionUnits(collect([$user->id]), $period)[$user->id] ?? collect();
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int,int>  $ids
+     * @return array<int,\Illuminate\Support\Collection<int,array{client_id:int}>>
+     */
+    private function loadStageSubmissionUnits(\Illuminate\Support\Collection $ids, string $period): array
+    {
+        [$start, $end] = $this->periodBounds($period);
+
+        // One row per (client, stage) at any time — a resubmission after a
+        // revision request overwrites submitted_by/submitted_at rather than
+        // adding a new row, so this can never double-count the same stage.
+        $rows = ClientStageProgress::whereIn('submitted_by', $ids)
+            ->whereBetween('submitted_at', [$start, $end])
+            ->get(['client_id', 'submitted_by']);
+
+        $byUser = [];
+        foreach ($rows as $row) {
+            // 'always_qualifies' distinguishes this from a FlowItem in
+            // workflowVolumeCount(): the client-progress needle there
+            // (ClientProgressService) only ever reads Flow items, so a client
+            // worked purely through the department pipeline would otherwise
+            // always look like "0% progress" and get filtered out — a
+            // submission is itself the movement, so it never needs that gate.
+            $byUser[$row->submitted_by][] = ['client_id' => $row->client_id, 'always_qualifies' => true];
+        }
+
+        return array_map(fn (array $list) => collect($list), $byUser);
+    }
+
+    /**
      * Who one workflow item counts for — the creator (their move into the
      * first stage), everyone who's ever claimed and moved it along at any
      * stage, and whoever currently holds it, whether it's still open or
@@ -339,13 +407,24 @@ class PerformanceCalculationService
      * progress needle is a client-handling concept, so someone without
      * client permission is scored on their own queue instead, never this
      * company-wide comparison.
+     *
+     * A department-pipeline stage submission (see loadStageSubmissionUnits())
+     * is marked 'always_qualifies' and skips the progress check entirely —
+     * the submission itself is the movement, so it's never gated the way a
+     * FlowItem's own client-progress needle gates a client still at 0%.
      */
     private function workflowVolumeCount(\Illuminate\Support\Collection $items): int
     {
-        $clientIds = $items->pluck('client_id')->filter()->unique();
         $standalone = $items->whereNull('client_id')->count();
 
-        $qualifyingClients = $clientIds->filter(fn ($id) => $this->clientQualifies((int) $id))->count();
+        $alwaysQualifying = $items->filter(fn ($item) => data_get($item, 'always_qualifies') === true)
+            ->pluck('client_id')->filter()->unique();
+
+        $gatedClientIds = $items->reject(fn ($item) => data_get($item, 'always_qualifies') === true)
+            ->pluck('client_id')->filter()->unique()
+            ->filter(fn ($id) => $this->clientQualifies((int) $id));
+
+        $qualifyingClients = $alwaysQualifying->merge($gatedClientIds)->unique()->count();
 
         return $qualifyingClients + $standalone;
     }
@@ -1162,7 +1241,10 @@ class PerformanceCalculationService
     {
         $scopes = [];
 
-        $flowItems = $this->flowItemsFor($user, $period);
+        // Flow-engine items and department-pipeline stage submissions are
+        // two different systems for the same kind of work — see
+        // stageSubmissionUnitsFor() — so they're blended into one count here.
+        $flowItems = $this->flowItemsFor($user, $period)->merge($this->stageSubmissionUnitsFor($user, $period));
         if ($flowItems->isNotEmpty()) {
             // Counts a workflow item whether it's still in progress or
             // already finished — this is volume of engagement, not a
@@ -1232,11 +1314,17 @@ class PerformanceCalculationService
         $inPeriod = fn ($q) => self::inFlowPeriod($q, $start, $end);
 
         // Whoever currently holds an open item, plus everyone who ever
-        // claimed and moved a completed one along — same reasoning as
-        // loadFlowItems()/creditedUsersFor().
+        // claimed and moved a completed one along (loadFlowItems()/
+        // creditedUsersFor()'s reasoning), plus everyone who submitted a
+        // department-pipeline stage this period (stageSubmissionUnitsFor()) —
+        // someone who only ever works that older system, with no Flow item
+        // to their name at all, must still be able to set this bar.
         $ids = $inPeriod(FlowItem::query())->whereNotNull('assigned_to')->distinct()->pluck('assigned_to')
             ->merge(
                 FlowTransition::whereHas('item', $inPeriod)->whereNotNull('moved_by')->distinct()->pluck('moved_by')
+            )
+            ->merge(
+                ClientStageProgress::whereBetween('submitted_at', [$start, $end])->whereNotNull('submitted_by')->distinct()->pluck('submitted_by')
             )
             ->filter()->unique();
 
@@ -1245,6 +1333,8 @@ class PerformanceCalculationService
         }
 
         $usersById = User::whereIn('id', $ids)->with('roles.permissions', 'permissions')->get()->keyBy('id');
+        $flowItemsByUser = $this->loadFlowItems($ids, $period);
+        $stageUnitsByUser = $this->loadStageSubmissionUnits($ids, $period);
 
         // Only counts people actually measured on this comparison — someone
         // without client permission is scored on their own queue instead
@@ -1252,11 +1342,14 @@ class PerformanceCalculationService
         // touch count here would inflate the bar against a metric they were
         // never being compared on in the first place.
         $max = 0.0;
-        foreach ($this->loadFlowItems($ids, $period) as $userId => $items) {
+        foreach ($ids as $userId) {
             $user = $usersById->get($userId);
-            if ($user && $this->hasClientAccess($user)) {
-                $max = max($max, $this->workflowVolumeCount($items));
+            if (!$user || !$this->hasClientAccess($user)) {
+                continue;
             }
+
+            $items = ($flowItemsByUser[$userId] ?? collect())->merge($stageUnitsByUser[$userId] ?? collect());
+            $max = max($max, $this->workflowVolumeCount($items));
         }
 
         return $max;
