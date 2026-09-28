@@ -220,7 +220,13 @@ class WorkflowVolumeNoClientAccessTest extends TestCase
         $this->assertSame(100.0, $scope['pct']);
     }
 
-    /** This whole rule is specific to someone without client access — a client handler is still compared to the company's busiest person. */
+    /**
+     * This whole "no comparison" rule is specific to someone without client
+     * access — a client handler is still compared to the company's busiest
+     * person for the bulk of their Result%. They're not entirely exempt from
+     * a stale item, though: see WorkflowScopeWithClientAccessTest for the
+     * separate point-penalty that applies to them instead.
+     */
     public function test_someone_with_client_access_is_still_scored_against_the_company_not_this_rule(): void
     {
         $handler = tap($this->worker())->givePermissionTo('view clients')->fresh();
@@ -228,17 +234,18 @@ class WorkflowVolumeNoClientAccessTest extends TestCase
 
         $item = $this->flow->createItem($flow, ['title' => 'Item', 'due_date' => '2026-09-10'], $this->actor());
         $item = $this->flow->claim($item->fresh(), $handler);
-        $this->backdate($item, 30); // sitting untouched a long time — irrelevant to this formula
+        $this->backdate($item, 30); // sitting untouched a long time
 
         $scope = $this->performance->outputVolume($handler, '2026-09')['scopes']['workflow'];
 
         // The company-wide comparison formula: they're the only toucher, so
-        // they're their own cohort max — 100%, regardless of how stale the
-        // item is. This is the pre-existing, unrelated formula, not the one
-        // this test class covers.
+        // they're their own cohort max — 100% before any penalty. This is the
+        // pre-existing, unrelated formula, not the one this test class
+        // covers; the docked 10 points for the one stale item is
+        // workflowScopeWithClientAccess()'s own, separate rule.
         $this->assertSame(1.0, $scope['mine']);
         $this->assertSame(1.0, $scope['cohort_max']);
-        $this->assertSame(100.0, $scope['pct']);
+        $this->assertSame(90.0, $scope['pct']);
     }
 
     public function test_client_handling_scope_never_applies_to_a_user_without_client_access(): void

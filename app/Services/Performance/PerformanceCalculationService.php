@@ -677,7 +677,7 @@ class PerformanceCalculationService
                 ->orWhereHas('involvements', fn ($inv) => $inv->where('user_id', $user->id)))
             ->withCount('clients')
             ->with(['involvements', 'assignees:id'])
-            ->orderBy('due_date')->orderBy('id')
+            ->orderByDesc('due_date')->orderByDesc('id')
             ->get(['id', 'title', 'status', 'created_by', 'due_date', 'due_at']);
 
         return $tasks->map(function (Task $task) use ($user) {
@@ -1237,6 +1237,17 @@ class PerformanceCalculationService
         'client_handling'  => 'Client Handling',
     ];
 
+    /**
+     * Percentage points docked from a client-access employee's "Workflow
+     * Items" Result% for each open item that's been sitting in their hands,
+     * untouched, for over a week — see workflowScopeWithClientAccess(). A
+     * starting value: raw volume (mine ÷ company's highest) still decides
+     * most of the number, so someone carrying more work than a smaller,
+     * fully-caught-up colleague can still out-score them; this only trims
+     * it down when something's genuinely been left stuck.
+     */
+    private const STALLED_ITEM_PENALTY = 10.0;
+
     public function outputVolume(User $user, string $period): ?array
     {
         $scopes = [];
@@ -1256,10 +1267,7 @@ class PerformanceCalculationService
             // isn't measured against the busiest person — see
             // workflowScopeWithoutClientAccess().
             $scopes['workflow'] = $this->hasClientAccess($user)
-                ? $this->volumeScope(
-                    $this->workflowVolumeCount($flowItems),
-                    $this->cohortMaxWorkflowTouched($period),
-                )
+                ? $this->workflowScopeWithClientAccess($user, $flowItems, $period)
                 : $this->workflowScopeWithoutClientAccess($user, $flowItems);
         }
 
@@ -1289,6 +1297,36 @@ class PerformanceCalculationService
             'mine'       => round($mine, 2),
             'cohort_max' => round($cohortMax, 2),
             'pct'        => $cohortMax > 0 ? round(min(100, $mine / $cohortMax * 100), 2) : 0.0,
+        ];
+    }
+
+    /**
+     * Output Volume's "Workflow Items" scope for someone WITH client
+     * permission: still primarily a comparison against the busiest person
+     * (mine ÷ company's highest, same as volumeScope()) — carrying more raw
+     * work than a smaller, fully-caught-up colleague still earns a higher
+     * Result% than them. On top of that, each open item that's been sitting
+     * in this person's own hands, untouched, for over a week docks the
+     * result by STALLED_ITEM_PENALTY points — "cleared your queue" no
+     * longer means an automatic 100%, it just means nothing is subtracted.
+     */
+    private function workflowScopeWithClientAccess(User $user, \Illuminate\Support\Collection $items, string $period): array
+    {
+        $mine = $this->workflowVolumeCount($items);
+        $cohortMax = $this->cohortMaxWorkflowTouched($period);
+        $base = $cohortMax > 0 ? min(100, $mine / $cohortMax * 100) : 0.0;
+
+        $stalledCount = FlowItem::where('assigned_to', $user->id)
+            ->where('status', FlowItem::STATUS_OPEN)
+            ->where('updated_at', '<', now()->subDays(7))
+            ->count();
+
+        $pct = max(0.0, $base - $stalledCount * self::STALLED_ITEM_PENALTY);
+
+        return [
+            'mine'       => round($mine, 2),
+            'cohort_max' => round($cohortMax, 2),
+            'pct'        => round($pct, 2),
         ];
     }
 

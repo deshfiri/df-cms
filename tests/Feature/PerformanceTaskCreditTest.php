@@ -153,6 +153,20 @@ class PerformanceTaskCreditTest extends TestCase
         $this->assertEqualsWithDelta(5 / 9, $bashirs['credited_total'], 0.001);
     }
 
+    /** Newest due date first — so the most recent work is the first thing shown on the scorecard, not buried at the bottom. */
+    public function test_task_credit_is_sorted_by_due_date_newest_first(): void
+    {
+        $manager = $this->user('Manager', 'view tasks', 'manage tasks');
+        $anika = $this->user('Anika');
+        $this->create($manager, $anika, ['title' => 'Earliest', 'due_date' => '2026-09-05']);
+        $this->create($manager, $anika, ['title' => 'Middle', 'due_date' => '2026-09-15']);
+        $this->create($manager, $anika, ['title' => 'Latest', 'due_date' => '2026-09-25']);
+
+        $credit = collect($this->score()->taskCredit($anika, self::PERIOD));
+
+        $this->assertSame(['Latest', 'Middle', 'Earliest'], $credit->pluck('title')->all());
+    }
+
     public function test_creating_a_task_earns_no_credit_but_reviewing_it_earns_a_full_share(): void
     {
         $manager = $this->user('Manager', 'view tasks', 'manage tasks');
@@ -171,9 +185,11 @@ class PerformanceTaskCreditTest extends TestCase
 
         $credit = collect($this->score()->taskCredit($manager, self::PERIOD));
         $this->assertCount(2, $credit, 'Both tasks the manager touched appear in the audit trail.');
-        $this->assertSame(['reviewer', 'creator'], $credit->pluck('role')->all());
-        $this->assertSame([true, false], $credit->pluck('counted')->all());
-        $this->assertSame([1.0, 0.0], $credit->pluck('share')->all());
+        // Newest first (descending due date, then id) — the commented-on
+        // task was created after the handed-over one.
+        $this->assertSame(['creator', 'reviewer'], $credit->pluck('role')->all());
+        $this->assertSame([false, true], $credit->pluck('counted')->all());
+        $this->assertSame([0.0, 1.0], $credit->pluck('share')->all());
     }
 
     public function test_the_reviewers_own_full_share_never_reduces_the_assignees(): void
