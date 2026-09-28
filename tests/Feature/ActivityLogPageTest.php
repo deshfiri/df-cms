@@ -120,6 +120,24 @@ class ActivityLogPageTest extends TestCase
         $this->assertSame('Deleted', $rows[0]['action']);
     }
 
+    /** Newest first — so a fresh entry never gets buried behind a page of older ones. */
+    public function test_the_list_is_sorted_newest_first(): void
+    {
+        $viewer = $this->viewer();
+        $this->travelTo(Carbon::parse('2026-09-10 12:00:00'));
+        $this->log(['module' => 'Client', 'action' => 'Oldest']);
+        $this->travelTo(Carbon::parse('2026-09-20 12:00:00'));
+        $this->log(['module' => 'Client', 'action' => 'Middle']);
+        $this->travelTo(Carbon::parse('2026-09-25 12:00:00'));
+        $this->log(['module' => 'Client', 'action' => 'Newest']);
+
+        $rows = $this->actingAs($viewer)
+            ->getJson(route('activity-log.index'), ['X-Requested-With' => 'XMLHttpRequest'])
+            ->assertOk()->json('data');
+
+        $this->assertSame(['Newest', 'Middle', 'Oldest'], collect($rows)->pluck('action')->all());
+    }
+
     public function test_it_can_be_filtered_by_date_range(): void
     {
         $viewer = $this->viewer();
@@ -147,6 +165,49 @@ class ActivityLogPageTest extends TestCase
         $this->actingAs($viewer)->getJson(route('activity-log.show', $log))
             ->assertOk()
             ->assertJson(['module' => 'Client', 'action' => 'Status Changed', 'old_value' => 'Active', 'new_value' => 'On Hold']);
+    }
+
+    /** Every timestamp renders in the viewer's own browser timezone, not the server's (UTC) clock. */
+    public function test_the_list_renders_timestamps_in_the_browsers_timezone(): void
+    {
+        $viewer = $this->viewer();
+        $this->travelTo(Carbon::parse('2026-09-28 04:41:00', 'UTC'));
+        $this->log(['module' => 'Task', 'action' => 'Created']);
+
+        $rows = $this->actingAs($viewer)
+            ->getJson(route('activity-log.index', ['tz' => 'Asia/Dhaka']), ['X-Requested-With' => 'XMLHttpRequest'])
+            ->assertOk()->json('data');
+
+        // UTC 04:41 is 10:41 in Dhaka (UTC+6) — a straight UTC render would
+        // still say "04:41 AM", which is exactly the reported bug.
+        $this->assertSame('28 Sep 2026, 10:41 AM', $rows[0]['when']);
+    }
+
+    public function test_the_details_endpoint_also_renders_in_the_browsers_timezone(): void
+    {
+        $viewer = $this->viewer();
+        $this->travelTo(Carbon::parse('2026-09-28 04:41:00', 'UTC'));
+        $log = $this->log(['module' => 'Task', 'action' => 'Created']);
+
+        $response = $this->actingAs($viewer)
+            ->getJson(route('activity-log.show', $log) . '?tz=Asia/Dhaka')
+            ->assertOk();
+
+        $this->assertSame('28 Sep 2026, 10:41 AM', $response->json('created_at'));
+    }
+
+    /** No zone supplied (or an invalid one) falls back to the app's own timezone, never crashes. */
+    public function test_an_invalid_or_missing_timezone_falls_back_safely(): void
+    {
+        $viewer = $this->viewer();
+        $this->travelTo(Carbon::parse('2026-09-28 04:41:00', 'UTC'));
+        $this->log(['module' => 'Task', 'action' => 'Created']);
+
+        $rows = $this->actingAs($viewer)
+            ->getJson(route('activity-log.index', ['tz' => 'not/a-real-zone']), ['X-Requested-With' => 'XMLHttpRequest'])
+            ->assertOk()->json('data');
+
+        $this->assertSame('28 Sep 2026, 04:41 AM', $rows[0]['when']);
     }
 
     public function test_the_details_endpoint_is_also_permission_gated(): void

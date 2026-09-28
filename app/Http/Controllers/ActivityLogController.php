@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ActivityLog;
 use App\Models\User;
+use App\Services\MyWorkService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -32,18 +33,19 @@ class ActivityLogController extends Controller
         return view('activity-log.index', compact('modules', 'users'));
     }
 
-    public function show(ActivityLog $activityLog): JsonResponse
+    public function show(Request $request, ActivityLog $activityLog): JsonResponse
     {
         abort_unless(Auth::user()->can('view activity log'), 403);
 
         $activityLog->load(['user:id,name', 'client:id,client_name']);
+        $zone = MyWorkService::timezone($request->query('tz'));
 
         return response()->json([
             'module'      => $activityLog->module,
             'action'      => $activityLog->action,
             'user'        => $activityLog->user->name ?? 'System',
             'client'      => $activityLog->client->client_name ?? null,
-            'created_at'  => $activityLog->created_at->format('d M Y, h:i A'),
+            'created_at'  => $activityLog->created_at->copy()->setTimezone($zone)->format('d M Y, h:i A'),
             'ip_address'  => $activityLog->ip_address,
             'browser'     => $activityLog->browser,
             'old_value'   => $activityLog->old_value,
@@ -71,13 +73,17 @@ class ActivityLogController extends Controller
             $query->whereDate('created_at', '<=', $request->date_to);
         }
 
+        $query->orderByDesc('created_at')->orderByDesc('id');
+
+        $zone = MyWorkService::timezone($request->query('tz'));
+
         return DataTables::of($query)
             ->addIndexColumn()
             ->addColumn('module_badge', fn (ActivityLog $log) => '<span class="spill" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">' . e($log->module) . '</span>')
             ->addColumn('action', fn (ActivityLog $log) => e($log->action))
             ->addColumn('user', fn (ActivityLog $log) => e($log->user->name ?? 'System'))
             ->addColumn('client', fn (ActivityLog $log) => e($log->client->client_name ?? '-'))
-            ->addColumn('when', fn (ActivityLog $log) => $log->created_at->format('d M Y, h:i A'))
+            ->addColumn('when', fn (ActivityLog $log) => $log->created_at->copy()->setTimezone($zone)->format('d M Y, h:i A'))
             ->addColumn('ip', fn (ActivityLog $log) => e($log->ip_address ?? '-'))
             ->addColumn('details', fn (ActivityLog $log) => '<button class="btn btn-sm px-2 py-1 log-view" data-id="' . $log->id . '" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)" title="Details"><i class="bi bi-eye"></i></button>')
             ->orderColumn('when', 'created_at $1')

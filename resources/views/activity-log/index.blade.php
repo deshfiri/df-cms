@@ -83,6 +83,10 @@
 
 @push('scripts')
 <script>
+// The browser's own zone (e.g. "Asia/Dhaka") — every timestamp on this page
+// is rendered in it, never the server's own (UTC) clock.
+const logTz = (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone || '';
+
 $(function () {
     $('#logModule, #logUser').select2({ theme: 'bootstrap-5', width: '100%' });
 
@@ -108,6 +112,7 @@ $(function () {
                 d.action    = $('#logAction').val();
                 d.date_from = $('#logDateFrom').val();
                 d.date_to   = $('#logDateTo').val();
+                d.tz        = logTz;
             }
         },
         columns: columns,
@@ -133,7 +138,7 @@ $(document).on('click', '.log-view', function () {
     $('#viewLogBody').html('<div class="text-center py-4"><div class="spinner-border spinner-border-sm" style="color:var(--primary)"></div></div>');
     new bootstrap.Modal('#viewLogModal').show();
 
-    $.get('{{ url("activity-log") }}/' + id).done(function (log) {
+    $.get('{{ url("activity-log") }}/' + id, { tz: logTz }).done(function (log) {
         $('#viewLogTitle').text(log.module + ' — ' + log.action);
         let html = '<div class="mb-2 small" style="color:var(--text3)">'
             + (log.user || 'System') + ' &middot; ' + log.created_at
@@ -142,27 +147,92 @@ $(document).on('click', '.log-view', function () {
         if (log.ip_address) {
             html += '<div class="mb-2 small" style="color:var(--text3)">IP: ' + $('<div>').text(log.ip_address).html() + '</div>';
         }
-        if (log.old_value) {
-            html += '<div class="mb-2"><div class="fw-semibold small" style="color:var(--text2)">Before</div><pre class="small mb-0" style="white-space:pre-wrap;background:var(--surface2);padding:8px;border-radius:6px">' + $('<div>').text(prettyLogValue(log.old_value)).html() + '</pre></div>';
-        }
-        if (log.new_value) {
-            html += '<div class="mb-2"><div class="fw-semibold small" style="color:var(--text2)">After</div><pre class="small mb-0" style="white-space:pre-wrap;background:var(--surface2);padding:8px;border-radius:6px">' + $('<div>').text(prettyLogValue(log.new_value)).html() + '</pre></div>';
-        }
-        if (!log.old_value && !log.new_value) {
-            html += '<p class="text-muted small mb-0">No additional detail recorded for this entry.</p>';
-        }
+        html += renderLogDetail(log.old_value, log.new_value);
         $('#viewLogBody').html(html);
     }).fail(function () {
         $('#viewLogBody').html('<div class="text-center py-4 small c-red"><i class="bi bi-exclamation-circle me-1"></i>Failed to load this entry.</div>');
     });
 });
 
-function prettyLogValue(raw) {
-    try {
-        return JSON.stringify(JSON.parse(raw), null, 2);
-    } catch (e) {
-        return raw;
+/** Field-by-field, human-readable — never a raw JSON dump. */
+function renderLogDetail(oldRaw, newRaw) {
+    const oldData = parseLogValue(oldRaw);
+    const newData = parseLogValue(newRaw);
+    const oldIsObject = oldData !== null && typeof oldData === 'object' && !Array.isArray(oldData);
+    const newIsObject = newData !== null && typeof newData === 'object' && !Array.isArray(newData);
+
+    if (!oldIsObject && !newIsObject) {
+        // A plain scalar on one or both sides (e.g. a status change) — a
+        // simple before/after line, not a table.
+        if (oldRaw == null && newRaw == null) {
+            return '<p class="text-muted small mb-0">No additional detail recorded for this entry.</p>';
+        }
+        let html = '';
+        if (oldRaw != null) {
+            html += '<div class="mb-1 small"><span style="color:var(--text3)">Before:</span> ' + escapeHtml(formatLogValue(oldData)) + '</div>';
+        }
+        if (newRaw != null) {
+            html += '<div class="small"><span style="color:var(--text3)">After:</span> ' + escapeHtml(formatLogValue(newData)) + '</div>';
+        }
+        return html;
     }
+
+    // One or both sides are a field => value object — render a field-by-field
+    // table (Before/After when both exist, a single Value column otherwise)
+    // instead of dumping the raw JSON.
+    const oldFields = oldIsObject ? oldData : {};
+    const newFields = newIsObject ? newData : {};
+    const keys = Array.from(new Set([...Object.keys(oldFields), ...Object.keys(newFields)]));
+    const showBoth = oldIsObject && newIsObject;
+
+    let rows = '';
+    keys.forEach(function (key) {
+        const before = formatLogValue(oldFields[key]);
+        const after = formatLogValue(newFields[key]);
+        if (showBoth && before === after) {
+            return; // unchanged field — not worth showing in a diff
+        }
+        // With only one real side (a Created/Deleted-style entry), show
+        // whichever value actually exists — old for Deleted, new for Created.
+        const soleValue = newIsObject ? after : before;
+        rows += '<tr><td class="small fw-semibold" style="color:var(--text2);white-space:nowrap">' + escapeHtml(humanizeLogKey(key)) + '</td>'
+            + (showBoth ? '<td class="small" style="color:var(--text3)">' + escapeHtml(before) + '</td>' : '')
+            + '<td class="small">' + escapeHtml(showBoth ? after : soleValue) + '</td></tr>';
+    });
+
+    if (!rows) {
+        return '<p class="text-muted small mb-0">No fields changed.</p>';
+    }
+
+    return '<div class="table-responsive"><table class="table table-sm mb-0"><thead><tr>'
+        + '<th class="small">Field</th>'
+        + (showBoth ? '<th class="small">Before</th><th class="small">After</th>' : '<th class="small">Value</th>')
+        + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+function parseLogValue(raw) {
+    if (raw == null) return null;
+    try {
+        return JSON.parse(raw);
+    } catch (e) {
+        return raw; // a plain, non-JSON scalar
+    }
+}
+
+function formatLogValue(value) {
+    if (value === null || value === undefined || value === '') return '—';
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (Array.isArray(value)) return value.length ? value.join(', ') : '—';
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+}
+
+function humanizeLogKey(key) {
+    return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function escapeHtml(text) {
+    return $('<div>').text(text).html();
 }
 </script>
 @endpush
