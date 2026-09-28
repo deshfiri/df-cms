@@ -251,7 +251,12 @@ class FlowService
         return $item->assigned_to === $user->id || $user->can('manage workflows');
     }
 
-    /** Notify participants (current-stage assignees + creator, minus the author) of a new comment. */
+    /**
+     * Notify participants (current-stage assignees + creator, minus the
+     * author) of a new comment. Only ever called for a comment that names no
+     * one — see storeComment(): a comment that @mentions someone is directed
+     * at exactly them, not broadcast to everyone else too.
+     */
     public function notifyNewComment(FlowItem $item, User $author, string $body): void
     {
         $recipients = collect();
@@ -276,9 +281,13 @@ class FlowService
     /**
      * A workflow's discussion is open — unlike a task's, anyone in the
      * system can be @mentioned, not just whoever's already party to the
-     * item. Only those actually named get notified.
+     * item. Only those actually named get notified — nobody else, not even
+     * the item's own participants (see storeComment(), which skips the
+     * general new-comment notification whenever this returns anyone).
+     *
+     * @return \Illuminate\Support\Collection<int,User> whoever was actually mentioned and notified
      */
-    public function notifyMentions(FlowItem $item, User $author, string $body): void
+    public function notifyMentions(FlowItem $item, User $author, string $body): \Illuminate\Support\Collection
     {
         $candidates = User::where('is_active', true)->get(['id', 'name']);
         $mentioned = MentionParser::extract($body, $candidates)->reject(fn (User $u) => $u->id === $author->id);
@@ -290,6 +299,8 @@ class FlowService
                 report($e);
             }
         }
+
+        return $mentioned;
     }
 
     public function myQueueCount(User $user): int

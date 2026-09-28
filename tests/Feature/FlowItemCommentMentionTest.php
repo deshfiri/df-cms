@@ -16,7 +16,9 @@ use Tests\TestCase;
 /**
  * A workflow's discussion is open — unlike a task's, anyone active in the
  * system can be @mentioned, not just whoever's already party to the item.
- * Only those actually named get notified.
+ * Only those actually named get notified — a mention replaces the general
+ * "new comment" broadcast to the item's participants rather than adding to
+ * it, so mentioning one person never also pings everyone else.
  */
 class FlowItemCommentMentionTest extends TestCase
 {
@@ -86,8 +88,26 @@ class FlowItemCommentMentionTest extends TestCase
         Notification::assertNothingSentTo($outsider);
     }
 
-    /** The two notifications are independent — a mention doesn't replace the existing participant broadcast. */
-    public function test_a_mention_notification_is_additional_to_the_normal_comment_notification(): void
+    /** A plain comment with no mention at all still reaches the item's participants — unaffected by the mention feature. */
+    public function test_a_comment_with_no_mention_still_notifies_the_items_participants(): void
+    {
+        $worker = $this->user('Worker');
+        $item   = $this->itemFor($worker);
+
+        $this->actingAs($worker)->postJson(route('flow-items.comments.store', $item), [
+            'body' => 'Just an update, nothing else.',
+        ])->assertOk();
+
+        Notification::assertSentTo($item->creator, FlowItemNewComment::class);
+    }
+
+    /**
+     * A comment that @mentions someone is directed at exactly them: nobody
+     * else — not even the item's own creator or stage assignees — gets
+     * pinged about it. The mention replaces the general broadcast rather
+     * than adding to it.
+     */
+    public function test_a_mention_replaces_the_normal_comment_notification_not_adds_to_it(): void
     {
         $worker  = $this->user('Worker');
         $item    = $this->itemFor($worker);
@@ -98,8 +118,9 @@ class FlowItemCommentMentionTest extends TestCase
         ])->assertOk();
 
         Notification::assertSentTo($outsider, FlowItemCommentMention::class);
-        // The item's own creator (an admin, not mentioned) still gets the normal broadcast.
-        Notification::assertSentTo($item->creator, FlowItemNewComment::class);
+        // The item's own creator (an admin, not mentioned) gets nothing at all.
+        Notification::assertNotSentTo($item->creator, FlowItemNewComment::class);
+        Notification::assertNothingSentTo($item->creator);
     }
 
     public function test_the_comment_renders_the_mention_highlighted(): void

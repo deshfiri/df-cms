@@ -273,8 +273,12 @@ class FlowItemController extends Controller
             'body'         => $data['body'],
         ]);
 
-        $this->flow->notifyNewComment($item, $request->user(), $data['body']);
-        $this->flow->notifyMentions($item, $request->user(), $data['body']);
+        // A comment that @mentions someone is directed at exactly them —
+        // only they get notified, not the item's other participants too.
+        $mentioned = $this->flow->notifyMentions($item, $request->user(), $data['body']);
+        if ($mentioned->isEmpty()) {
+            $this->flow->notifyNewComment($item, $request->user(), $data['body']);
+        }
 
         return response()->json(['success' => true]);
     }
