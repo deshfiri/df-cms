@@ -29,7 +29,7 @@ use Illuminate\Validation\ValidationException;
 class PaymentService
 {
     /** Fields that describe a charge to open inline; never columns on payments. */
-    private const CHARGE_FIELDS = ['charge_total', 'charge_title', 'charge_due_date'];
+    private const CHARGE_FIELDS = ['charge_total', 'charge_title', 'charge_due_date', 'brand_id'];
 
     public function __construct(
         private readonly ActivityLogService    $activityLog,
@@ -549,8 +549,13 @@ class PaymentService
         }
 
         if (!empty($data['charge_total'])) {
+            if (!empty($data['brand_id']) && !$client->brands()->whereKey($data['brand_id'])->exists()) {
+                $this->refuse('brand_id', 'That brand does not belong to this client.');
+            }
+
             $charge = $this->invoices->create($client, [
                 'payment_category_id' => $data['payment_category_id'] ?? null,
+                'brand_id'            => $data['brand_id'] ?? null,
                 'title'               => $data['charge_title'] ?? null,
                 'total_payable'       => $data['charge_total'],
                 'due_date'            => $data['charge_due_date'] ?? null,

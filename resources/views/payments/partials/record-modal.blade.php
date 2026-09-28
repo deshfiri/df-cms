@@ -46,6 +46,12 @@
 
                     <div class="col-12" data-rp="chargeInfo" hidden></div>
 
+                    <div class="col-12" data-rp="brandWrap" hidden>
+                        <label class="form-label fw-semibold small">Brand <span style="color:var(--c-red)">*</span></label>
+                        <select data-rp="brand" class="form-select"></select>
+                        <span class="rp-hint">Advertising-budget and content charges are tracked per brand.</span>
+                    </div>
+
                     <div class="col-12" data-rp="newCharge" hidden>
                         <div class="rp-newcharge">
                             <div class="rp-newcharge-title"><i class="bi bi-receipt me-1"></i>New charge</div>
@@ -154,6 +160,7 @@
  * @param {Function} opts.clientId    () => the client being paid for, or null
  * @param {Function} opts.storeUrl    (clientId) => POST url
  * @param {Function} opts.chargesUrl  (clientId) => GET url for the client's charges
+ * @param {Function} opts.brandsUrl   (clientId) => GET url for the client's brands
  * @param {boolean}  opts.sendClient  include client_id in the payload
  * @param {Function} opts.onSaved     called after a successful save
  */
@@ -163,10 +170,27 @@ window.RecordPayment = function (opts) {
     const esc = s => $('<div>').text(s == null ? '' : s).html();
     let categories = opts.categories || [];
     let charges = [];
+    let brands = [];
+    // Advertising-budget and content charges are always brand-specific — see
+    // PaymentCategory::NAME_ADVERTISING_BUDGET / NAME_CONTENT_CHARGE.
+    const BRAND_SCOPED_CATEGORIES = ['Social Media Ads', 'Content Production'];
 
     function catName(id) {
         const c = categories.find(x => String(x.id) === String(id));
         return c ? c.name : '';
+    }
+
+    function loadBrands() {
+        const clientId = opts.clientId();
+        brands = [];
+        el('brand').html('');
+        if (!clientId || !opts.brandsUrl) return $.Deferred().resolve().promise();
+
+        return $.get(opts.brandsUrl(clientId)).done(r => {
+            brands = r.data || [];
+            el('brand').html('<option value="">Select brand...</option>'
+                + brands.map(b => '<option value="' + b.id + '">' + esc(b.name) + '</option>').join(''));
+        });
     }
 
     function fillCategories() {
@@ -220,6 +244,10 @@ window.RecordPayment = function (opts) {
         const linked = isNew || !!charge;
 
         el('newCharge').prop('hidden', !isNew);
+        // Only a NEW charge in a brand-scoped category needs the picker — an
+        // existing charge already has its own brand fixed at the point it was
+        // opened, and a standalone payment has no charge to scope at all.
+        el('brandWrap').prop('hidden', !(isNew && BRAND_SCOPED_CATEGORIES.includes(catName(el('category').val()))));
         el('statusWrap').prop('hidden', linked);
         el('payFull').prop('hidden', !charge);
         el('amountLabel').html(linked ? 'Amount received <span style="color:var(--c-red)">*</span>' : 'Amount');
@@ -283,7 +311,7 @@ window.RecordPayment = function (opts) {
         const charge = current();
         if (charge) { el('amount').val(charge.due_amount); updateAfter(); }
     });
-    el('client').on('change', () => loadCharges());
+    el('client').on('change', () => { loadCharges(); loadBrands(); });
 
     el('save').on('click', function () {
         const clientId = opts.clientId();
@@ -304,6 +332,7 @@ window.RecordPayment = function (opts) {
             payload.charge_total    = el('chargeTotal').val();
             payload.charge_title    = el('chargeTitle').val();
             payload.charge_due_date = el('chargeDue').val();
+            if (!el('brandWrap').prop('hidden')) payload.brand_id = el('brand').val();
         } else if (mode) {
             payload.invoice_id = mode;
         } else {
@@ -337,6 +366,7 @@ window.RecordPayment = function (opts) {
             el('category').val(preset.categoryId ? String(preset.categoryId) : '');
 
             loadCharges().always(() => renderCharges(preset.chargeId));
+            loadBrands();
             bootstrap.Modal.getOrCreateInstance($m[0]).show();
         },
     };

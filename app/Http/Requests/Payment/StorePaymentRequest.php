@@ -2,7 +2,10 @@
 
 namespace App\Http\Requests\Payment;
 
+use App\Models\Brand;
+use App\Models\Client;
 use App\Models\Payment;
+use App\Models\PaymentCategory;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -47,6 +50,33 @@ class StorePaymentRequest extends FormRequest
                 : ['prohibited'],
             'charge_title'        => ['nullable', 'string', 'max:200'],
             'charge_due_date'     => ['nullable', 'date'],
+            // Required only when opening a new charge in the advertising-budget
+            // or content-charge category AND the client actually has at least
+            // one Brand — that's what makes it ambiguous which brand the
+            // charge is for. A client who has never used the Brand Content &
+            // Advertising feature (no Brand records at all) keeps billing
+            // exactly as before, brand_id left null. See
+            // PaymentCategory::NAME_ADVERTISING_BUDGET / NAME_CONTENT_CHARGE.
+            'brand_id'            => [
+                'nullable', 'integer', Rule::exists('brands', 'id'),
+                Rule::requiredIf(function () use ($creating) {
+                    if (!$creating || !request()->filled('charge_total') || !request()->filled('payment_category_id')) {
+                        return false;
+                    }
+
+                    $isBrandScopedCategory = PaymentCategory::whereKey(request()->input('payment_category_id'))
+                        ->whereIn('name', [PaymentCategory::NAME_ADVERTISING_BUDGET, PaymentCategory::NAME_CONTENT_CHARGE])
+                        ->exists();
+                    if (!$isBrandScopedCategory) {
+                        return false;
+                    }
+
+                    $routeClient = request()->route('client');
+                    $clientId = $routeClient instanceof Client ? $routeClient->id : request()->input('client_id');
+
+                    return $clientId && Brand::where('client_id', $clientId)->exists();
+                }),
+            ],
 
             'amount'              => ['nullable', 'numeric', 'min:0', 'max:9999999999', 'required_with:invoice_id,charge_total'],
             'payment_date'        => ['nullable', 'date'],
@@ -73,6 +103,7 @@ class StorePaymentRequest extends FormRequest
             'charge_total.required_with' => 'Enter the total for the new charge.',
             'amount.required_with'       => 'Enter the amount received.',
             'status.required_without_all' => 'Choose a status for this payment.',
+            'brand_id.required'          => 'Pick which brand this charge is for.',
         ];
     }
 }

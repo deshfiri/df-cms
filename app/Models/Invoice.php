@@ -28,7 +28,7 @@ class Invoice extends Model
     ];
 
     protected $fillable = [
-        'client_id', 'payment_category_id', 'invoice_number', 'title', 'description', 'total_payable',
+        'client_id', 'brand_id', 'payment_category_id', 'invoice_number', 'title', 'description', 'total_payable',
         'due_date', 'status', 'issued_by', 'issued_date', 'remarks',
     ];
 
@@ -44,6 +44,11 @@ class Invoice extends Model
     public function client()
     {
         return $this->belongsTo(Client::class);
+    }
+
+    public function brand()
+    {
+        return $this->belongsTo(Brand::class);
     }
 
     public function issuedBy()

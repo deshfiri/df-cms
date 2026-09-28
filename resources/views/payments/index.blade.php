@@ -319,6 +319,7 @@ $(function () {
         clientId: () => $client.val() || null,
         storeUrl: () => '{{ route("payments.store") }}',
         chargesUrl: id => '{{ url('clients') }}/' + id + '/invoices',
+        brandsUrl: id => '{{ url('clients') }}/' + id + '/payments/brands',
         sendClient: true,
         onSaved: () => window.pTable.ajax.reload(),
     });

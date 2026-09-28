@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Client;
 use App\Models\Invoice;
+use App\Models\PaymentCategory;
 use App\Services\InvoiceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -48,6 +49,16 @@ class InvoiceController extends Controller
 
         $data = $request->validate([
             'payment_category_id' => ['nullable', 'integer', Rule::exists('payment_categories', 'id')->where('is_active', true)],
+            // Required only for the advertising-budget/content-charge categories,
+            // and only once this client actually has a Brand — a client who has
+            // never used the Brand Content & Advertising feature keeps billing
+            // exactly as before. See Fix J of the SRS integration plan.
+            'brand_id'            => [
+                'nullable', 'integer', Rule::exists('brands', 'id')->where('client_id', $client->id),
+                Rule::requiredIf(fn () => $request->filled('payment_category_id') && PaymentCategory::whereKey($request->input('payment_category_id'))
+                    ->whereIn('name', [PaymentCategory::NAME_ADVERTISING_BUDGET, PaymentCategory::NAME_CONTENT_CHARGE])
+                    ->exists() && $client->brands()->exists()),
+            ],
             'title'               => ['nullable', 'string', 'max:200'],
             'description'         => ['nullable', 'string', 'max:2000'],
             'total_payable'       => ['required', 'numeric', 'min:0.01', 'max:9999999999'],
@@ -56,6 +67,7 @@ class InvoiceController extends Controller
             'remarks'             => ['nullable', 'string', 'max:2000'],
         ], [
             'payment_category_id.exists' => 'Pick an active payment category.',
+            'brand_id.required'          => 'Pick which brand this charge is for.',
         ]);
 
         $invoice = $this->service->create($client, $data, Auth::user());

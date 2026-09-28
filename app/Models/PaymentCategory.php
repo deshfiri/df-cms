@@ -14,6 +14,10 @@ use Illuminate\Database\Eloquent\Model;
  */
 class PaymentCategory extends Model
 {
+    /** The Brand Content & Advertising system's two brand-scoped categories — see the SRS integration plan. */
+    public const NAME_ADVERTISING_BUDGET = 'Social Media Ads';
+    public const NAME_CONTENT_CHARGE = 'Content Production';
+
     protected $fillable = ['name', 'description', 'is_active', 'sort_order'];
 
     protected function casts(): array

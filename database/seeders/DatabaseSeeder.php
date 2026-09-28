@@ -85,6 +85,24 @@ class DatabaseSeeder extends Seeder
             // Company-wide activity log — every module's audit trail in one
             // place, not just a client's own tab.
             'view activity log',
+            // Brand Content & Advertising system — see the SRS integration
+            // plan. Raw Content Panel covers both raw_content and
+            // advertising_content (Content's own department produces both);
+            // Designer Panel covers poster only.
+            'view raw-content-panel',
+            'manage raw-content',
+            'view designer-panel',
+            'manage designer-content',
+            'view smm-panel',
+            'manage smm-collection',
+            'manage published-content',
+            // Creates a content-charge Invoice only — deliberately narrower
+            // than 'manage payments' so Marketing can bill for content
+            // production without being able to record money received.
+            'manage content-charges',
+            'manage advertising-expenditure',
+            'manage publishing-review',
+            'view brand-checklist-overview',
         ];
 
         foreach ($permissions as $perm) {
@@ -110,16 +128,19 @@ class DatabaseSeeder extends Seeder
             'Manager' => ['view dashboard', 'view clients', 'manage clients', 'delete clients', 'manage payments', 'view payments', 'manage products', 'manage documents', 'manage-workflow', 'approve-stage', 'import clients', 'export clients', 'view reports', 'view tasks', 'manage tasks', 'manage-meetings', 'manage requests', 'manage bug reports', 'view ads', 'manage ads', 'view performance', 'manage performance', 'view reviews', 'view whatsapp', 'reply whatsapp', 'assign whatsapp', 'view all whatsapp', 'manage whatsapp numbers', 'manage whatsapp templates', 'view workflows'],
             'Sales' => ['view clients', 'manage clients', 'submit-stage', 'approve-stage', 'view tasks', 'manage tasks', 'manage-meetings'],
             'Document' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks'],
-            'Design' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks'],
+            'Design' => ['view clients', 'manage documents', 'submit-stage', 'approve-stage', 'view tasks', 'view designer-panel', 'manage designer-content'],
             'Website' => ['view clients', 'submit-stage', 'approve-stage', 'view tasks'],
             'Product' => ['view clients', 'manage products', 'submit-stage', 'approve-stage', 'view tasks'],
-            'Marketing' => ['view clients', 'manage clients', 'manage products', 'manage documents', 'export clients', 'submit-stage', 'approve-stage', 'view tasks', 'view ads', 'manage ads', 'view whatsapp', 'reply whatsapp'],
+            'Marketing' => ['view clients', 'manage clients', 'manage products', 'manage documents', 'export clients', 'submit-stage', 'approve-stage', 'view tasks', 'view ads', 'manage ads', 'view whatsapp', 'reply whatsapp', 'manage content-charges', 'manage advertising-expenditure', 'manage publishing-review'],
             // Answers customers, but only on threads handed to them — no
             // 'view all whatsapp', so an unassigned conversation stays invisible.
             'Support' => ['view clients', 'manage clients', 'submit-stage', 'approve-stage', 'view tasks', 'manage tasks', 'view whatsapp', 'reply whatsapp'],
             'Accounts' => ['view clients', 'manage payments', 'view payments', 'export clients', 'view reports'],
-            'Content' => ['view clients', 'manage documents'],
+            'Content' => ['view clients', 'manage documents', 'view raw-content-panel', 'manage raw-content'],
             'Viewer' => ['view clients', 'view payments', 'view reports'],
+            // Brand Content & Advertising system's SMM role — collects a
+            // submitted item and publishes it; new role, nothing to reuse.
+            'Social Media Manager' => ['view clients', 'view smm-panel', 'manage smm-collection', 'manage published-content'],
         ];
 
         // Filing, following and sending a request to someone needs no
@@ -133,6 +154,7 @@ class DatabaseSeeder extends Seeder
         $roles['Manager'][] = 'manage document types';
         $roles['Manager'][] = 'view activity log';
         array_push($roles['Manager'], 'request refunds', 'approve refunds', 'process refunds');
+        $roles['Manager'][] = 'view brand-checklist-overview';
         array_push($roles['Accounts'], 'request refunds', 'process refunds');
 
         foreach ($roles as $roleName => $rolePerms) {
@@ -157,6 +179,7 @@ class DatabaseSeeder extends Seeder
             ['name' => 'Website User', 'email' => 'website@dfcp.com', 'role' => 'Website'],
             ['name' => 'Product User', 'email' => 'product@dfcp.com', 'role' => 'Product'],
             ['name' => 'Marketing User', 'email' => 'marketing@dfcp.com', 'role' => 'Marketing'],
+            ['name' => 'Social Media Manager User', 'email' => 'smm@dfcp.com', 'role' => 'Social Media Manager'],
             ['name' => 'Support User', 'email' => 'support@dfcp.com', 'role' => 'Support'],
             ['name' => 'Accounts User', 'email' => 'accounts@dfcp.com', 'role' => 'Accounts'],
         ];

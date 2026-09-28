@@ -21,6 +21,20 @@ class PaymentController extends Controller
         private readonly InvoiceService $invoices,
     ) {}
 
+    /**
+     * The client's brands, for the Record Payment modal's Brand picker —
+     * needed for the advertising-budget/content-charge categories, which are
+     * always brand-specific. Gated the same as recording money itself, not
+     * `view ads`/`manage ads` — whoever can record a payment here must be
+     * able to see which brand it's for, even without ads-panel access.
+     */
+    public function brandsForClient(Client $client): JsonResponse
+    {
+        $this->authorizeMoney($client);
+
+        return response()->json(['data' => $client->brands()->active()->get(['id', 'name'])]);
+    }
+
     /** Everything the client's Payments tab draws: history, charges and the per-category picture. */
     public function index(Client $client): JsonResponse
     {

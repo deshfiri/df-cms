@@ -20,6 +20,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentProofController;
 use App\Http\Controllers\PerformanceController;
 use App\Http\Controllers\PerformanceConfigController;
+use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProjectUpdateController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\BrandIntegrationController;
@@ -149,6 +150,7 @@ Route::middleware(['auth'])->group(function () {
         Route::put('payments/{payment}', [PaymentController::class, 'update'])->name('payments.update');
         Route::delete('payments/{payment}', [PaymentController::class, 'destroy'])->name('payments.destroy');
         Route::get('payments/{payment}/history', [PaymentController::class, 'history'])->whereNumber('payment')->name('payments.history');
+        Route::get('payments/brands', [PaymentController::class, 'brandsForClient'])->name('payments.brands');
 
         // Ad Campaigns
         Route::get('ads', [AdCampaignController::class, 'index'])->name('ads.index');
@@ -339,6 +341,11 @@ Route::middleware(['auth'])->group(function () {
         Route::get('brands/{brand}/campaigns', [MarketingController::class, 'campaigns'])->name('campaigns');
         Route::get('brands/{brand}/ad-sets', [MarketingController::class, 'adSets'])->name('ad-sets');
         Route::get('brands/{brand}/ads', [MarketingController::class, 'ads'])->name('ads');
+
+        Route::get('brands/{brand}/products', [ProductController::class, 'index'])->name('products.index');
+        Route::post('brands/{brand}/products', [ProductController::class, 'store'])->name('products.store');
+        Route::put('brands/{brand}/products/{product}', [ProductController::class, 'update'])->name('products.update');
+        Route::delete('brands/{brand}/products/{product}', [ProductController::class, 'destroy'])->name('products.destroy');
 
         Route::get('brands/{brand}/integrations', [BrandIntegrationController::class, 'index'])->name('integrations');
         Route::get('brands/{brand}/integrations/meta/connect', [BrandIntegrationController::class, 'connect'])->name('meta.connect');

@@ -1279,6 +1279,7 @@
             clientId: () => clientId,
             storeUrl: () => baseUrl + '/payments',
             chargesUrl: () => baseUrl + '/invoices',
+            brandsUrl: () => baseUrl + '/payments/brands',
             onSaved: loadPayments,
         });
 

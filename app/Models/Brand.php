@@ -30,6 +30,32 @@ class Brand extends Model
         return $this->hasMany(AdCampaign::class)->latest();
     }
 
+    public function products()
+    {
+        return $this->hasMany(Product::class)->latest();
+    }
+
+    /** Charges billed against this specific brand (advertising budget, content charges). */
+    public function invoices()
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
+    /**
+     * Money actually paid toward this brand's advertising, summed across every
+     * "Social Media Ads" charge it has ever had — not just one invoice, so a
+     * later top-up charge adds to the same pool. Unpaid/partially-paid amounts
+     * on those charges are not part of the budget yet; Invoice::getPaidAmountAttribute()
+     * already nets out completed refunds per charge.
+     */
+    public function advertisingBudget(): float
+    {
+        return round((float) $this->invoices()
+            ->whereHas('category', fn ($q) => $q->where('name', PaymentCategory::NAME_ADVERTISING_BUDGET))
+            ->get()
+            ->sum(fn (Invoice $i) => $i->paid_amount), 2);
+    }
+
     // ── Platform integrations ────────────────────────────────────────────
 
     public function integrations()

@@ -186,6 +186,26 @@
     </div>
 </div>
 
+@can('manage products')
+{{-- ── Products ────────────────────────────────────────────────────────── --}}
+<div class="card section-card mt-3">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <h6 class="fw-bold mb-0">Products</h6>
+        <div class="d-flex gap-2">
+            <input type="text" id="mkNewProduct" class="form-control form-control-sm" style="width:200px" placeholder="New product name">
+            <button class="btn btn-sm btn-primary" id="mkAddProduct"><i class="bi bi-plus-lg"></i></button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-sm align-middle mb-0" style="font-size:.82rem">
+            <tbody id="mkProductRows">
+                <tr><td class="text-center py-3" style="color:var(--text3)">Loading…</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+@endcan
+
 {{-- Resource selection --}}
 <div class="modal fade" id="resourceModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -487,5 +507,57 @@ $('#resourceSave').on('click', function () {
 
 loadDashboard();
 loadSyncLogs();
+
+// ── Products (only rendered for someone with `manage products`) ──────────
+if ($('#mkProductRows').length) {
+    const PRODUCTS_URL = '/marketing/brands/' + BRAND_ID + '/products';
+    const prodEsc = s => $('<div>').text(s == null ? '' : s).html();
+
+    function loadProducts() {
+        $.get(PRODUCTS_URL).done(function (r) {
+            const rows = r.data || [];
+            $('#mkProductRows').html(rows.length ? rows.map(p =>
+                '<tr data-id="' + p.id + '">'
+                + '<td>' + prodEsc(p.name) + (p.is_active ? '' : ' <span class="spill spill-hold">Inactive</span>') + '</td>'
+                + '<td class="text-end">'
+                + '<button class="btn btn-sm btn-link p-0 me-2 mk-prod-toggle">' + (p.is_active ? 'Deactivate' : 'Activate') + '</button>'
+                + '<button class="btn btn-sm btn-link text-danger p-0 mk-prod-delete">Delete</button>'
+                + '</td></tr>'
+            ).join('') : '<tr><td class="text-center py-3" style="color:var(--text3)">No products yet.</td></tr>');
+        });
+    }
+
+    $('#mkAddProduct').on('click', function () {
+        const name = $('#mkNewProduct').val().trim();
+        if (!name) return;
+        const $btn = $(this).prop('disabled', true);
+        $.post(PRODUCTS_URL, { name: name })
+            .done(function () { $('#mkNewProduct').val(''); loadProducts(); })
+            .fail(x => Swal.fire('Error', x.responseJSON?.message || 'Could not save.', 'error'))
+            .always(() => $btn.prop('disabled', false));
+    });
+
+    $('#mkProductRows').on('click', '.mk-prod-toggle', function () {
+        const $row = $(this).closest('tr');
+        const id = $row.data('id');
+        const activating = $(this).text().trim() === 'Activate';
+        $.ajax({ url: PRODUCTS_URL + '/' + id, method: 'PUT', data: { name: $row.find('td').first().text().trim(), is_active: activating } })
+            .done(loadProducts)
+            .fail(x => Swal.fire('Error', x.responseJSON?.message || 'Could not update.', 'error'));
+    });
+
+    $('#mkProductRows').on('click', '.mk-prod-delete', function () {
+        const id = $(this).closest('tr').data('id');
+        Swal.fire({ title: 'Delete this product?', icon: 'warning', showCancelButton: true, confirmButtonText: 'Delete' })
+            .then(r => {
+                if (!r.isConfirmed) return;
+                $.ajax({ url: PRODUCTS_URL + '/' + id, method: 'DELETE' })
+                    .done(loadProducts)
+                    .fail(x => Swal.fire('Error', x.responseJSON?.message || 'Could not delete.', 'error'));
+            });
+    });
+
+    loadProducts();
+}
 </script>
 @endpush
