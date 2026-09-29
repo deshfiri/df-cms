@@ -35,6 +35,11 @@ class Brand extends Model
         return $this->hasMany(Product::class)->latest();
     }
 
+    public function checklist()
+    {
+        return $this->hasOne(BrandChecklist::class);
+    }
+
     /** Charges billed against this specific brand (advertising budget, content charges). */
     public function invoices()
     {

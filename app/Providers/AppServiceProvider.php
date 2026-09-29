@@ -8,10 +8,12 @@ use App\Models\BrandIntegration;
 use App\Models\BugReport;
 use App\Models\Client;
 use App\Models\EmployeeRequest;
+use App\Models\Invoice;
 use App\Models\Refund;
 use App\Models\Task;
 use App\Models\User;
 use App\Models\WhatsAppConversation;
+use App\Observers\InvoiceObserver;
 use App\Policies\AdCampaignPolicy;
 use App\Policies\BrandIntegrationPolicy;
 use App\Policies\BugReportPolicy;
@@ -50,6 +52,10 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(WhatsAppConversation::class, WhatsAppConversationPolicy::class);
         // Money going back: requested, decided by someone else, paid out.
         Gate::policy(Refund::class, RefundPolicy::class);
+
+        // Brand Content & Advertising: creates/holds a brand's checklist the
+        // moment its funding does/doesn't qualify — see App\Observers\InvoiceObserver.
+        Invoice::observe(InvoiceObserver::class);
 
         // Super Admins bypass all gates. Guarded with an instanceof check because
         // ClientPortalUser (the client-portal auth principal) has no HasRoles trait —

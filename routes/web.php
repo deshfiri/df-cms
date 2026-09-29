@@ -20,6 +20,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentProofController;
 use App\Http\Controllers\PerformanceController;
 use App\Http\Controllers\PerformanceConfigController;
+use App\Http\Controllers\ContentItemController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProjectUpdateController;
 use App\Http\Controllers\SearchController;
@@ -346,6 +347,13 @@ Route::middleware(['auth'])->group(function () {
         Route::post('brands/{brand}/products', [ProductController::class, 'store'])->name('products.store');
         Route::put('brands/{brand}/products/{product}', [ProductController::class, 'update'])->name('products.update');
         Route::delete('brands/{brand}/products/{product}', [ProductController::class, 'destroy'])->name('products.destroy');
+
+        // Shared brand checklist — content items (Phase 1: Raw Content /
+        // Designer panels submit through here in Phase 2).
+        Route::get('brands/{brand}/content-items', [ContentItemController::class, 'index'])->name('content-items.index');
+        Route::post('brands/{brand}/content-items', [ContentItemController::class, 'store'])->name('content-items.store');
+        Route::post('brands/{brand}/content-items/{contentItem}/submit', [ContentItemController::class, 'submit'])->name('content-items.submit');
+        Route::post('brands/{brand}/content-items/{contentItem}/request-revision', [ContentItemController::class, 'requestRevision'])->name('content-items.request-revision');
 
         Route::get('brands/{brand}/integrations', [BrandIntegrationController::class, 'index'])->name('integrations');
         Route::get('brands/{brand}/integrations/meta/connect', [BrandIntegrationController::class, 'connect'])->name('meta.connect');
