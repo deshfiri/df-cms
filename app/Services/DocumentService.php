@@ -195,20 +195,23 @@ class DocumentService
     }
 
     /**
-     * Whether a Signed Agreement has ever been uploaded for this client —
-     * checked across every version, not just current/root documents. A
-     * signed copy is very often uploaded as a new version of the original
-     * unsigned agreement (via parent_id, replacing it in place), which
-     * getClientDocuments()'s root-only list deliberately excludes — so the
-     * Agreement status check has to query independently of that list rather
-     * than deriving itself from it. Matched by slug, not the display name,
-     * since a document type's name can be renamed from Settings while its
-     * slug stays fixed (see DocumentType::booted()).
+     * Whether the client's agreement paperwork is on file — an Agreement
+     * (the type the "Agreement and Formalities" workflow stage actually
+     * uploads under) or a Signed Agreement, either one counts. Checked
+     * across every version, not just current/root documents: a later copy
+     * is often uploaded as a new version of the original (via parent_id,
+     * replacing it in place), which getClientDocuments()'s root-only list
+     * deliberately excludes — so this has to query independently of that
+     * list rather than deriving itself from it. Matched by slug, not the
+     * display name, since a document type's name can be renamed from
+     * Settings while its slug stays fixed (see DocumentType::booted()).
      */
-    public function hasSignedAgreement(Client $client): bool
+    public function hasApprovedAgreement(Client $client): bool
     {
         return ClientDocument::where('client_id', $client->id)
-            ->whereHas('documentType', fn ($q) => $q->where('slug', DocumentType::SLUG_SIGNED_AGREEMENT))
+            ->whereHas('documentType', fn ($q) => $q->whereIn('slug', [
+                DocumentType::SLUG_AGREEMENT, DocumentType::SLUG_SIGNED_AGREEMENT,
+            ]))
             ->exists();
     }
 

@@ -1714,11 +1714,12 @@
                 $('#dsStat-size').text(resp.totalSize);
 
                 // Agreement status — computed server-side across every
-                // version, not just the current one, since a signed copy is
-                // often uploaded as a new version of the original agreement.
-                const hasSigned = resp.hasSignedAgreement;
-                $('#dsStat-agreement').html(hasSigned
-                    ? '<span class="spill spill-running">Signed</span>'
+                // version, not just the current one. An Agreement (what the
+                // "Agreement and Formalities" workflow stage actually
+                // uploads under) or a Signed Agreement both count.
+                const hasApproved = resp.hasApprovedAgreement;
+                $('#dsStat-agreement').html(hasApproved
+                    ? '<span class="spill spill-running">Approved</span>'
                     : '<span class="spill spill-warning">Pending</span>');
 
                 if (!resp.docs?.length) {

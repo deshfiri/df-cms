@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 class DocumentType extends Model
 {
     /** The slug survives a rename (see booted() below); the display name doesn't. */
+    public const SLUG_AGREEMENT = 'agreement';
     public const SLUG_SIGNED_AGREEMENT = 'signed-agreement';
 
     protected $fillable = [

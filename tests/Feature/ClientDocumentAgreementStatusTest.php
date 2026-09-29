@@ -13,14 +13,29 @@ use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 /**
- * The client page's "Agreement" tile reads Pending/Signed. It used to derive
- * that purely from the client's root-level document list, which excludes any
- * document uploaded as a new version of another (via parent_id) — exactly
- * how a signed copy is normally uploaded: as a new version of the original,
- * unsigned agreement. That left the tile stuck on Pending forever once a
- * client's agreement had ever been through that "replace with signed copy"
- * flow. Fixed by computing it server-side across every version, matched by
- * the document type's slug rather than its (renameable) display name.
+ * The client page's "Agreement" tile reads Pending/Approved.
+ *
+ * Two things had to be fixed here, discovered one after the other against a
+ * real client's data:
+ *
+ * 1. It used to derive the status purely from the client's root-level
+ *    document list, which excludes any document uploaded as a new version of
+ *    another (via parent_id) — a common way to replace an earlier copy. That
+ *    left the tile stuck on Pending forever once a client's agreement had
+ *    gone through that "upload a replacement copy" flow, no matter how many
+ *    documents existed. Fixed by computing it server-side across every
+ *    version, not just the current one.
+ *
+ * 2. The real "Agreement and Formalities" workflow stage uploads its
+ *    document under the plain "Agreement" document type, not "Signed
+ *    Agreement" — a document type that turned out not to be what the actual
+ *    workflow ever produces. The check originally required "Signed
+ *    Agreement" specifically, so a completely normal, correctly-typed
+ *    upload from the real workflow never satisfied it. Fixed by accepting
+ *    either type — both represent the agreement being on file.
+ *
+ * Both are matched by the document type's slug, not its display name, since
+ * a type can be renamed from Settings while its slug stays fixed.
  */
 class ClientDocumentAgreementStatusTest extends TestCase
 {
@@ -63,7 +78,7 @@ class ClientDocumentAgreementStatusTest extends TestCase
         return DocumentType::firstOrCreate(['slug' => 'signed-agreement'], ['name' => 'Signed Agreement', 'is_active' => true, 'sort_order' => 2]);
     }
 
-    public function test_agreement_status_is_pending_with_no_signed_agreement_uploaded(): void
+    public function test_agreement_status_is_pending_with_nothing_uploaded(): void
     {
         $client = $this->client();
         $this->agreementType();
@@ -71,10 +86,31 @@ class ClientDocumentAgreementStatusTest extends TestCase
         $response = $this->actingAs($this->staff())->getJson(route('clients.documents.index', $client));
 
         $response->assertOk();
-        $response->assertJson(['hasSignedAgreement' => false]);
+        $response->assertJson(['hasApprovedAgreement' => false]);
     }
 
-    public function test_agreement_status_is_signed_when_uploaded_directly(): void
+    /**
+     * The real-world case: the "Agreement and Formalities" workflow stage
+     * uploads under the plain "Agreement" type — not "Signed Agreement" —
+     * and that alone must be enough to mark the status Approved.
+     */
+    public function test_agreement_status_is_approved_when_uploaded_under_the_plain_agreement_type(): void
+    {
+        Storage::fake('local');
+        $client = $this->client();
+        $plain = $this->agreementType();
+        $staff = $this->staff();
+
+        $this->actingAs($staff)->postJson(route('clients.documents.store', $client), [
+            'document_type_id' => $plain->id, 'title' => 'Client Agreement',
+            'file' => UploadedFile::fake()->create('agreement.pdf', 100, 'application/pdf'),
+        ])->assertCreated();
+
+        $response = $this->actingAs($staff)->getJson(route('clients.documents.index', $client));
+        $response->assertJson(['hasApprovedAgreement' => true]);
+    }
+
+    public function test_agreement_status_is_approved_when_uploaded_under_signed_agreement_too(): void
     {
         Storage::fake('local');
         $client = $this->client();
@@ -87,15 +123,15 @@ class ClientDocumentAgreementStatusTest extends TestCase
         ])->assertCreated();
 
         $response = $this->actingAs($staff)->getJson(route('clients.documents.index', $client));
-        $response->assertJson(['hasSignedAgreement' => true]);
+        $response->assertJson(['hasApprovedAgreement' => true]);
     }
 
     /**
-     * The exact bug: the signed copy uploaded as a NEW VERSION of the
-     * original agreement — a parent_id row, excluded from the root-only
-     * documents list the tile used to read from.
+     * The first bug found: a replacement copy uploaded as a NEW VERSION of
+     * the original — a parent_id row, excluded from the root-only documents
+     * list the tile used to read from.
      */
-    public function test_agreement_status_is_signed_when_uploaded_as_a_new_version_of_the_original(): void
+    public function test_agreement_status_is_approved_when_uploaded_as_a_new_version_of_the_original(): void
     {
         Storage::fake('local');
         $client = $this->client();
@@ -108,11 +144,13 @@ class ClientDocumentAgreementStatusTest extends TestCase
             'file' => UploadedFile::fake()->create('agreement.pdf', 100, 'application/pdf'),
         ])->assertCreated()->json('document');
 
-        // Before the signed copy: still Pending.
+        // Before the replacement: already Approved, since the original was
+        // itself a plain "Agreement" upload — this only isolates the
+        // version-nesting behaviour, not the type-matching fixed above.
         $this->actingAs($staff)->getJson(route('clients.documents.index', $client))
-            ->assertJson(['hasSignedAgreement' => false]);
+            ->assertJson(['hasApprovedAgreement' => true]);
 
-        // Replace it with the signed copy — a new version, not a fresh document.
+        // Replace it with a signed copy — a new version, not a fresh document.
         $this->actingAs($staff)->postJson(route('clients.documents.store', $client), [
             'document_type_id' => $signed->id, 'title' => 'Client Agreement', 'parent_id' => $original['id'],
             'file' => UploadedFile::fake()->create('agreement-signed.pdf', 100, 'application/pdf'),
@@ -123,24 +161,25 @@ class ClientDocumentAgreementStatusTest extends TestCase
         $index = $this->actingAs($staff)->getJson(route('clients.documents.index', $client));
         $this->assertSame(1, $index->json('total'));
 
-        $index->assertJson(['hasSignedAgreement' => true]);
+        $index->assertJson(['hasApprovedAgreement' => true]);
     }
 
-    public function test_agreement_status_is_not_fooled_by_the_plain_agreement_type_alone(): void
+    public function test_agreement_status_is_not_fooled_by_an_unrelated_document_type(): void
     {
         Storage::fake('local');
         $client = $this->client();
-        $plain = $this->agreementType();
+        $invoice = DocumentType::firstOrCreate(['slug' => 'invoice'], ['name' => 'Invoice', 'is_active' => true, 'sort_order' => 3]);
+        $this->agreementType();
         $this->signedAgreementType();
         $staff = $this->staff();
 
         $this->actingAs($staff)->postJson(route('clients.documents.store', $client), [
-            'document_type_id' => $plain->id, 'title' => 'Client Agreement',
-            'file' => UploadedFile::fake()->create('agreement.pdf', 100, 'application/pdf'),
+            'document_type_id' => $invoice->id, 'title' => 'Hosting Invoice',
+            'file' => UploadedFile::fake()->create('invoice.pdf', 100, 'application/pdf'),
         ])->assertCreated();
 
         $response = $this->actingAs($staff)->getJson(route('clients.documents.index', $client));
-        $response->assertJson(['hasSignedAgreement' => false]);
+        $response->assertJson(['hasApprovedAgreement' => false]);
     }
 
     public function test_agreement_status_survives_the_document_type_being_renamed(): void
@@ -160,6 +199,6 @@ class ClientDocumentAgreementStatusTest extends TestCase
         $signed->update(['name' => 'Executed Agreement']);
 
         $response = $this->actingAs($staff)->getJson(route('clients.documents.index', $client));
-        $response->assertJson(['hasSignedAgreement' => true]);
+        $response->assertJson(['hasApprovedAgreement' => true]);
     }
 }
