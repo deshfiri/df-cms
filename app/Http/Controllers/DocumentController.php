@@ -27,13 +27,13 @@ class DocumentController extends Controller
         $data = $this->service->getClientDocuments($client);
 
         return response()->json([
-            'docs'               => $data['docs']->map(fn (ClientDocument $d) => $this->docResource($d)),
-            'total'              => $data['total'],
-            'totalSize'          => $this->humanSize($data['totalSize']),
+            'docs'                => $data['docs']->map(fn (ClientDocument $d) => $this->docResource($d)),
+            'total'               => $data['total'],
+            'totalSize'           => $this->humanSize($data['totalSize']),
             // Computed independently of `docs` (which only lists root/current
-            // documents) — a signed copy is very often uploaded as a new
+            // documents) — a later copy is very often uploaded as a new
             // version of the original, which that list deliberately excludes.
-            'hasSignedAgreement' => $this->service->hasSignedAgreement($client),
+            'hasApprovedAgreement' => $this->service->hasApprovedAgreement($client),
         ]);
     }
 
