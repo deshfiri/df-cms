@@ -1713,8 +1713,10 @@
                 $('#dsStat-total').text(resp.total);
                 $('#dsStat-size').text(resp.totalSize);
 
-                // Agreement status
-                const hasSigned = resp.docs?.some(d => d.type_name === 'Signed Agreement');
+                // Agreement status — computed server-side across every
+                // version, not just the current one, since a signed copy is
+                // often uploaded as a new version of the original agreement.
+                const hasSigned = resp.hasSignedAgreement;
                 $('#dsStat-agreement').html(hasSigned
                     ? '<span class="spill spill-running">Signed</span>'
                     : '<span class="spill spill-warning">Pending</span>');
