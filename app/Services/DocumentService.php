@@ -6,6 +6,7 @@ use App\Models\Client;
 use App\Models\ClientDocument;
 use App\Models\Document;
 use App\Models\DocumentDownload;
+use App\Models\DocumentType;
 use App\Notifications\Portal\DocumentUploaded;
 use App\Services\Portal\NotifiesPortalUsers;
 use App\Services\Storage\StorageSettings;
@@ -191,6 +192,24 @@ class DocumentService
             'total'      => $docs->count(),
             'totalSize'  => $docs->sum('file_size'),
         ];
+    }
+
+    /**
+     * Whether a Signed Agreement has ever been uploaded for this client —
+     * checked across every version, not just current/root documents. A
+     * signed copy is very often uploaded as a new version of the original
+     * unsigned agreement (via parent_id, replacing it in place), which
+     * getClientDocuments()'s root-only list deliberately excludes — so the
+     * Agreement status check has to query independently of that list rather
+     * than deriving itself from it. Matched by slug, not the display name,
+     * since a document type's name can be renamed from Settings while its
+     * slug stays fixed (see DocumentType::booted()).
+     */
+    public function hasSignedAgreement(Client $client): bool
+    {
+        return ClientDocument::where('client_id', $client->id)
+            ->whereHas('documentType', fn ($q) => $q->where('slug', DocumentType::SLUG_SIGNED_AGREEMENT))
+            ->exists();
     }
 
     public static function allowedMimes(): array
