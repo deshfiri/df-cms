@@ -185,6 +185,72 @@ class BrandContentAdvertisingPhase0Test extends TestCase
         $this->assertDatabaseMissing('invoices', ['client_id' => $client->id]);
     }
 
+    // ── Content Production charges (InvoiceController::store) ───────────
+    // The same brand_id rule as Social Media Ads, but through the standalone
+    // charge-only endpoint (no payment) rather than Record Payment's
+    // "+ New charge" — this is the actual path a content charge takes.
+
+    public function test_content_production_charge_for_a_single_brand_client_requires_the_brand(): void
+    {
+        $accounts = $this->user('Accounts', ['manage payments']);
+        $client = $this->client();
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Only Brand']);
+        $contentCat = PaymentCategory::where('name', 'Content Production')->value('id');
+
+        $missing = $this->actingAs($accounts)->postJson(route('clients.invoices.store', $client), [
+            'payment_category_id' => $contentCat, 'total_payable' => 500, 'title' => 'Content charge',
+        ]);
+        $missing->assertStatus(422);
+        $missing->assertJsonValidationErrors('brand_id');
+        $this->assertDatabaseMissing('invoices', ['client_id' => $client->id]);
+
+        $withBrand = $this->actingAs($accounts)->postJson(route('clients.invoices.store', $client), [
+            'payment_category_id' => $contentCat, 'total_payable' => 500, 'title' => 'Content charge', 'brand_id' => $brand->id,
+        ]);
+        $withBrand->assertOk();
+        $this->assertDatabaseHas('invoices', ['client_id' => $client->id, 'brand_id' => $brand->id, 'total_payable' => 500]);
+    }
+
+    public function test_content_production_charge_for_a_multi_brand_client_requires_picking_one(): void
+    {
+        $accounts = $this->user('Accounts', ['manage payments']);
+        $client = $this->client();
+        $brandA = Brand::create(['client_id' => $client->id, 'name' => 'Brand A']);
+        $brandB = Brand::create(['client_id' => $client->id, 'name' => 'Brand B']);
+        $contentCat = PaymentCategory::where('name', 'Content Production')->value('id');
+
+        $missing = $this->actingAs($accounts)->postJson(route('clients.invoices.store', $client), [
+            'payment_category_id' => $contentCat, 'total_payable' => 500, 'title' => 'Content charge',
+        ]);
+        $missing->assertStatus(422);
+        $missing->assertJsonValidationErrors('brand_id');
+
+        $response = $this->actingAs($accounts)->postJson(route('clients.invoices.store', $client), [
+            'payment_category_id' => $contentCat, 'total_payable' => 500, 'title' => 'Content charge', 'brand_id' => $brandB->id,
+        ]);
+        $response->assertOk();
+        // Picked brand B specifically — not just "a" brand, and not brand A.
+        $this->assertDatabaseHas('invoices', ['client_id' => $client->id, 'brand_id' => $brandB->id]);
+        $this->assertDatabaseMissing('invoices', ['client_id' => $client->id, 'brand_id' => $brandA->id]);
+    }
+
+    public function test_content_production_charge_rejects_a_brand_belonging_to_another_client(): void
+    {
+        $accounts = $this->user('Accounts', ['manage payments']);
+        $client = $this->client();
+        $otherClient = $this->client('Other Client');
+        $foreignBrand = Brand::create(['client_id' => $otherClient->id, 'name' => 'Foreign Brand']);
+        $contentCat = PaymentCategory::where('name', 'Content Production')->value('id');
+
+        $response = $this->actingAs($accounts)->postJson(route('clients.invoices.store', $client), [
+            'payment_category_id' => $contentCat, 'total_payable' => 500, 'title' => 'Content charge', 'brand_id' => $foreignBrand->id,
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('brand_id');
+        $this->assertDatabaseMissing('invoices', ['client_id' => $client->id]);
+    }
+
     public function test_an_ordinary_category_never_requires_a_brand_even_with_brands_present(): void
     {
         $accounts = $this->user('Accounts', ['manage payments']);

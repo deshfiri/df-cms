@@ -175,10 +175,20 @@ class ContentItemService
      * see Fix G — so a stale browser tab can never publish a submission a
      * later revision has already superseded, even if it was collected
      * before that revision came in.
+     *
+     * $brand is the caller's own expected brand (e.g. the {brand} route
+     * parameter) — checked independently here rather than trusted from the
+     * controller, so the service holds this guarantee on its own even if
+     * some future caller forgets to check it first (defense in depth; the
+     * controller's own abort_if stays too).
      */
-    public function publish(ContentItem $item, ContentItemSubmission $submission, array $data, User $actor): PublishedContent
+    public function publish(ContentItem $item, Brand $brand, ContentItemSubmission $submission, array $data, User $actor): PublishedContent
     {
         $this->refuseIfOnHold($item);
+
+        if ((int) $item->brand_id !== (int) $brand->id) {
+            throw ValidationException::withMessages(['item' => 'That content item does not belong to this brand.']);
+        }
 
         if ((int) $submission->content_item_id !== (int) $item->id) {
             throw ValidationException::withMessages(['submission' => 'That submission does not belong to this item.']);

@@ -239,6 +239,56 @@ class BrandContentAdvertisingPhase2Test extends TestCase
         ]);
     }
 
+    /**
+     * Social Media Manager is one flat role, not per-user "teams" — any SMM
+     * publishing what any other SMM collected is the normal case, not an
+     * exception. There is deliberately no same-collector requirement.
+     */
+    public function test_a_different_smm_user_may_publish_what_another_smm_user_collected(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $smmA = $this->user('Social Media Manager', ['manage smm-collection']);
+        $smmB = $this->user('Social Media Manager', ['manage published-content']);
+        $brand = $this->readyBrand($manager);
+        $item = $this->itemWithSubmission($brand, $content);
+        $submission = $item->latestSubmission();
+
+        app(\App\Services\ContentItemService::class)->collect($item, $smmA);
+
+        $response = $this->actingAs($smmB)->postJson(route('marketing.content-items.publish', [$brand, $item]), [
+            'submission_id' => $submission->id, 'facebook_post_url' => 'https://facebook.com/post/1',
+        ]);
+
+        $response->assertOk();
+        $this->assertDatabaseHas('published_contents', ['content_item_id' => $item->id, 'published_by' => $smmB->id]);
+        $this->assertDatabaseHas('content_item_collections', ['content_item_id' => $item->id, 'collected_by' => $smmA->id]);
+    }
+
+    /**
+     * The controller already 404s on a brand/item mismatch (abort_if in
+     * ContentItemController::publish()) — this bypasses the controller
+     * entirely and calls the service directly, so it's proving the
+     * service's own independent check, not just the controller's guard in
+     * front of it (defense in depth: either layer alone must catch this).
+     */
+    public function test_publish_refuses_at_the_service_layer_when_the_item_belongs_to_a_different_brand(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
+        $brand = $this->readyBrand($manager);
+        $otherBrand = $this->readyBrand($manager);
+        $item = $this->collectedItem($brand, $content, $smm);
+        $submission = $item->latestSubmission();
+
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+
+        app(\App\Services\ContentItemService::class)->publish(
+            $item, $otherBrand, $submission, ['facebook_post_url' => 'https://facebook.com/post/1'], $smm,
+        );
+    }
+
     public function test_publishing_a_superseded_submission_is_refused(): void
     {
         $manager = $this->user('Manager', ['manage payments']);

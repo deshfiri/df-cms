@@ -109,7 +109,7 @@ class ContentItemController extends Controller
         ]);
 
         $submission = ContentItemSubmission::findOrFail($data['submission_id']);
-        $published = $this->service->publish($contentItem, $submission, $data, $request->user());
+        $published = $this->service->publish($contentItem, $brand, $submission, $data, $request->user());
 
         return response()->json(['success' => true, 'data' => $published->load('publishedBy:id,name')]);
     }
