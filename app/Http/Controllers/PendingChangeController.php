@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AdvertisingExpenditure;
 use App\Models\Category;
 use App\Models\Client;
 use App\Models\ClientMeeting;
@@ -9,6 +10,7 @@ use App\Models\PendingChange;
 use App\Models\Payment;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\AdvertisingExpenditureService;
 use App\Services\CategoryService;
 use App\Services\ClientService;
 use App\Services\MeetingService;
@@ -32,6 +34,7 @@ class PendingChangeController extends Controller
         private readonly CategoryService $categoryService,
         private readonly UserService     $userService,
         private readonly MeetingService  $meetingService,
+        private readonly AdvertisingExpenditureService $advertisingExpenditureService,
     ) {
         $this->middleware(function ($request, $next) {
             abort_unless(auth()->user()->hasRole(['Super Admin', 'Manager']), 403);
@@ -61,6 +64,14 @@ class PendingChangeController extends Controller
         if ($pendingChange->model_type === Payment::class) {
             $data = $request->validate(['note' => 'nullable|string|max:1000']);
             $this->paymentService->approveChange($pendingChange, $request->user(), $data['note'] ?? null);
+
+            return response()->json(['success' => true, 'message' => 'Approved and applied.']);
+        }
+
+        // Same reasoning as Payment above — see AdvertisingExpenditureService.
+        if ($pendingChange->model_type === AdvertisingExpenditure::class) {
+            $data = $request->validate(['note' => 'nullable|string|max:1000']);
+            $this->advertisingExpenditureService->approveChange($pendingChange, $request->user(), $data['note'] ?? null);
 
             return response()->json(['success' => true, 'message' => 'Approved and applied.']);
         }
@@ -113,6 +124,12 @@ class PendingChangeController extends Controller
 
         if ($pendingChange->model_type === Payment::class) {
             $this->paymentService->rejectChange($pendingChange, $request->user(), $data['note'] ?? null);
+
+            return response()->json(['success' => true, 'message' => 'Rejected.']);
+        }
+
+        if ($pendingChange->model_type === AdvertisingExpenditure::class) {
+            $this->advertisingExpenditureService->rejectChange($pendingChange, $request->user(), $data['note'] ?? null);
 
             return response()->json(['success' => true, 'message' => 'Rejected.']);
         }

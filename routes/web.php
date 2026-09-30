@@ -27,6 +27,7 @@ use App\Http\Controllers\ProjectUpdateController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\BrandIntegrationController;
 use App\Http\Controllers\GoogleIntegrationController;
+use App\Http\Controllers\MarketingBillingController;
 use App\Http\Controllers\MarketingController;
 use App\Http\Controllers\ChatSettingsController;
 use App\Http\Controllers\SoundSettingsController;
@@ -369,6 +370,15 @@ Route::middleware(['auth'])->group(function () {
         Route::post('brands/{brand}/content-items/{contentItem}/request-revision', [ContentItemController::class, 'requestRevision'])->name('content-items.request-revision');
         Route::post('brands/{brand}/content-items/{contentItem}/collect', [ContentItemController::class, 'collect'])->name('content-items.collect');
         Route::post('brands/{brand}/content-items/{contentItem}/publish', [ContentItemController::class, 'publish'])->name('content-items.publish');
+
+        // Phase 3: content-charge entry, advertising expenditure, publishing review.
+        Route::post('brands/{brand}/content-charge', [MarketingBillingController::class, 'storeContentCharge'])->name('content-charge.store');
+        Route::get('brands/{brand}/advertising-budget', [MarketingBillingController::class, 'budget'])->name('advertising-budget');
+        Route::post('brands/{brand}/expenditures', [MarketingBillingController::class, 'storeExpenditure'])->name('expenditures.store');
+        Route::put('brands/{brand}/expenditures/{expenditure}', [MarketingBillingController::class, 'requestExpenditureUpdate'])->name('expenditures.update');
+        Route::delete('brands/{brand}/expenditures/{expenditure}', [MarketingBillingController::class, 'requestExpenditureDelete'])->name('expenditures.destroy');
+        Route::get('brands/{brand}/published-contents/unreviewed', [MarketingBillingController::class, 'unreviewedPublishedContents'])->name('published-contents.unreviewed');
+        Route::post('brands/{brand}/published-contents/{publishedContent}/review', [MarketingBillingController::class, 'reviewPublishedContent'])->name('published-contents.review');
 
         Route::get('brands/{brand}/integrations', [BrandIntegrationController::class, 'index'])->name('integrations');
         Route::get('brands/{brand}/integrations/meta/connect', [BrandIntegrationController::class, 'connect'])->name('meta.connect');

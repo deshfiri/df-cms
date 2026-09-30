@@ -61,6 +61,51 @@ class Brand extends Model
             ->sum(fn (Invoice $i) => $i->paid_amount), 2);
     }
 
+    public function advertisingExpenditures()
+    {
+        return $this->hasMany(AdvertisingExpenditure::class);
+    }
+
+    /** Sum of every recorded expenditure — approved amounts only (see AdvertisingExpenditure). */
+    public function advertisingSpent(): float
+    {
+        return round((float) $this->advertisingExpenditures()->sum('amount'), 2);
+    }
+
+    /** Budget minus spent — signed, never floored at 0. A negative figure means overspent, not "$0 left." */
+    public function advertisingRemaining(): float
+    {
+        return round($this->advertisingBudget() - $this->advertisingSpent(), 2);
+    }
+
+    public function isAdvertisingOverspent(): bool
+    {
+        return $this->advertisingRemaining() < 0;
+    }
+
+    public function advertisingOverspentAmount(): float
+    {
+        return round(abs(min(0.0, $this->advertisingRemaining())), 2);
+    }
+
+    /**
+     * Whether new expenditure may currently be recorded — independent of
+     * the brand's checklist or its hold state entirely (a checklist may not
+     * exist yet, or may be on hold for unrelated content reasons, and
+     * expenditure recording must not care either way). The only thing that
+     * matters is whether the underlying paid Social Media Ads budget is
+     * still actually there: it goes to $0 only via a refund/reversal or a
+     * cancelled charge, both already reflected live by advertisingBudget()
+     * (Invoice::getPaidAmountAttribute() nets out completed refunds, and a
+     * cancelled invoice's payments no longer count toward any category).
+     * Already-recorded expenditure is never affected by this — it stays on
+     * the books exactly as it was; this only gates *new* entries.
+     */
+    public function hasAvailableAdvertisingBudget(): bool
+    {
+        return $this->advertisingBudget() > 0;
+    }
+
     // ── Platform integrations ────────────────────────────────────────────
 
     public function integrations()
