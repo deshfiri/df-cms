@@ -355,6 +355,28 @@
                 </a>
             @endcanany
 
+            @can('view raw-content-panel')
+                <a href="{{ route('panels.raw-content') }}"
+                    class="sb-link {{ request()->routeIs('panels.raw-content') ? 'active' : '' }}"
+                    title="Raw Content" data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-folder2-open"></i><span class="sb-lbl">Raw Content</span>
+                </a>
+            @endcan
+            @can('view designer-panel')
+                <a href="{{ route('panels.designer') }}"
+                    class="sb-link {{ request()->routeIs('panels.designer') ? 'active' : '' }}"
+                    title="Designer" data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-palette"></i><span class="sb-lbl">Designer</span>
+                </a>
+            @endcan
+            @can('view smm-panel')
+                <a href="{{ route('panels.smm') }}"
+                    class="sb-link {{ request()->routeIs('panels.smm') ? 'active' : '' }}"
+                    title="SMM" data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-share"></i><span class="sb-lbl">SMM</span>
+                </a>
+            @endcan
+
             {{-- The all-meetings list exposes client names, so it follows client visibility. --}}
             @can('viewAny', App\Models\Client::class)
                 <a href="{{ route('meetings.all') }}"

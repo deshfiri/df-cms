@@ -79,9 +79,19 @@ class ContentItem extends Model
         return $this->hasMany(ContentItemCollection::class);
     }
 
+    public function latestCollection(): ?ContentItemCollection
+    {
+        return $this->collections()->latest('id')->first();
+    }
+
     public function publishedContents()
     {
         return $this->hasMany(PublishedContent::class);
+    }
+
+    public function latestPublished(): ?PublishedContent
+    {
+        return $this->publishedContents()->latest('id')->first();
     }
 
     /** Categories the Raw Content Panel (Content role) owns — see Fix A. */

@@ -21,6 +21,7 @@ use App\Http\Controllers\PaymentProofController;
 use App\Http\Controllers\PerformanceController;
 use App\Http\Controllers\PerformanceConfigController;
 use App\Http\Controllers\ContentItemController;
+use App\Http\Controllers\PanelController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProjectUpdateController;
 use App\Http\Controllers\SearchController;
@@ -270,6 +271,18 @@ Route::middleware(['auth'])->group(function () {
     Route::post('reviews/mine', [ReviewController::class, 'mine'])->name('reviews.mine');
     Route::delete('reviews/{review}', [ReviewController::class, 'destroy'])->name('reviews.destroy');
 
+    // Brand Content & Advertising panels — cross-brand queues for Content,
+    // Design and Social Media Manager roles. Creation/submission/collection/
+    // publishing itself POSTs through the brand-scoped content-items routes
+    // under marketing/brands/{brand}/... (see ContentItemController); these
+    // are just each role's "what's on my plate across every brand" view.
+    Route::get('panels/raw-content', [PanelController::class, 'rawContent'])->name('panels.raw-content');
+    Route::get('panels/designer', [PanelController::class, 'designer'])->name('panels.designer');
+    Route::get('panels/smm', [PanelController::class, 'smm'])->name('panels.smm');
+    Route::get('panels/smm/available', [PanelController::class, 'smmAvailable'])->name('panels.smm.available');
+    Route::get('panels/smm/collected', [PanelController::class, 'smmCollected'])->name('panels.smm.collected');
+    Route::get('panels/smm/published', [PanelController::class, 'smmPublished'])->name('panels.smm.published');
+
     // Tasks (standalone)
     // Before the resource, or tasks/{task} would capture "nav-count".
     Route::get('tasks/nav-count', [TaskController::class, 'navCount'])->name('tasks.nav-count');
@@ -348,12 +361,14 @@ Route::middleware(['auth'])->group(function () {
         Route::put('brands/{brand}/products/{product}', [ProductController::class, 'update'])->name('products.update');
         Route::delete('brands/{brand}/products/{product}', [ProductController::class, 'destroy'])->name('products.destroy');
 
-        // Shared brand checklist — content items (Phase 1: Raw Content /
-        // Designer panels submit through here in Phase 2).
+        // Shared brand checklist — content items. Raw Content / Designer /
+        // SMM panels all submit through here, told apart by category/permission.
         Route::get('brands/{brand}/content-items', [ContentItemController::class, 'index'])->name('content-items.index');
         Route::post('brands/{brand}/content-items', [ContentItemController::class, 'store'])->name('content-items.store');
         Route::post('brands/{brand}/content-items/{contentItem}/submit', [ContentItemController::class, 'submit'])->name('content-items.submit');
         Route::post('brands/{brand}/content-items/{contentItem}/request-revision', [ContentItemController::class, 'requestRevision'])->name('content-items.request-revision');
+        Route::post('brands/{brand}/content-items/{contentItem}/collect', [ContentItemController::class, 'collect'])->name('content-items.collect');
+        Route::post('brands/{brand}/content-items/{contentItem}/publish', [ContentItemController::class, 'publish'])->name('content-items.publish');
 
         Route::get('brands/{brand}/integrations', [BrandIntegrationController::class, 'index'])->name('integrations');
         Route::get('brands/{brand}/integrations/meta/connect', [BrandIntegrationController::class, 'connect'])->name('meta.connect');

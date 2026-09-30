@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Brand;
 use App\Models\ContentItem;
+use App\Models\ContentItemSubmission;
 use App\Services\ContentItemService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -83,6 +84,34 @@ class ContentItemController extends Controller
         $revision = $this->service->requestRevision($contentItem, $data, $request->user());
 
         return response()->json(['success' => true, 'data' => $revision]);
+    }
+
+    /** SMM explicitly claims the item's current submission as theirs to publish — see Fix B. */
+    public function collect(Request $request, Brand $brand, ContentItem $contentItem): JsonResponse
+    {
+        abort_if($contentItem->brand_id !== $brand->id, 404);
+        abort_unless($request->user()->can('manage smm-collection'), 403);
+
+        $collection = $this->service->collect($contentItem, $request->user());
+
+        return response()->json(['success' => true, 'data' => $collection->load('submission', 'collectedBy:id,name')]);
+    }
+
+    /** Publishes one specific, already-collected submission — every precondition re-checked server-side, see Fix G. */
+    public function publish(Request $request, Brand $brand, ContentItem $contentItem): JsonResponse
+    {
+        abort_if($contentItem->brand_id !== $brand->id, 404);
+        abort_unless($request->user()->can('manage published-content'), 403);
+
+        $data = $request->validate([
+            'submission_id'     => ['required', 'integer', Rule::exists('content_item_submissions', 'id')->where('content_item_id', $contentItem->id)],
+            'facebook_post_url' => ['required', 'string', 'max:2048', 'url'],
+        ]);
+
+        $submission = ContentItemSubmission::findOrFail($data['submission_id']);
+        $published = $this->service->publish($contentItem, $submission, $data, $request->user());
+
+        return response()->json(['success' => true, 'data' => $published->load('publishedBy:id,name')]);
     }
 
     /** Any panel role, or Manager oversight, may look at a brand's checklist. */

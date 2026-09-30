@@ -4,12 +4,14 @@ namespace App\Services;
 
 use App\Models\Brand;
 use App\Models\ContentItem;
+use App\Models\ContentItemCollection;
 use App\Models\ContentItemRevision;
 use App\Models\ContentItemSubmission;
+use App\Models\PublishedContent;
 use App\Models\User;
+use App\Notifications\ChecklistRevisionRequested;
 use App\Services\Storage\UploadStaging;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -106,8 +108,9 @@ class ContentItemService
     public function requestRevision(ContentItem $item, array $data, User $actor): ContentItemRevision
     {
         $this->refuseIfOnHold($item);
+        $submitter = $item->latestSubmission()?->submittedBy;
 
-        return DB::transaction(function () use ($item, $data, $actor) {
+        $revision = DB::transaction(function () use ($item, $data, $actor) {
             $revision = ContentItemRevision::create([
                 'content_item_id' => $item->id,
                 'requested_by'    => $actor->id,
@@ -122,6 +125,117 @@ class ContentItemService
             ]);
 
             return $revision;
+        });
+
+        // Asking for yourself back isn't news; only notify someone else.
+        if ($submitter && (int) $submitter->id !== (int) $actor->id) {
+            $submitter->notify(new ChecklistRevisionRequested($item, $actor, $revision->note));
+        }
+
+        return $revision;
+    }
+
+    /**
+     * SMM explicitly claims one specific submission as theirs to publish —
+     * see Fix B. Only the item's current, latest submission can be
+     * collected; an older one belongs to a superseded round.
+     */
+    public function collect(ContentItem $item, User $actor): ContentItemCollection
+    {
+        $this->refuseIfOnHold($item);
+
+        $submission = $item->latestSubmission();
+        if (!$submission || $item->status !== ContentItem::STATUS_AVAILABLE) {
+            throw ValidationException::withMessages([
+                'item' => 'This item is not available to collect right now.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($item, $submission, $actor) {
+            $collection = ContentItemCollection::create([
+                'content_item_id' => $item->id,
+                'submission_id'   => $submission->id,
+                'collected_by'    => $actor->id,
+                'collected_at'    => now(),
+            ]);
+
+            $item->update(['status' => ContentItem::STATUS_COLLECTED]);
+
+            $this->activityLog->log('Content Item', 'Collected', $item->brand->client_id, null, [
+                'content_item_id' => $item->id, 'submission_id' => $submission->id,
+            ]);
+
+            return $collection;
+        });
+    }
+
+    /**
+     * Publishes one specific, already-collected submission. Re-validates
+     * every precondition inside the same transaction that writes the row —
+     * see Fix G — so a stale browser tab can never publish a submission a
+     * later revision has already superseded, even if it was collected
+     * before that revision came in.
+     */
+    public function publish(ContentItem $item, ContentItemSubmission $submission, array $data, User $actor): PublishedContent
+    {
+        $this->refuseIfOnHold($item);
+
+        if ((int) $submission->content_item_id !== (int) $item->id) {
+            throw ValidationException::withMessages(['submission' => 'That submission does not belong to this item.']);
+        }
+
+        return DB::transaction(function () use ($item, $submission, $data, $actor) {
+            // Locked so two SMM users publishing the same item at once can't
+            // both succeed against what's already a superseded state.
+            $item = ContentItem::whereKey($item->id)->lockForUpdate()->firstOrFail();
+
+            if ($item->submissions()->where('id', '>', $submission->id)->exists()) {
+                throw ValidationException::withMessages([
+                    'submission' => 'This version has been replaced by a newer submission — refresh and collect the current one.',
+                ]);
+            }
+
+            // The item's own status is the single, atomically-updated source
+            // of truth for "is this collected submission still eligible to
+            // publish." requestRevision() always moves it off `collected`
+            // the instant a revision is requested, and a fresh submission
+            // moves it to `available` — either way, `collected` only holds
+            // while nothing has superseded it. (A direct timestamp
+            // comparison between content_item_revisions.created_at and
+            // content_item_collections.collected_at was tried first and
+            // abandoned: Eloquent's date serialization strips sub-second
+            // precision before the value reaches the database, so two
+            // events in the same second become indistinguishable there —
+            // status, updated in place on one row, has no such gap.)
+            if ($item->status !== ContentItem::STATUS_COLLECTED) {
+                throw ValidationException::withMessages([
+                    'submission' => 'This item is no longer collected and ready to publish — it may have been sent back for revision, or already published.',
+                ]);
+            }
+
+            $collection = ContentItemCollection::where('submission_id', $submission->id)->latest('id')->first();
+            if (!$collection) {
+                throw ValidationException::withMessages([
+                    'submission' => 'This version has not been collected yet.',
+                ]);
+            }
+
+            $published = PublishedContent::create([
+                'content_item_id'   => $item->id,
+                'submission_id'     => $submission->id,
+                'brand_id'          => $item->brand_id,
+                'facebook_post_url' => $data['facebook_post_url'],
+                'published_by'      => $actor->id,
+                'published_at'      => now(),
+            ]);
+
+            $item->update(['status' => ContentItem::STATUS_PUBLISHED]);
+
+            $this->activityLog->log('Content Item', 'Published', $item->brand->client_id, null, [
+                'content_item_id' => $item->id, 'submission_id' => $submission->id, 'facebook_post_url' => $published->facebook_post_url,
+            ]);
+
+            return $published;
         });
     }
 
