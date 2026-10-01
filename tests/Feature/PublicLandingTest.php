@@ -119,4 +119,53 @@ class PublicLandingTest extends TestCase
         $detail->assertDontSee('Secret Client Name');
         $detail->assertDontSee('Secret internal hold reason');
     }
+
+    /**
+     * Phase 5 — broadens the Phase 4 leak-check beyond client name/hold
+     * reason: a brand with real money, content, and audit trail behind it
+     * must still render a clean page with none of it.
+     */
+    public function test_public_pages_expose_no_financial_content_workflow_or_audit_data(): void
+    {
+        $manager = User::factory()->create(['is_active' => true]);
+        \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'Manager', 'guard_name' => 'web']);
+        $manager->assignRole('Manager');
+
+        $brand = $this->brand(['description' => 'A fine public description.']);
+        \App\Models\PaymentCategory::firstOrCreate(['name' => 'Social Media Ads'], ['is_active' => true, 'sort_order' => 10]);
+        $invoice = \App\Models\Invoice::create([
+            'client_id' => $brand->client_id, 'brand_id' => $brand->id,
+            'payment_category_id' => \App\Models\PaymentCategory::where('name', 'Social Media Ads')->value('id'),
+            'invoice_number' => 'INV-SECRETNUM', 'total_payable' => 123456.78, 'status' => \App\Models\Invoice::STATUS_UNPAID,
+            'issued_by' => $manager->id, 'issued_date' => now(),
+        ]);
+        \App\Models\Payment::create([
+            'client_id' => $brand->client_id, 'invoice_id' => $invoice->id, 'payment_category_id' => $invoice->payment_category_id,
+            'amount' => 123456.78, 'status' => 'Paid', 'payment_date' => now(), 'created_by' => $manager->id,
+        ]);
+        \App\Models\AdvertisingExpenditure::create([
+            'brand_id' => $brand->id, 'amount' => 98765.43, 'reporting_date' => now()->toDateString(),
+            'note' => 'Internal spend note nobody public should see', 'recorded_by' => $manager->id,
+        ]);
+        $checklist = \App\Models\BrandChecklist::create(['brand_id' => $brand->id]);
+        \App\Models\ContentItem::create([
+            'checklist_id' => $checklist->id, 'brand_id' => $brand->id, 'category' => 'raw_content',
+            'status' => 'pending', 'title' => 'Confidential Content Item Title', 'created_by' => $manager->id,
+        ]);
+        app(\App\Services\ActivityLogService::class)->log('Advertising Expenditure', 'Recorded', $brand->client_id, null, [
+            'note' => 'Audit trail entry nobody public should see',
+        ]);
+
+        $landing = $this->get(route('landing'));
+        $detail = $this->get(route('landing.brand', $brand));
+
+        foreach ([$landing, $detail] as $response) {
+            $response->assertDontSee('INV-SECRETNUM');
+            $response->assertDontSee('123456.78');
+            $response->assertDontSee('98765.43');
+            $response->assertDontSee('Internal spend note nobody public should see');
+            $response->assertDontSee('Confidential Content Item Title');
+            $response->assertDontSee('Audit trail entry nobody public should see');
+        }
+    }
 }

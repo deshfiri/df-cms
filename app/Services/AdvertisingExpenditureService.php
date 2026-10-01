@@ -51,15 +51,26 @@ class AdvertisingExpenditureService
         }
 
         return DB::transaction(function () use ($brand, $data, $actor) {
-            $expenditure = AdvertisingExpenditure::create([
-                'brand_id'        => $brand->id,
-                'ad_campaign_id'  => $data['ad_campaign_id'] ?? null,
-                'amount'          => $data['amount'],
-                'reporting_date'  => $data['reporting_date'],
-                'note'            => $data['note'] ?? null,
-                'recorded_by'     => $actor->id,
-                'idempotency_key' => $data['idempotency_key'] ?? null,
-            ]);
+            try {
+                $expenditure = AdvertisingExpenditure::create([
+                    'brand_id'        => $brand->id,
+                    'ad_campaign_id'  => $data['ad_campaign_id'] ?? null,
+                    'amount'          => $data['amount'],
+                    'reporting_date'  => $data['reporting_date'],
+                    'note'            => $data['note'] ?? null,
+                    'recorded_by'     => $actor->id,
+                    'idempotency_key' => $data['idempotency_key'] ?? null,
+                ]);
+            } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+                // Lost a race against another request carrying the exact same
+                // idempotency_key — the promise above ("silent, no error")
+                // still holds: return the row the winner just inserted.
+                if (!empty($data['idempotency_key'])) {
+                    return AdvertisingExpenditure::where('idempotency_key', $data['idempotency_key'])->firstOrFail();
+                }
+
+                throw $e;
+            }
 
             $this->activityLog->log('Advertising Expenditure', 'Recorded', $brand->client_id, null, [
                 'brand' => $brand->name, 'amount' => (string) $expenditure->amount, 'reporting_date' => $expenditure->reporting_date->toDateString(),

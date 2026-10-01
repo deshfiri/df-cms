@@ -144,14 +144,19 @@ class ContentItemService
     {
         $this->refuseIfOnHold($item);
 
-        $submission = $item->latestSubmission();
-        if (!$submission || $item->status !== ContentItem::STATUS_AVAILABLE) {
-            throw ValidationException::withMessages([
-                'item' => 'This item is not available to collect right now.',
-            ]);
-        }
+        return DB::transaction(function () use ($item, $actor) {
+            // Locked so two concurrent "collect" clicks on the same item
+            // can't both succeed — the loser re-reads a status that's
+            // already moved on past STATUS_AVAILABLE once it gets the lock.
+            $item = ContentItem::whereKey($item->id)->lockForUpdate()->firstOrFail();
+            $submission = $item->latestSubmission();
 
-        return DB::transaction(function () use ($item, $submission, $actor) {
+            if (!$submission || $item->status !== ContentItem::STATUS_AVAILABLE) {
+                throw ValidationException::withMessages([
+                    'item' => 'This item is not available to collect right now.',
+                ]);
+            }
+
             $collection = ContentItemCollection::create([
                 'content_item_id' => $item->id,
                 'submission_id'   => $submission->id,
