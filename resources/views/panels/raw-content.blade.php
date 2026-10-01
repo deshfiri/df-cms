@@ -145,7 +145,8 @@ function loadItems() {
         if (!rows.length) { $('#rcRows').html('<tr><td colspan="7" class="rc-empty">No content items match these filters.</td></tr>'); return; }
         $('#rcRows').html(rows.map(function (it) {
             const sub = it.submission;
-            const subText = sub ? (sub.link_url ? '<a href="' + esc(sub.link_url) + '" target="_blank" rel="noopener">Link</a>' : (sub.file_path ? 'File uploaded' : '—')) : '—';
+            const subDownloadUrl = '/marketing/brands/' + it.brand_id + '/content-items/' + it.id + '/submissions/' + (sub ? sub.id : '') + '/download';
+            const subText = sub ? (sub.link_url ? '<a href="' + esc(sub.link_url) + '" target="_blank" rel="noopener">Link</a>' : (sub.file_path ? '<a href="' + esc(subDownloadUrl) + '">Download file</a>' : '—')) : '—';
             const canSubmit = ['pending', 'in_progress', 'needs_revision'].includes(it.status);
             return '<tr>'
                 + '<td>' + esc(it.brand) + '</td>'

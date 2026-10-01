@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Money given back against a payment. See RefundService for the rules.
@@ -16,6 +17,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Refund extends Model
 {
+    /** A completed refund can change a brand's advertising budget — see Brand::advertisingBudget(). */
+    protected static function booted(): void
+    {
+        $flush = fn () => Cache::forget('dash.manager_brand_budgets');
+
+        static::saved($flush);
+        static::deleted($flush);
+    }
+
     public const STATUS_REQUESTED    = 'requested';
     public const STATUS_UNDER_REVIEW = 'under_review';
     public const STATUS_APPROVED     = 'approved';

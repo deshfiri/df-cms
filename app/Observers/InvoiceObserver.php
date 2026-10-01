@@ -6,6 +6,8 @@ use App\Models\Brand;
 use App\Models\BrandChecklist;
 use App\Models\Invoice;
 use App\Services\ActivityLogService;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Creates a brand's checklist the moment it qualifies, and holds it
@@ -48,32 +50,44 @@ class InvoiceObserver
             return;
         }
 
-        $budgetPaid = $brand->hasPaidAdvertisingBudgetInvoice();
-        $checklist = BrandChecklist::firstWhere('brand_id', $brand->id);
+        DB::transaction(function () use ($brand) {
+            $budgetPaid = $brand->hasPaidAdvertisingBudgetInvoice();
+            // Locked so two concurrent evaluate() calls for the same brand
+            // (e.g. its ad-budget payment and its content-charge invoice
+            // landing within milliseconds of each other) can't both decide
+            // "not on hold yet" and both write/log a hold, or both race past
+            // the "no checklist yet" check below.
+            $checklist = BrandChecklist::where('brand_id', $brand->id)->lockForUpdate()->first();
 
-        if (!$checklist) {
-            if ($budgetPaid && $brand->hasActiveContentChargeInvoice()) {
-                BrandChecklist::create(['brand_id' => $brand->id]);
+            if (!$checklist) {
+                if ($budgetPaid && $brand->hasActiveContentChargeInvoice()) {
+                    try {
+                        BrandChecklist::create(['brand_id' => $brand->id]);
+                    } catch (UniqueConstraintViolationException $e) {
+                        // Lost the race — another concurrent evaluate() call
+                        // already created it; nothing left to do here.
+                    }
+                }
+
+                return;
             }
 
-            return;
-        }
+            if ($checklist->isOnHold()) {
+                // A Manager clears an existing hold explicitly (Fix I) — this
+                // observer only ever sets a hold, never lifts one on its own.
+                return;
+            }
 
-        if ($checklist->isOnHold()) {
-            // A Manager clears an existing hold explicitly (Fix I) — this
-            // observer only ever sets a hold, never lifts one on its own.
-            return;
-        }
+            if (!$budgetPaid) {
+                $this->hold($checklist, "The advertising-budget payment for {$brand->name} was refunded or reversed.");
 
-        if (!$budgetPaid) {
-            $this->hold($checklist, "The advertising-budget payment for {$brand->name} was refunded or reversed.");
+                return;
+            }
 
-            return;
-        }
-
-        if (!$brand->hasActiveContentChargeInvoice()) {
-            $this->hold($checklist, "The content-charge invoice for {$brand->name} was cancelled.");
-        }
+            if (!$brand->hasActiveContentChargeInvoice()) {
+                $this->hold($checklist, "The content-charge invoice for {$brand->name} was cancelled.");
+            }
+        });
     }
 
     private function hold(BrandChecklist $checklist, string $reason): void

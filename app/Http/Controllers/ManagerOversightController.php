@@ -54,20 +54,34 @@ class ManagerOversightController extends Controller
         return response()->json(['success' => true] + $result);
     }
 
-    /** Per-brand budget/spend/remaining/overspend — Brand's own methods do the math (Option 2). */
+    /**
+     * Per-brand budget/spend/remaining/overspend (Option 2). Budget and
+     * spent are each computed once per brand here and remaining/overspent
+     * derived arithmetically — Brand::advertisingRemaining()/
+     * isAdvertisingOverspent()/advertisingOverspentAmount() each re-run
+     * advertisingBudget()+advertisingSpent() internally, which would mean
+     * 8 queries per brand instead of 2 if called directly in this loop.
+     */
     private function budgetTable(): \Illuminate\Support\Collection
     {
         return Cache::remember('dash.manager_brand_budgets', 600, function () {
             return Brand::with('client:id,client_name')
                 ->get()
-                ->map(fn (Brand $brand) => [
-                    'brand'             => $brand,
-                    'budget'            => $brand->advertisingBudget(),
-                    'spent'             => $brand->advertisingSpent(),
-                    'remaining'         => $brand->advertisingRemaining(),
-                    'is_overspent'      => $brand->isAdvertisingOverspent(),
-                    'overspent_amount'  => $brand->advertisingOverspentAmount(),
-                ])
+                ->map(function (Brand $brand) {
+                    $budget = $brand->advertisingBudget();
+                    $spent = $brand->advertisingSpent();
+                    $remaining = round($budget - $spent, 2);
+                    $isOverspent = $remaining < 0;
+
+                    return [
+                        'brand'             => $brand,
+                        'budget'            => $budget,
+                        'spent'             => $spent,
+                        'remaining'         => $remaining,
+                        'is_overspent'      => $isOverspent,
+                        'overspent_amount'  => $isOverspent ? round(abs($remaining), 2) : 0.0,
+                    ];
+                })
                 ->filter(fn ($row) => $row['budget'] > 0 || $row['spent'] > 0)
                 ->values();
         });

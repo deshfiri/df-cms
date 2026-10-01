@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * One entry against a brand's advertising budget. Corrections go through
@@ -10,9 +12,15 @@ use Illuminate\Database\Eloquent\Model;
  * the same "a pending edit never touches the live row" rule PaymentService
  * already follows — so advertisingSpent() only ever reflects approved
  * amounts.
+ *
+ * SoftDeletes: a deleted row stays recoverable (withTrashed()) for audit —
+ * the PendingChange/ActivityLog snapshot taken on deletion only ever covers
+ * CORRECTABLE_FIELDS, not recorded_by/created_at/idempotency_key/id.
  */
 class AdvertisingExpenditure extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'brand_id', 'ad_campaign_id', 'amount', 'reporting_date', 'note', 'recorded_by', 'idempotency_key',
     ];
@@ -23,6 +31,15 @@ class AdvertisingExpenditure extends Model
             'amount'         => 'decimal:2',
             'reporting_date' => 'date',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        $flush = fn () => Cache::forget('dash.manager_brand_budgets');
+
+        static::saved($flush);
+        static::deleted($flush);
+        static::restored($flush);
     }
 
     public function brand()

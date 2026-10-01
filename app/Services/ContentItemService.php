@@ -93,6 +93,13 @@ class ContentItemService
                 'content_item_id' => $item->id, 'submission_id' => $submission->id,
             ]);
 
+            // Parked on this server first for a fast response; moved to the
+            // active provider in the background when one is configured — see
+            // UploadStaging. A no-op for link-only submissions (no file_path).
+            if ($submission->file_path) {
+                $this->uploads->pushLater($submission);
+            }
+
             return $submission;
         });
     }

@@ -69,6 +69,16 @@ class ContentItem extends Model
         return $this->submissions()->latest('id')->first();
     }
 
+    /**
+     * Same row as latestSubmission(), as an eager-loadable relation instead
+     * of a query method — for list endpoints that would otherwise N+1 by
+     * calling latestSubmission() once per row (see PanelController).
+     */
+    public function latestSubmissionRelation()
+    {
+        return $this->hasOne(ContentItemSubmission::class)->latestOfMany();
+    }
+
     public function revisions()
     {
         return $this->hasMany(ContentItemRevision::class);
@@ -82,6 +92,12 @@ class ContentItem extends Model
     public function latestCollection(): ?ContentItemCollection
     {
         return $this->collections()->latest('id')->first();
+    }
+
+    /** Same row as latestCollection(), as an eager-loadable relation — see latestSubmissionRelation(). */
+    public function latestCollectionRelation()
+    {
+        return $this->hasOne(ContentItemCollection::class)->latestOfMany();
     }
 
     public function publishedContents()

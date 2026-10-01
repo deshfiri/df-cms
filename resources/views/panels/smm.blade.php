@@ -110,9 +110,14 @@ $('.smm-tabs .nav-link').on('click', function () {
     if (tab === 'published') loadPublished();
 });
 
-function submissionLink(sub) {
+function submissionLink(sub, brandId, itemId) {
     if (!sub) return '—';
-    return sub.link_url ? '<a href="' + esc(sub.link_url) + '" target="_blank" rel="noopener">Link</a>' : (sub.file_path ? 'File' : '—');
+    if (sub.link_url) return '<a href="' + esc(sub.link_url) + '" target="_blank" rel="noopener">Link</a>';
+    if (!sub.file_path) return '—';
+
+    const url = '/marketing/brands/' + brandId + '/content-items/' + itemId + '/submissions/' + sub.id + '/download';
+
+    return '<a href="' + esc(url) + '">Download file</a>';
 }
 
 function loadAvailable() {
@@ -124,7 +129,7 @@ function loadAvailable() {
             + '<td>' + (it.product ? esc(it.product) : '<span style="color:var(--text3)">—</span>') + '</td>'
             + '<td>' + catLabel[it.category] + '</td>'
             + '<td><span class="smm-title">' + esc(it.title) + '</span></td>'
-            + '<td>' + submissionLink(it.submission) + '</td>'
+            + '<td>' + submissionLink(it.submission, it.brand_id, it.id) + '</td>'
             + '<td class="text-end">'
             + '<button class="btn btn-sm btn-primary smm-collect-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '"><i class="bi bi-hand-index"></i> Collect</button>'
             + '<button class="btn btn-sm btn-outline-danger smm-revision-btn" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + esc(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>'

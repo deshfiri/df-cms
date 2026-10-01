@@ -172,7 +172,7 @@ class Phase5FinancialEdgeCasesTest extends TestCase
         $this->pay($this->adInvoice($client, $brand, $manager, 1000), 1000, $manager);
 
         $expenditure = app(AdvertisingExpenditureService::class)->create($brand->fresh(), [
-            'amount' => 200, 'reporting_date' => now()->toDateString(),
+            'amount' => 200, 'reporting_date' => now()->toDateString(), 'idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
         ], $manager);
         $this->assertSame(200.0, $brand->fresh()->advertisingSpent());
 
@@ -183,11 +183,21 @@ class Phase5FinancialEdgeCasesTest extends TestCase
 
         $response->assertOk();
         $response->assertJson(['applied' => true]);
-        // AdvertisingExpenditure has no SoftDeletes — the row is genuinely
-        // gone; the pre-delete snapshot survives in pending_changes.old_values
-        // and the activity log instead (see AdvertisingExpenditureService::requestDelete).
-        $this->assertDatabaseMissing('advertising_expenditures', ['id' => $expenditure->id]);
+
+        // Soft-deleted, not gone — stops counting toward live totals...
+        $this->assertSoftDeleted('advertising_expenditures', ['id' => $expenditure->id]);
         $this->assertSame(0.0, $brand->fresh()->advertisingSpent());
+        $this->assertEqualsWithDelta(1000.0, $brand->fresh()->advertisingRemaining(), 0.001);
+        $this->assertFalse($brand->fresh()->isAdvertisingOverspent());
+
+        // ...but the FULL original row, including fields the PendingChange/
+        // ActivityLog snapshot never captured (recorded_by, idempotency_key,
+        // created_at), is still recoverable for audit via withTrashed().
+        $trashed = AdvertisingExpenditure::withTrashed()->findOrFail($expenditure->id);
+        $this->assertSame($manager->id, $trashed->recorded_by);
+        $this->assertNotNull($trashed->idempotency_key);
+        $this->assertNotNull($trashed->created_at);
+        $this->assertSame('200.00', $trashed->amount);
     }
 
     public function test_a_non_privileged_delete_request_queues_and_the_amount_stays_counted_until_approved(): void
@@ -209,13 +219,46 @@ class Phase5FinancialEdgeCasesTest extends TestCase
 
         $response->assertStatus(202);
         $response->assertJson(['applied' => false, 'pending' => true]);
-        $this->assertDatabaseHas('advertising_expenditures', ['id' => $expenditure->id]);
+        $this->assertDatabaseHas('advertising_expenditures', ['id' => $expenditure->id, 'deleted_at' => null]);
         $this->assertSame(200.0, $brand->fresh()->advertisingSpent()); // still counted — nothing approved yet
 
         $change = PendingChange::where('model_type', AdvertisingExpenditure::class)->where('model_id', $expenditure->id)->firstOrFail();
         app(\App\Services\AdvertisingExpenditureService::class)->approveChange($change, $manager);
 
-        $this->assertDatabaseMissing('advertising_expenditures', ['id' => $expenditure->id]);
+        $this->assertSoftDeleted('advertising_expenditures', ['id' => $expenditure->id]);
         $this->assertSame(0.0, $brand->fresh()->advertisingSpent());
+    }
+
+    public function test_deleting_an_expenditure_preserves_existing_authorization_pendingchange_and_activitylog_behavior(): void
+    {
+        $content = $this->user('Content'); // no 'manage advertising-expenditure' at all
+        $manager = $this->user('Manager', ['manage payments', 'manage advertising-expenditure']);
+        $client = $this->client();
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $this->pay($this->adInvoice($client, $brand, $manager, 1000), 1000, $manager);
+
+        $expenditure = app(AdvertisingExpenditureService::class)->create($brand->fresh(), [
+            'amount' => 50, 'reporting_date' => now()->toDateString(),
+        ], $manager);
+
+        // Authorization is unchanged — a role without the permission is still refused.
+        $this->actingAs($content)->deleteJson(
+            route('marketing.expenditures.destroy', [$brand, $expenditure]),
+            ['reason' => 'Trying anyway.']
+        )->assertForbidden();
+        $this->assertDatabaseHas('advertising_expenditures', ['id' => $expenditure->id, 'deleted_at' => null]);
+
+        $this->actingAs($manager)->deleteJson(
+            route('marketing.expenditures.destroy', [$brand, $expenditure]),
+            ['reason' => 'Recorded in error.']
+        )->assertOk();
+
+        // PendingChange and ActivityLog behavior is unchanged.
+        $this->assertDatabaseHas('pending_changes', [
+            'model_type' => AdvertisingExpenditure::class, 'model_id' => $expenditure->id, 'status' => 'applied',
+        ]);
+        $this->assertDatabaseHas('activity_logs', [
+            'module' => 'Advertising Expenditure', 'action' => 'Deleted', 'client_id' => $client->id,
+        ]);
     }
 }

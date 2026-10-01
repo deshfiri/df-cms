@@ -51,10 +51,10 @@ class PanelController extends Controller
         abort_unless($request->user()->can('manage smm-collection'), 403);
 
         $items = ContentItem::where('status', ContentItem::STATUS_AVAILABLE)
-            ->with(['brand:id,name', 'product:id,name'])
+            ->with(['brand:id,name', 'product:id,name', 'latestSubmissionRelation'])
             ->latest()
             ->get()
-            ->map(fn (ContentItem $item) => $this->presentItem($item, ['submission' => $item->latestSubmission()]));
+            ->map(fn (ContentItem $item) => $this->presentItem($item, ['submission' => $item->latestSubmissionRelation]));
 
         return response()->json(['data' => $items]);
     }
@@ -64,15 +64,10 @@ class PanelController extends Controller
         abort_unless($request->user()->can('manage smm-collection'), 403);
 
         $items = ContentItem::where('status', ContentItem::STATUS_COLLECTED)
-            ->with(['brand:id,name', 'product:id,name'])
+            ->with(['brand:id,name', 'product:id,name', 'latestCollectionRelation.submission', 'latestCollectionRelation.collectedBy:id,name'])
             ->latest()
             ->get()
-            ->map(function (ContentItem $item) {
-                $collection = $item->latestCollection();
-                $collection?->load(['submission', 'collectedBy:id,name']);
-
-                return $this->presentItem($item, ['collection' => $collection]);
-            });
+            ->map(fn (ContentItem $item) => $this->presentItem($item, ['collection' => $item->latestCollectionRelation]));
 
         return response()->json(['data' => $items]);
     }
@@ -107,10 +102,10 @@ class PanelController extends Controller
         $items = ContentItem::whereIn('category', $categories)
             ->when($request->filled('brand_id'), fn ($q) => $q->where('brand_id', $request->brand_id))
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->status))
-            ->with(['brand:id,name', 'product:id,name'])
+            ->with(['brand:id,name', 'product:id,name', 'latestSubmissionRelation'])
             ->latest()
             ->get()
-            ->map(fn (ContentItem $item) => $this->presentItem($item, ['submission' => $item->latestSubmission()]));
+            ->map(fn (ContentItem $item) => $this->presentItem($item, ['submission' => $item->latestSubmissionRelation]));
 
         return response()->json(['data' => $items]);
     }

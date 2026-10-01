@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\InvalidatesPerformanceBoard;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Cache;
 
 class Payment extends Model
 {
@@ -24,6 +25,15 @@ class Payment extends Model
 
     public static array $statuses   = ['Paid', 'Partial', 'Unpaid'];
     public static array $methods    = ['Bank Transfer', 'Cash', 'bKash', 'Nagad', 'Cheque', 'Other'];
+
+    /** A payment can change a brand's advertising budget — see Brand::advertisingBudget(). */
+    protected static function booted(): void
+    {
+        $flush = fn () => Cache::forget('dash.manager_brand_budgets');
+
+        static::saved($flush);
+        static::deleted($flush);
+    }
 
     public function client()
     {

@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Cache;
 
 class Invoice extends Model
 {
@@ -39,6 +40,16 @@ class Invoice extends Model
             'due_date'      => 'date',
             'issued_date'   => 'date',
         ];
+    }
+
+    /** An invoice change (status, brand reassignment, cancellation...) can change a brand's advertising budget. */
+    protected static function booted(): void
+    {
+        $flush = fn () => Cache::forget('dash.manager_brand_budgets');
+
+        static::saved($flush);
+        static::deleted($flush);
+        static::restored($flush);
     }
 
     public function client()
