@@ -29,6 +29,8 @@ use App\Http\Controllers\BrandIntegrationController;
 use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\MarketingBillingController;
 use App\Http\Controllers\MarketingController;
+use App\Http\Controllers\ManagerOversightController;
+use App\Http\Controllers\LandingController;
 use App\Http\Controllers\ChatSettingsController;
 use App\Http\Controllers\SoundSettingsController;
 use App\Http\Controllers\DocumentTypeController;
@@ -64,7 +66,19 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\WorkflowController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', fn () => redirect()->route('login'));
+/*
+|--------------------------------------------------------------------------
+| Public landing page (Phase 4) — unauthenticated, outside the `auth` group
+|--------------------------------------------------------------------------
+|
+| A guest sees the public landing page; an already-authenticated user still
+| lands on the dashboard (LandingController::index() redirects). Only
+| `is_public` + `is_active` Brands/Products are ever queried here — see the
+| strict data boundary documented on LandingController.
+|
+*/
+Route::get('/', [LandingController::class, 'index'])->name('landing');
+Route::get('brands/{brand}', [LandingController::class, 'brand'])->name('landing.brand');
 
 Auth::routes(['register' => false]);
 
@@ -393,6 +407,13 @@ Route::middleware(['auth'])->group(function () {
     // Registered as the redirect URI on the Meta app; the brand travels in the
     // signed state parameter, not the path.
     Route::get('oauth/meta/callback', [BrandIntegrationController::class, 'callback'])->name('marketing.meta.callback');
+
+    // Manager oversight (Phase 4) — gated inside the controller on
+    // 'view brand-checklist-overview'.
+    Route::prefix('manager')->name('manager.')->group(function () {
+        Route::get('oversight', [ManagerOversightController::class, 'index'])->name('oversight');
+        Route::post('checklists/{brandChecklist}/clear-hold', [ManagerOversightController::class, 'clearHold'])->name('checklists.clear-hold');
+    });
 
     // Ad Campaigns (standalone)
     Route::get('ads', [AdCampaignController::class, 'all'])->name('ads.index');

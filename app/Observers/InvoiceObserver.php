@@ -5,7 +5,6 @@ namespace App\Observers;
 use App\Models\Brand;
 use App\Models\BrandChecklist;
 use App\Models\Invoice;
-use App\Models\PaymentCategory;
 use App\Services\ActivityLogService;
 
 /**
@@ -49,11 +48,11 @@ class InvoiceObserver
             return;
         }
 
-        $budgetPaid = $this->hasPaidAdvertisingBudget($brand);
+        $budgetPaid = $brand->hasPaidAdvertisingBudgetInvoice();
         $checklist = BrandChecklist::firstWhere('brand_id', $brand->id);
 
         if (!$checklist) {
-            if ($budgetPaid && $this->hasActiveContentCharge($brand)) {
+            if ($budgetPaid && $brand->hasActiveContentChargeInvoice()) {
                 BrandChecklist::create(['brand_id' => $brand->id]);
             }
 
@@ -72,7 +71,7 @@ class InvoiceObserver
             return;
         }
 
-        if (!$this->hasActiveContentCharge($brand)) {
+        if (!$brand->hasActiveContentChargeInvoice()) {
             $this->hold($checklist, "The content-charge invoice for {$brand->name} was cancelled.");
         }
     }
@@ -81,21 +80,5 @@ class InvoiceObserver
     {
         $checklist->update(['on_hold_at' => now(), 'on_hold_reason' => $reason]);
         $this->activityLog->log('Brand Checklist Hold', 'Held', $checklist->brand->client_id, null, ['reason' => $reason]);
-    }
-
-    private function hasPaidAdvertisingBudget(Brand $brand): bool
-    {
-        return $brand->invoices()
-            ->whereHas('category', fn ($q) => $q->where('name', PaymentCategory::NAME_ADVERTISING_BUDGET))
-            ->get()
-            ->contains(fn (Invoice $i) => $i->paid_amount > 0);
-    }
-
-    private function hasActiveContentCharge(Brand $brand): bool
-    {
-        return $brand->invoices()
-            ->whereHas('category', fn ($q) => $q->where('name', PaymentCategory::NAME_CONTENT_CHARGE))
-            ->where('status', '!=', Invoice::STATUS_CANCELLED)
-            ->exists();
     }
 }

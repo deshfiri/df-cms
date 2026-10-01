@@ -45,9 +45,22 @@ class ProductController extends Controller
         abort_if($product->brand_id !== $brand->id, 404);
         abort_unless($request->user()->can('manage products'), 403);
 
+        // Phase 4 — public landing page. 'manage products' is also held by
+        // the (unrelated) Product role, which runs internal product
+        // sourcing/upload — not a fit for deciding what's shown publicly.
+        // Toggling these specific fields needs Manager/Marketing, same as
+        // the equivalent fields on Brand (see BrandController::update()).
+        $publicFields = ['description', 'image', 'is_public'];
+        if ($request->hasAny($publicFields)) {
+            abort_unless($request->user()->hasAnyRole(['Manager', 'Marketing']), 403, 'Only Manager or Marketing can change a product\'s public visibility.');
+        }
+
         $data = $request->validate([
-            'name'      => ['required', 'string', 'max:150', Rule::unique('products', 'name')->where(fn ($q) => $q->where('brand_id', $brand->id))->ignore($product->id)],
-            'is_active' => ['sometimes', 'boolean'],
+            'name'        => ['required', 'string', 'max:150', Rule::unique('products', 'name')->where(fn ($q) => $q->where('brand_id', $brand->id))->ignore($product->id)],
+            'is_active'   => ['sometimes', 'boolean'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:2000'],
+            'image'       => ['sometimes', 'nullable', 'url', 'max:2000'],
+            'is_public'   => ['sometimes', 'boolean'],
         ]);
 
         $updated = $this->service->update($product, $data);

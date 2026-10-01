@@ -14,11 +14,11 @@ class Product extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = ['brand_id', 'name', 'is_active', 'created_by'];
+    protected $fillable = ['brand_id', 'name', 'description', 'image', 'is_active', 'is_public', 'created_by'];
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return ['is_active' => 'boolean', 'is_public' => 'boolean'];
     }
 
     public function brand()
@@ -34,5 +34,11 @@ class Product extends Model
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
+    }
+
+    /** Opted into the public landing page by a Manager/Marketing user — see LandingController. */
+    public function scopePublic($query)
+    {
+        return $query->where('is_public', true);
     }
 }

@@ -49,6 +49,13 @@ class BrandController extends Controller
         $data = $request->validate([
             'name'    => ['required', 'string', 'max:150', Rule::unique('brands', 'name')->where(fn ($q) => $q->where('client_id', $client->id))->ignore($brand->id)],
             'remarks' => ['nullable', 'string', 'max:1000'],
+            // Phase 4 — public landing page. `manage ads` is held only by
+            // Manager and Marketing (see DatabaseSeeder), so no narrower
+            // check is needed here just to toggle these.
+            'logo'               => ['nullable', 'url', 'max:2000'],
+            'website'            => ['nullable', 'url', 'max:2000'],
+            'description'        => ['nullable', 'string', 'max:2000'],
+            'is_public'          => ['sometimes', 'boolean'],
         ]);
 
         $updated = $this->service->update($brand, $data);

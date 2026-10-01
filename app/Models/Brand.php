@@ -11,12 +11,12 @@ class Brand extends Model
 
     protected $fillable = [
         'client_id', 'name', 'slug', 'logo', 'website', 'description',
-        'is_active', 'remarks', 'created_by', 'updated_by',
+        'is_active', 'is_public', 'remarks', 'created_by', 'updated_by',
     ];
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return ['is_active' => 'boolean', 'is_public' => 'boolean'];
     }
 
     public function client()
@@ -106,6 +106,29 @@ class Brand extends Model
         return $this->advertisingBudget() > 0;
     }
 
+    /**
+     * The checklist-creation trigger's own two conditions (see the SRS
+     * integration plan), lifted out of App\Observers\InvoiceObserver so
+     * Fix I's "revalidate before clearing a hold" can check the exact same
+     * truth the observer uses to set one, instead of a second hand-written
+     * copy of this logic.
+     */
+    public function hasPaidAdvertisingBudgetInvoice(): bool
+    {
+        return $this->invoices()
+            ->whereHas('category', fn ($q) => $q->where('name', PaymentCategory::NAME_ADVERTISING_BUDGET))
+            ->get()
+            ->contains(fn (Invoice $i) => $i->paid_amount > 0);
+    }
+
+    public function hasActiveContentChargeInvoice(): bool
+    {
+        return $this->invoices()
+            ->whereHas('category', fn ($q) => $q->where('name', PaymentCategory::NAME_CONTENT_CHARGE))
+            ->where('status', '!=', Invoice::STATUS_CANCELLED)
+            ->exists();
+    }
+
     // ── Platform integrations ────────────────────────────────────────────
 
     public function integrations()
@@ -155,6 +178,12 @@ class Brand extends Model
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
+    }
+
+    /** Opted into the public landing page by a Manager/Marketing user — see LandingController. */
+    public function scopePublic($query)
+    {
+        return $query->where('is_public', true);
     }
 
     public function createdBy()
