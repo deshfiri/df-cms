@@ -39,6 +39,10 @@
         </small>
     </div>
     <div class="mk-context">
+        @canany(['manage advertising-expenditure', 'view brand-checklist-overview'])
+            {{-- Read-only workflow context (Fix H/I) — Manager clears a hold, not this page. --}}
+            <span class="spill" id="mkChecklistStatus" style="display:none"></span>
+        @endcanany
         <select id="mkAdAccount" class="form-select form-select-sm">
             <option value="">All ad accounts</option>
             @foreach($adAccounts as $account)
@@ -202,6 +206,133 @@
                 <tr><td class="text-center py-3" style="color:var(--text3)">Loading…</td></tr>
             </tbody>
         </table>
+    </div>
+</div>
+@endcan
+
+@can('manage content-charges')
+{{-- ── Content Charges (Phase 3) ──────────────────────────────────────── --}}
+<div class="card section-card mt-3">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <h6 class="fw-bold mb-0">Content Charges</h6>
+        <button class="btn btn-sm btn-primary" id="mkAddChargeBtn"><i class="bi bi-plus-lg me-1"></i>Add Content Charge</button>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0" style="font-size:.82rem">
+                <thead>
+                    <tr><th>Title</th><th class="text-end">Amount</th><th>Status</th><th>Due Date</th><th>Created</th></tr>
+                </thead>
+                <tbody id="mkChargeRows"><tr><td colspan="5" class="text-center py-3" style="color:var(--text3)">Loading…</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="chargeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2 px-3">
+                <h6 class="modal-title fw-bold">Add Content Charge</h6>
+                <button class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body px-3 py-3">
+                {{-- A content-charge Invoice only — never records a Payment (see MarketingBillingController::storeContentCharge). --}}
+                <div class="mb-2">
+                    <label class="form-label small mb-1">Total payable</label>
+                    <input type="number" step="0.01" min="0.01" class="form-control form-control-sm" id="mkChargeAmount">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">Title <span style="color:var(--text3)">(optional)</span></label>
+                    <input type="text" class="form-control form-control-sm" id="mkChargeTitle" maxlength="200">
+                </div>
+                <div class="mb-0">
+                    <label class="form-label small mb-1">Due date <span style="color:var(--text3)">(optional)</span></label>
+                    <input type="date" class="form-control form-control-sm" id="mkChargeDue">
+                </div>
+            </div>
+            <div class="modal-footer py-2 px-3">
+                <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-sm btn-primary" id="mkChargeSave">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+@endcan
+
+@canany(['manage advertising-expenditure', 'view brand-checklist-overview'])
+{{-- ── Advertising Budget (Option 2 — independent of checklist hold) ───── --}}
+<div class="card section-card mt-3">
+    <div class="card-header py-2"><h6 class="fw-bold mb-0">Advertising Budget</h6></div>
+    <div class="card-body">
+        {{-- Every figure here comes straight from the server response — never recomputed in JS. --}}
+        <div class="kpi-grid" id="mkBudgetGrid"><div class="kpi"><div class="kpi-label">Loading…</div></div></div>
+    </div>
+</div>
+@endcanany
+
+@can('manage advertising-expenditure')
+{{-- ── Advertising Expenditure ──────────────────────────────────────────── --}}
+<div class="card section-card mt-3">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <h6 class="fw-bold mb-0">Advertising Expenditure</h6>
+        <button class="btn btn-sm btn-primary" id="mkAddExpenseBtn"><i class="bi bi-plus-lg me-1"></i>Add Expenditure</button>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0" style="font-size:.82rem">
+                <thead>
+                    <tr><th>Date</th><th class="text-end">Amount</th><th>Campaign</th><th>Note</th><th>Recorded by</th><th class="text-end">Actions</th></tr>
+                </thead>
+                <tbody id="mkExpenseRows"><tr><td colspan="6" class="text-center py-3" style="color:var(--text3)">Loading…</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="expenseModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2 px-3">
+                <h6 class="modal-title fw-bold">Add Expenditure</h6>
+                <button class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body px-3 py-3">
+                <div class="mb-2">
+                    <label class="form-label small mb-1">Amount</label>
+                    <input type="number" step="0.01" min="0.01" class="form-control form-control-sm" id="mkExpenseAmount">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">Reporting date</label>
+                    <input type="date" class="form-control form-control-sm" id="mkExpenseDate">
+                </div>
+                <div class="mb-0">
+                    <label class="form-label small mb-1">Note <span style="color:var(--text3)">(optional)</span></label>
+                    <input type="text" class="form-control form-control-sm" id="mkExpenseNote" maxlength="1000">
+                </div>
+            </div>
+            <div class="modal-footer py-2 px-3">
+                <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-sm btn-primary" id="mkExpenseSave">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+@endcan
+
+@can('manage publishing-review')
+{{-- ── Publishing Review ────────────────────────────────────────────────── --}}
+<div class="card section-card mt-3">
+    <div class="card-header py-2"><h6 class="fw-bold mb-0">Publishing Review</h6></div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0" style="font-size:.82rem">
+                <thead>
+                    <tr><th>Title</th><th>Category</th><th>Version</th><th>Published</th><th>Facebook post</th><th>Published by</th><th class="text-end">Actions</th></tr>
+                </thead>
+                <tbody id="mkReviewRows"><tr><td colspan="7" class="text-center py-3" style="color:var(--text3)">Loading…</td></tr></tbody>
+            </table>
+        </div>
     </div>
 </div>
 @endcan
@@ -558,6 +689,239 @@ if ($('#mkProductRows').length) {
     });
 
     loadProducts();
+}
+
+// ── Checklist status (read-only — clearing a hold is a Manager action) ──
+function renderChecklistStatus(status, reason) {
+    const $badge = $('#mkChecklistStatus');
+    if (!$badge.length || !status) return;
+
+    const labels = { not_eligible: 'Checklist: Not yet eligible', active: 'Checklist: Active', on_hold: 'Checklist: On hold' };
+    const classes = { not_eligible: 'spill-hold', active: 'spill-completed', on_hold: 'spill-cancelled' };
+
+    $badge.attr('class', 'spill ' + (classes[status] || 'spill-hold'))
+        .attr('title', status === 'on_hold' ? (reason || '') : '')
+        .text(labels[status] || status)
+        .show();
+}
+
+// ── Content Charges (manage content-charges) ─────────────────────────────
+if ($('#mkChargeRows').length) {
+    const CHARGES_LIST_URL  = '/marketing/brands/' + BRAND_ID + '/content-charges';
+    const CHARGES_STORE_URL = '/marketing/brands/' + BRAND_ID + '/content-charge';
+    const chargeEsc = s => $('<div>').text(s == null ? '' : s).html();
+    const chargeStatusClass = { Paid: 'spill-completed', 'Partially Paid': 'spill-warning', Unpaid: 'spill-hold', Cancelled: 'spill-cancelled', Refunded: 'spill-cancelled', 'Non-Refundable': 'spill-cancelled' };
+
+    function loadCharges() {
+        $.get(CHARGES_LIST_URL).done(function (r) {
+            const rows = r.data || [];
+            $('#mkChargeRows').html(rows.length ? rows.map(c =>
+                '<tr>'
+                + '<td>' + chargeEsc(c.title || '—') + '</td>'
+                + '<td class="text-end">' + money(c.total_payable) + '</td>'
+                + '<td><span class="spill ' + (chargeStatusClass[c.status] || 'spill-hold') + '">' + chargeEsc(c.status) + '</span></td>'
+                + '<td>' + (c.due_date || '—') + '</td>'
+                + '<td>' + (c.issued_date || '—') + '</td>'
+                + '</tr>'
+            ).join('') : '<tr><td colspan="5" class="text-center py-3" style="color:var(--text3)">No content charges recorded yet.</td></tr>');
+        }).fail(function () {
+            $('#mkChargeRows').html('<tr><td colspan="5" class="text-center py-3" style="color:var(--text3)">Could not load content charges.</td></tr>');
+        });
+    }
+
+    $('#mkAddChargeBtn').on('click', function () {
+        $('#mkChargeAmount,#mkChargeTitle,#mkChargeDue').val('');
+        new bootstrap.Modal('#chargeModal').show();
+    });
+
+    $('#mkChargeSave').on('click', function () {
+        const $btn = $(this).prop('disabled', true);
+        $.post(CHARGES_STORE_URL, {
+            total_payable: $('#mkChargeAmount').val(),
+            title: $('#mkChargeTitle').val() || null,
+            due_date: $('#mkChargeDue').val() || null,
+        }).done(function () {
+            bootstrap.Modal.getInstance('#chargeModal').hide();
+            Swal.fire({ icon: 'success', title: 'Content charge added', timer: 1500, showConfirmButton: false });
+            loadCharges();
+            // Reflect checklist eligibility if this charge just completed it.
+            if (typeof loadBudget === 'function') loadBudget();
+        }).fail(function (x) {
+            const errors = x.responseJSON && x.responseJSON.errors;
+            Swal.fire('Could not save', errors ? Object.values(errors).flat().join(' ') : (x.responseJSON?.message || 'Please try again.'), 'error');
+        }).always(() => $btn.prop('disabled', false));
+    });
+
+    loadCharges();
+}
+
+// ── Advertising Budget + Expenditure (manage advertising-expenditure) ───
+if ($('#mkBudgetGrid').length || $('#mkExpenseRows').length) {
+    const BUDGET_URL      = '/marketing/brands/' + BRAND_ID + '/advertising-budget';
+    const EXPENSES_LIST_URL  = '/marketing/brands/' + BRAND_ID + '/expenditures';
+    const EXPENSES_STORE_URL = '/marketing/brands/' + BRAND_ID + '/expenditures';
+    const expEsc = s => $('<div>').text(s == null ? '' : s).html();
+
+    window.loadBudget = function loadBudget() {
+        if (!$('#mkBudgetGrid').length) return;
+        $.get(BUDGET_URL).done(function (r) {
+            renderChecklistStatus(r.checklist_status, r.checklist_hold_reason);
+
+            const cards = [
+                ['Paid Budget', money(r.budget)],
+                ['Total Spent', money(r.spent)],
+                ['Remaining', money(r.remaining)],
+            ];
+            let html = cards.map(c => '<div class="kpi"><div class="kpi-label">' + c[0] + '</div><div class="kpi-value">' + c[1] + '</div></div>').join('');
+            html += '<div class="kpi"><div class="kpi-label">Status</div><div class="kpi-value' + (r.is_overspent ? '' : ' muted') + '" style="font-size:1rem">'
+                + (r.is_overspent ? '<span class="spill spill-cancelled">Overspent by ' + money(r.overspent_amount) + '</span>' : '<span class="spill spill-completed">Within budget</span>')
+                + '</div></div>';
+            $('#mkBudgetGrid').html(html);
+        }).fail(function () {
+            $('#mkBudgetGrid').html('<div class="kpi"><div class="kpi-label">Error</div><div class="kpi-value muted">Could not load the budget.</div></div>');
+        });
+    };
+
+    function loadExpenses() {
+        if (!$('#mkExpenseRows').length) return;
+        $.get(EXPENSES_LIST_URL).done(function (r) {
+            const rows = r.data || [];
+            $('#mkExpenseRows').html(rows.length ? rows.map(e =>
+                '<tr data-id="' + e.id + '">'
+                + '<td>' + e.reporting_date + '</td>'
+                + '<td class="text-end">' + money(e.amount) + '</td>'
+                + '<td>' + expEsc(e.ad_campaign || '—') + '</td>'
+                + '<td>' + expEsc(e.note || '—') + '</td>'
+                + '<td>' + expEsc(e.recorded_by || '—') + '</td>'
+                + '<td class="text-end">'
+                + (e.has_pending_change
+                    ? '<span class="spill spill-hold">Pending approval</span>'
+                    : '<button class="btn btn-sm btn-link p-0 me-2 mk-exp-correct">Request correction</button>'
+                      + '<button class="btn btn-sm btn-link text-danger p-0 mk-exp-delete">Request deletion</button>')
+                + '</td></tr>'
+            ).join('') : '<tr><td colspan="6" class="text-center py-3" style="color:var(--text3)">No expenditure recorded yet.</td></tr>');
+        }).fail(function () {
+            $('#mkExpenseRows').html('<tr><td colspan="6" class="text-center py-3" style="color:var(--text3)">Could not load expenditure.</td></tr>');
+        });
+    }
+
+    $('#mkAddExpenseBtn').on('click', function () {
+        $('#mkExpenseAmount,#mkExpenseNote').val('');
+        $('#mkExpenseDate').val(new Date().toISOString().slice(0, 10));
+        new bootstrap.Modal('#expenseModal').show();
+    });
+
+    // Server is authoritative on whether this succeeds — a hold never blocks
+    // this (Option 2); only an unavailable budget does, and that refusal is
+    // simply shown as returned.
+    $('#mkExpenseSave').on('click', function () {
+        const $btn = $(this).prop('disabled', true);
+        $.post(EXPENSES_STORE_URL, {
+            amount: $('#mkExpenseAmount').val(),
+            reporting_date: $('#mkExpenseDate').val(),
+            note: $('#mkExpenseNote').val() || null,
+        }).done(function () {
+            bootstrap.Modal.getInstance('#expenseModal').hide();
+            Swal.fire({ icon: 'success', title: 'Expenditure recorded', timer: 1500, showConfirmButton: false });
+            loadExpenses();
+            loadBudget();
+        }).fail(function (x) {
+            const errors = x.responseJSON && x.responseJSON.errors;
+            Swal.fire('Could not save', errors ? Object.values(errors).flat().join(' ') : (x.responseJSON?.message || 'Please try again.'), 'error');
+        }).always(() => $btn.prop('disabled', false));
+    });
+
+    $('#mkExpenseRows').on('click', '.mk-exp-correct', function () {
+        const id = $(this).closest('tr').data('id');
+        Swal.fire({
+            title: 'Request a correction', icon: 'question',
+            html: '<input id="swalAmount" type="number" step="0.01" class="swal2-input" placeholder="New amount (leave blank to keep)">'
+                + '<input id="swalReason" class="swal2-input" placeholder="Reason (required)">',
+            showCancelButton: true, confirmButtonText: 'Send for approval',
+            preConfirm: () => {
+                const reason = document.getElementById('swalReason').value.trim();
+                if (reason.length < 3) { Swal.showValidationMessage('A reason of at least 3 characters is required.'); return false; }
+                return { amount: document.getElementById('swalAmount').value, reason: reason };
+            },
+        }).then(function (r) {
+            if (!r.isConfirmed) return;
+            const data = { reason: r.value.reason };
+            if (r.value.amount) data.amount = r.value.amount;
+            $.ajax({ url: EXPENSES_STORE_URL + '/' + id, method: 'PUT', data: data })
+                .done(function (res) {
+                    Swal.fire({ icon: 'success', title: res.applied ? 'Applied' : 'Sent for approval', text: res.message, timer: 1800, showConfirmButton: false });
+                    loadExpenses(); loadBudget();
+                })
+                .fail(x => Swal.fire('Could not request', (x.responseJSON && Object.values(x.responseJSON.errors || {}).flat().join(' ')) || x.responseJSON?.message || 'Please try again.', 'error'));
+        });
+    });
+
+    $('#mkExpenseRows').on('click', '.mk-exp-delete', function () {
+        const id = $(this).closest('tr').data('id');
+        Swal.fire({
+            title: 'Request deletion', icon: 'warning', input: 'text', inputPlaceholder: 'Reason (required)',
+            showCancelButton: true, confirmButtonText: 'Send for approval', confirmButtonColor: '#dc3545',
+            inputValidator: v => (!v || v.trim().length < 3) && 'A reason of at least 3 characters is required.',
+        }).then(function (r) {
+            if (!r.isConfirmed) return;
+            $.ajax({ url: EXPENSES_STORE_URL + '/' + id, method: 'DELETE', data: { reason: r.value } })
+                .done(function (res) {
+                    Swal.fire({ icon: 'success', title: res.applied ? 'Deleted' : 'Sent for approval', text: res.message, timer: 1800, showConfirmButton: false });
+                    loadExpenses(); loadBudget();
+                })
+                .fail(x => Swal.fire('Could not request', (x.responseJSON && Object.values(x.responseJSON.errors || {}).flat().join(' ')) || x.responseJSON?.message || 'Please try again.', 'error'));
+        });
+    });
+
+    loadBudget();
+    loadExpenses();
+}
+
+// ── Publishing Review (manage publishing-review) ─────────────────────────
+if ($('#mkReviewRows').length) {
+    const REVIEW_LIST_URL = '/marketing/brands/' + BRAND_ID + '/published-contents/unreviewed';
+    const reviewEsc = s => $('<div>').text(s == null ? '' : s).html();
+
+    function loadReview() {
+        $.get(REVIEW_LIST_URL).done(function (r) {
+            const rows = r.data || [];
+            $('#mkReviewRows').html(rows.length ? rows.map(function (p) {
+                const version = p.submission ? (p.submission.link_url ? '<a href="' + reviewEsc(p.submission.link_url) + '" target="_blank" rel="noopener">Link</a>' : (p.submission.file_path ? 'File' : '—')) : '—';
+                return '<tr data-id="' + p.id + '">'
+                    + '<td>' + reviewEsc(p.item ? p.item.title : '—') + '</td>'
+                    + '<td>' + reviewEsc(p.item ? p.item.category : '—') + '</td>'
+                    + '<td>' + version + '</td>'
+                    + '<td>' + (p.published_at ? new Date(p.published_at).toLocaleString() : '—') + '</td>'
+                    + '<td><a href="' + reviewEsc(p.facebook_post_url) + '" target="_blank" rel="noopener">' + reviewEsc(p.facebook_post_url) + '</a></td>'
+                    + '<td>' + reviewEsc(p.published_by ? p.published_by.name : '—') + '</td>'
+                    + '<td class="text-end"><button class="btn btn-sm btn-primary mk-review-btn">Mark reviewed</button></td>'
+                    + '</tr>';
+            }).join('') : '<tr><td colspan="7" class="text-center py-3" style="color:var(--text3)">Nothing waiting on review.</td></tr>');
+        }).fail(function () {
+            $('#mkReviewRows').html('<tr><td colspan="7" class="text-center py-3" style="color:var(--text3)">Could not load publishing review.</td></tr>');
+        });
+    }
+
+    // Removes the reviewed row without a full page reload — the row being
+    // gone IS the "unreviewed" state change; nothing else about the
+    // published-content row is ever editable from here.
+    $('#mkReviewRows').on('click', '.mk-review-btn', function () {
+        const $row = $(this).closest('tr');
+        const id = $row.data('id');
+        const $btn = $(this).prop('disabled', true);
+        $.post('/marketing/brands/' + BRAND_ID + '/published-contents/' + id + '/review')
+            .done(function () {
+                $row.fadeOut(200, function () {
+                    $(this).remove();
+                    if (!$('#mkReviewRows tr').length) {
+                        $('#mkReviewRows').html('<tr><td colspan="7" class="text-center py-3" style="color:var(--text3)">Nothing waiting on review.</td></tr>');
+                    }
+                });
+            })
+            .fail(x => { Swal.fire('Could not mark reviewed', x.responseJSON?.message || 'Please try again.', 'error'); $btn.prop('disabled', false); });
+    });
+
+    loadReview();
 }
 </script>
 @endpush

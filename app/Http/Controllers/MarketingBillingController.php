@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AdvertisingExpenditure;
 use App\Models\Brand;
 use App\Models\PaymentCategory;
+use App\Models\PendingChange;
 use App\Models\PublishedContent;
 use App\Services\ActivityLogService;
 use App\Services\AdvertisingExpenditureService;
@@ -54,9 +55,26 @@ class MarketingBillingController extends Controller
         return response()->json(['success' => true, 'data' => $this->invoices->present($invoice->load('category'))]);
     }
 
+    /** Every Content Production charge billed against this brand — same shape InvoiceService::present() already gives the Payments tab. */
+    public function contentCharges(Request $request, Brand $brand): JsonResponse
+    {
+        abort_unless($request->user()->can('manage content-charges'), 403);
+
+        $invoices = $brand->invoices()
+            ->whereHas('category', fn ($q) => $q->where('name', PaymentCategory::NAME_CONTENT_CHARGE))
+            ->with('category')
+            ->latest('issued_date')
+            ->get()
+            ->map(fn ($invoice) => $this->invoices->present($invoice));
+
+        return response()->json(['data' => $invoices]);
+    }
+
     public function budget(Request $request, Brand $brand): JsonResponse
     {
         abort_unless($request->user()->hasAnyPermission(['manage advertising-expenditure', 'view brand-checklist-overview']), 403);
+
+        $checklist = $brand->checklist;
 
         return response()->json([
             'budget'                  => $brand->advertisingBudget(),
@@ -65,7 +83,39 @@ class MarketingBillingController extends Controller
             'is_overspent'            => $brand->isAdvertisingOverspent(),
             'overspent_amount'        => $brand->advertisingOverspentAmount(),
             'has_available_budget'    => $brand->hasAvailableAdvertisingBudget(),
+            // Read-only workflow context (Fix H/I) — never mutated from this endpoint.
+            'checklist_status'        => !$checklist ? 'not_eligible' : ($checklist->isOnHold() ? 'on_hold' : 'active'),
+            'checklist_hold_reason'   => $checklist?->on_hold_reason,
         ]);
+    }
+
+    /** This brand's recorded expenditure, each flagged if a correction/deletion is already awaiting approval. */
+    public function expenditureHistory(Request $request, Brand $brand): JsonResponse
+    {
+        abort_unless($request->user()->can('manage advertising-expenditure'), 403);
+
+        $expenditureIds = $brand->advertisingExpenditures()->pluck('id');
+        $pendingIds = PendingChange::where('model_type', AdvertisingExpenditure::class)
+            ->pending()
+            ->whereIn('model_id', $expenditureIds)
+            ->pluck('model_id');
+
+        $expenditures = $brand->advertisingExpenditures()
+            ->with(['recordedBy:id,name', 'adCampaign:id,name'])
+            ->latest('reporting_date')
+            ->get()
+            ->map(fn (AdvertisingExpenditure $e) => [
+                'id'                 => $e->id,
+                'amount'             => (float) $e->amount,
+                'reporting_date'     => $e->reporting_date->toDateString(),
+                'note'               => $e->note,
+                'ad_campaign'        => $e->adCampaign?->name,
+                'recorded_by'        => $e->recordedBy?->name,
+                'created_at'         => $e->created_at->toDateString(),
+                'has_pending_change' => $pendingIds->contains($e->id),
+            ]);
+
+        return response()->json(['data' => $expenditures]);
     }
 
     public function storeExpenditure(Request $request, Brand $brand): JsonResponse
@@ -131,7 +181,7 @@ class MarketingBillingController extends Controller
 
         $items = PublishedContent::where('brand_id', $brand->id)
             ->whereNull('reviewed_at')
-            ->with(['item:id,title,category', 'publishedBy:id,name'])
+            ->with(['item:id,title,category', 'publishedBy:id,name', 'submission:id,link_url,file_path'])
             ->orderBy('published_at')
             ->get();
 

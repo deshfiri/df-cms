@@ -388,7 +388,9 @@ Route::middleware(['auth'])->group(function () {
 
         // Phase 3: content-charge entry, advertising expenditure, publishing review.
         Route::post('brands/{brand}/content-charge', [MarketingBillingController::class, 'storeContentCharge'])->name('content-charge.store');
+        Route::get('brands/{brand}/content-charges', [MarketingBillingController::class, 'contentCharges'])->name('content-charges.index');
         Route::get('brands/{brand}/advertising-budget', [MarketingBillingController::class, 'budget'])->name('advertising-budget');
+        Route::get('brands/{brand}/expenditures', [MarketingBillingController::class, 'expenditureHistory'])->name('expenditures.index');
         Route::post('brands/{brand}/expenditures', [MarketingBillingController::class, 'storeExpenditure'])->name('expenditures.store');
         Route::put('brands/{brand}/expenditures/{expenditure}', [MarketingBillingController::class, 'requestExpenditureUpdate'])->name('expenditures.update');
         Route::delete('brands/{brand}/expenditures/{expenditure}', [MarketingBillingController::class, 'requestExpenditureDelete'])->name('expenditures.destroy');
