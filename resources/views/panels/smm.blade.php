@@ -96,7 +96,7 @@
 @push('scripts')
 <script>
 const catLabel = { raw_content: 'Raw content', advertising_content: 'Advertising content', poster: 'Poster' };
-const esc = s => $('<div>').text(s == null ? '' : s).html();
+const escSmm = s => $('<div>').text(s == null ? '' : s).html();
 const panes = { available: '#paneAvailable', collected: '#paneCollected', published: '#panePublished' };
 
 $('.smm-tabs .nav-link').on('click', function () {
@@ -112,12 +112,12 @@ $('.smm-tabs .nav-link').on('click', function () {
 
 function submissionLink(sub, brandId, itemId) {
     if (!sub) return '—';
-    if (sub.link_url) return '<a href="' + esc(sub.link_url) + '" target="_blank" rel="noopener">Link</a>';
+    if (sub.link_url) return '<a href="' + escSmm(sub.link_url) + '" target="_blank" rel="noopener">Link</a>';
     if (!sub.file_path) return '—';
 
     const url = '/marketing/brands/' + brandId + '/content-items/' + itemId + '/submissions/' + sub.id + '/download';
 
-    return '<a href="' + esc(url) + '">Download file</a>';
+    return '<a href="' + escSmm(url) + '">Download file</a>';
 }
 
 function loadAvailable() {
@@ -125,14 +125,14 @@ function loadAvailable() {
         const rows = r.data || [];
         if (!rows.length) { $('#availRows').html('<tr><td colspan="6" class="smm-empty">Nothing waiting to be collected.</td></tr>'); return; }
         $('#availRows').html(rows.map(it => '<tr>'
-            + '<td>' + esc(it.brand) + '</td>'
-            + '<td>' + (it.product ? esc(it.product) : '<span style="color:var(--text3)">—</span>') + '</td>'
+            + '<td>' + escSmm(it.brand) + '</td>'
+            + '<td>' + (it.product ? escSmm(it.product) : '<span style="color:var(--text3)">—</span>') + '</td>'
             + '<td>' + catLabel[it.category] + '</td>'
-            + '<td><span class="smm-title">' + esc(it.title) + '</span></td>'
+            + '<td><span class="smm-title">' + escSmm(it.title) + '</span></td>'
             + '<td>' + submissionLink(it.submission, it.brand_id, it.id) + '</td>'
             + '<td class="text-end">'
             + '<button class="btn btn-sm btn-primary smm-collect-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '"><i class="bi bi-hand-index"></i> Collect</button>'
-            + '<button class="btn btn-sm btn-outline-danger smm-revision-btn" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + esc(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>'
+            + '<button class="btn btn-sm btn-outline-danger smm-revision-btn" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + escSmm(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>'
             + '</td></tr>').join(''));
     });
 }
@@ -144,14 +144,14 @@ function loadCollected() {
         $('#collRows').html(rows.map(function (it) {
             const c = it.collection;
             return '<tr>'
-                + '<td>' + esc(it.brand) + '</td>'
-                + '<td>' + (it.product ? esc(it.product) : '<span style="color:var(--text3)">—</span>') + '</td>'
-                + '<td><span class="smm-title">' + esc(it.title) + '</span></td>'
-                + '<td>' + (c?.collected_by?.name ? esc(c.collected_by.name) : '—') + '</td>'
-                + '<td>' + (c?.collected_at ? esc(c.collected_at) : '—') + '</td>'
+                + '<td>' + escSmm(it.brand) + '</td>'
+                + '<td>' + (it.product ? escSmm(it.product) : '<span style="color:var(--text3)">—</span>') + '</td>'
+                + '<td><span class="smm-title">' + escSmm(it.title) + '</span></td>'
+                + '<td>' + (c?.collected_by?.name ? escSmm(c.collected_by.name) : '—') + '</td>'
+                + '<td>' + (c?.collected_at ? escSmm(c.collected_at) : '—') + '</td>'
                 + '<td class="text-end">'
-                + '<button class="btn btn-sm btn-primary smm-publish-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-submission="' + (c?.submission?.id || '') + '" data-title="' + esc(it.title) + '"><i class="bi bi-send"></i> Publish</button>'
-                + '<button class="btn btn-sm btn-outline-danger smm-revision-btn" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + esc(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>'
+                + '<button class="btn btn-sm btn-primary smm-publish-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-submission="' + (c?.submission?.id || '') + '" data-title="' + escSmm(it.title) + '"><i class="bi bi-send"></i> Publish</button>'
+                + '<button class="btn btn-sm btn-outline-danger smm-revision-btn" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + escSmm(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>'
                 + '</td></tr>';
         }).join(''));
     });
@@ -162,11 +162,11 @@ function loadPublished() {
         const rows = r.data || [];
         if (!rows.length) { $('#pubRows').html('<tr><td colspan="6" class="smm-empty">Nothing published yet.</td></tr>'); return; }
         $('#pubRows').html(rows.map(p => '<tr>'
-            + '<td>' + esc(p.brand) + '</td>'
-            + '<td><span class="smm-title">' + esc(p.title) + '</span></td>'
-            + '<td><a href="' + esc(p.facebook_post_url) + '" target="_blank" rel="noopener">' + esc(p.facebook_post_url) + '</a></td>'
-            + '<td>' + esc(p.published_by) + '</td>'
-            + '<td>' + esc(p.published_at) + '</td>'
+            + '<td>' + escSmm(p.brand) + '</td>'
+            + '<td><span class="smm-title">' + escSmm(p.title) + '</span></td>'
+            + '<td><a href="' + escSmm(p.facebook_post_url) + '" target="_blank" rel="noopener">' + escSmm(p.facebook_post_url) + '</a></td>'
+            + '<td>' + escSmm(p.published_by) + '</td>'
+            + '<td>' + escSmm(p.published_at) + '</td>'
             + '<td>' + (p.is_reviewed
                 ? '<span class="spill spill-completed">Reviewed</span>'
                 : '<span class="spill spill-hold">Awaiting review</span>')

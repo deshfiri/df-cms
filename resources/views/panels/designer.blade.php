@@ -118,7 +118,7 @@ const statusLabel = {
     pending: 'Pending', in_progress: 'In progress', available: 'Submitted',
     collected: 'Collected by SMM', published: 'Published', needs_revision: 'Needs revision',
 };
-const esc = s => $('<div>').text(s == null ? '' : s).html();
+const escDesigner = s => $('<div>').text(s == null ? '' : s).html();
 
 function loadItems() {
     $.get('{{ route('panels.designer') }}', {
@@ -129,16 +129,16 @@ function loadItems() {
         $('#dsRows').html(rows.map(function (it) {
             const sub = it.submission;
             const subDownloadUrl = '/marketing/brands/' + it.brand_id + '/content-items/' + it.id + '/submissions/' + (sub ? sub.id : '') + '/download';
-            const subText = sub ? (sub.link_url ? '<a href="' + esc(sub.link_url) + '" target="_blank" rel="noopener">Link</a>' : (sub.file_path ? '<a href="' + esc(subDownloadUrl) + '">Download file</a>' : '—')) : '—';
+            const subText = sub ? (sub.link_url ? '<a href="' + escDesigner(sub.link_url) + '" target="_blank" rel="noopener">Link</a>' : (sub.file_path ? '<a href="' + escDesigner(subDownloadUrl) + '">Download file</a>' : '—')) : '—';
             const canSubmit = ['pending', 'in_progress', 'needs_revision'].includes(it.status);
             return '<tr>'
-                + '<td>' + esc(it.brand) + '</td>'
-                + '<td>' + (it.product ? esc(it.product) : '<span style="color:var(--text3)">—</span>') + '</td>'
-                + '<td><span class="ds-title">' + esc(it.title) + '</span></td>'
+                + '<td>' + escDesigner(it.brand) + '</td>'
+                + '<td>' + (it.product ? escDesigner(it.product) : '<span style="color:var(--text3)">—</span>') + '</td>'
+                + '<td><span class="ds-title">' + escDesigner(it.title) + '</span></td>'
                 + '<td><span class="spill ' + (statusSpill[it.status] || 'spill-hold') + '">' + statusLabel[it.status] + '</span></td>'
                 + '<td>' + subText + '</td>'
                 + '<td class="text-end">' + (canSubmit
-                    ? '<button class="btn btn-sm btn-primary ds-submit-btn" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + esc(it.title) + '"><i class="bi bi-upload"></i> Submit</button>'
+                    ? '<button class="btn btn-sm btn-primary ds-submit-btn" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + escDesigner(it.title) + '"><i class="bi bi-upload"></i> Submit</button>'
                     : '<span style="color:var(--text3);font-size:.72rem">—</span>')
                 + '</td></tr>';
         }).join(''));
@@ -150,7 +150,7 @@ function loadProducts(brandId, $select) {
     if (!brandId) return;
     $.get('/marketing/brands/' + brandId + '/products').done(function (r) {
         (r.data || []).filter(p => p.is_active).forEach(function (p) {
-            $select.append('<option value="' + p.id + '">' + esc(p.name) + '</option>');
+            $select.append('<option value="' + p.id + '">' + escDesigner(p.name) + '</option>');
         });
     });
 }
