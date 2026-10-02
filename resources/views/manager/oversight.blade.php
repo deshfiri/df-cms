@@ -130,6 +130,47 @@
         </table>
     </div>
 </div>
+
+{{-- Unreviewed Published Content — read-only, across every brand; the actual
+     review/revision actions reuse the existing Marketing routes directly. --}}
+<div class="ov-card mt-4">
+    <div class="p-3" style="border-bottom:1px solid var(--border)">
+        <strong><i class="bi bi-eye me-1"></i>Unreviewed Published Content</strong>
+    </div>
+    <div class="table-responsive">
+        <table class="table mb-0 align-middle">
+            <thead>
+                <tr class="small" style="color:var(--text3)">
+                    <th>Brand</th>
+                    <th>Title</th>
+                    <th>Category</th>
+                    <th>Published</th>
+                    <th>Published by</th>
+                    <th class="text-end"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($unreviewed as $published)
+                    <tr>
+                        <td>{{ $published->item?->brand?->name ?? '—' }}</td>
+                        <td>{{ $published->item?->title ?? '—' }}</td>
+                        <td class="small" style="color:var(--text3)">{{ $published->item?->category ?? '—' }}</td>
+                        <td class="small">{{ $published->published_at?->format('d M Y, h:i A') }}</td>
+                        <td class="small" style="color:var(--text3)">{{ $published->publishedBy?->name ?? '—' }}</td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-danger ov-revision-btn"
+                                data-brand="{{ $published->item?->brand_id }}"
+                                data-item="{{ $published->content_item_id }}"
+                                data-title="{{ $published->item?->title }}">Request revision</button>
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="6" class="text-center py-4" style="color:var(--text3)">Nothing waiting on review.</td></tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
+</div>
 @endsection
 
 @push('scripts')
@@ -178,6 +219,33 @@ $(document).on('click', '.ov-clear-hold', function () {
                 Swal.fire('Could not clear', (x.responseJSON && x.responseJSON.message) || 'Please try again.', 'error');
             }
         });
+    });
+});
+
+// Reuses the existing marketing.content-items.request-revision endpoint —
+// no new route, no change to its authorization or business rules.
+$(document).on('click', '.ov-revision-btn', function () {
+    const brand = $(this).data('brand');
+    const item = $(this).data('item');
+    const title = $(this).data('title');
+
+    Swal.fire({
+        title: 'Request revision', text: 'Send "' + title + '" back for rework.',
+        input: 'textarea', inputPlaceholder: 'What needs to change? (required)',
+        icon: 'question', showCancelButton: true, confirmButtonText: 'Send back', confirmButtonColor: '#dc3545',
+        inputValidator: (value) => (!value || value.trim().length < 3) && 'A reason is required.',
+    }).then(function (r) {
+        if (!r.isConfirmed) return;
+
+        $.post('/marketing/brands/' + brand + '/content-items/' + item + '/request-revision', { note: r.value })
+            .done(function () {
+                Swal.fire({ icon: 'success', title: 'Sent back for revision', timer: 1400, showConfirmButton: false })
+                    .then(() => location.reload());
+            })
+            .fail(function (x) {
+                const errors = x.responseJSON && x.responseJSON.errors;
+                Swal.fire('Could not send back', errors ? Object.values(errors).flat().join(' ') : (x.responseJSON?.message || 'Please try again.'), 'error');
+            });
     });
 });
 </script>

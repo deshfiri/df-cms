@@ -83,6 +83,7 @@ class PanelController extends Controller
             ->map(fn (PublishedContent $p) => [
                 'id'                => $p->id,
                 'content_item_id'   => $p->content_item_id,
+                'brand_id'          => $p->brand_id,
                 'title'             => $p->item->title,
                 'category'          => $p->item->category,
                 'brand'             => $p->item->brand->name ?? '—',

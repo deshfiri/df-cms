@@ -38,6 +38,7 @@ class ManagerOversightController extends Controller
             'budgets'    => $this->budgetTable(),
             'checklists' => BrandChecklist::with('brand.client')->get(),
             'workload'   => $this->departmentWorkload(),
+            'unreviewed' => $this->unreviewedPublishedContents(),
         ]);
     }
 
@@ -125,5 +126,20 @@ class ManagerOversightController extends Controller
                 'pending_corrections'  => PendingChange::where('model_type', AdvertisingExpenditure::class)->pending()->count(),
             ],
         ];
+    }
+
+    /**
+     * Every unreviewed publish across every brand — same shape
+     * MarketingBillingController::unreviewedPublishedContents() returns,
+     * just global instead of brand-scoped, matching how the rest of this
+     * screen (budgets, checklists) is already cross-brand. Read-only; the
+     * actual review/revision actions reuse the existing Marketing routes.
+     */
+    private function unreviewedPublishedContents(): \Illuminate\Support\Collection
+    {
+        return PublishedContent::whereNull('reviewed_at')
+            ->with(['item:id,title,category,brand_id', 'item.brand:id,name', 'publishedBy:id,name'])
+            ->orderBy('published_at')
+            ->get();
     }
 }

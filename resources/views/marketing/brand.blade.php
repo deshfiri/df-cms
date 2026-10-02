@@ -335,6 +335,26 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="mkRevisionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2 px-3">
+                <h6 class="modal-title fw-bold" id="mkRevisionTitle">Request revision</h6>
+                <button class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body px-3 py-3">
+                <input type="hidden" id="mkRevisionBrand"><input type="hidden" id="mkRevisionItem">
+                <label class="form-label small mb-1">Reason <span class="text-danger">*</span></label>
+                <textarea id="mkRevisionNote" class="form-control form-control-sm" rows="3" placeholder="What needs to change?"></textarea>
+            </div>
+            <div class="modal-footer py-2 px-3">
+                <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-sm btn-danger" id="mkRevisionSave"><i class="bi bi-arrow-counterclockwise me-1"></i>Send back</button>
+            </div>
+        </div>
+    </div>
+</div>
 @endcan
 
 {{-- Resource selection --}}
@@ -887,15 +907,17 @@ if ($('#mkReviewRows').length) {
             const rows = r.data || [];
             $('#mkReviewRows').html(rows.length ? rows.map(function (p) {
                 const version = p.submission ? (p.submission.link_url ? '<a href="' + reviewEsc(p.submission.link_url) + '" target="_blank" rel="noopener">Link</a>' : (p.submission.file_path ? 'File' : '—')) : '—';
-                return '<tr data-id="' + p.id + '">'
+                return '<tr data-id="' + p.id + '" data-item="' + p.content_item_id + '" data-title="' + reviewEsc(p.item ? p.item.title : '') + '">'
                     + '<td>' + reviewEsc(p.item ? p.item.title : '—') + '</td>'
                     + '<td>' + reviewEsc(p.item ? p.item.category : '—') + '</td>'
                     + '<td>' + version + '</td>'
                     + '<td>' + (p.published_at ? new Date(p.published_at).toLocaleString() : '—') + '</td>'
                     + '<td><a href="' + reviewEsc(p.facebook_post_url) + '" target="_blank" rel="noopener">' + reviewEsc(p.facebook_post_url) + '</a></td>'
                     + '<td>' + reviewEsc(p.published_by ? p.published_by.name : '—') + '</td>'
-                    + '<td class="text-end"><button class="btn btn-sm btn-primary mk-review-btn">Mark reviewed</button></td>'
-                    + '</tr>';
+                    + '<td class="text-end">'
+                    + '<button class="btn btn-sm btn-primary mk-review-btn me-1">Mark reviewed</button>'
+                    + '<button class="btn btn-sm btn-outline-danger mk-revision-btn">Request revision</button>'
+                    + '</td></tr>';
             }).join('') : '<tr><td colspan="7" class="text-center py-3" style="color:var(--text3)">Nothing waiting on review.</td></tr>');
         }).fail(function () {
             $('#mkReviewRows').html('<tr><td colspan="7" class="text-center py-3" style="color:var(--text3)">Could not load publishing review.</td></tr>');
@@ -919,6 +941,37 @@ if ($('#mkReviewRows').length) {
                 });
             })
             .fail(x => { Swal.fire('Could not mark reviewed', x.responseJSON?.message || 'Please try again.', 'error'); $btn.prop('disabled', false); });
+    });
+
+    // Reuses the existing marketing.content-items.request-revision route —
+    // no new endpoint, no change to its authorization or business rules.
+    // Never touches this published-content row itself: only the ContentItem
+    // moves to needs_revision; reviewed_at/reviewed_by, facebook_post_url
+    // and every prior submission/collection stay exactly as they are.
+    $('#mkReviewRows').on('click', '.mk-revision-btn', function () {
+        const $row = $(this).closest('tr');
+        $('#mkRevisionBrand').val(BRAND_ID);
+        $('#mkRevisionItem').val($row.data('item'));
+        $('#mkRevisionTitle').text('Request revision — ' + $row.data('title'));
+        $('#mkRevisionNote').val('');
+        bootstrap.Modal.getOrCreateInstance('#mkRevisionModal').show();
+    });
+
+    $('#mkRevisionSave').on('click', function () {
+        const note = $('#mkRevisionNote').val().trim();
+        if (note.length < 3) { Swal.fire('Reason required', 'Say what needs to change before sending it back.', 'warning'); return; }
+
+        const $btn = $(this).prop('disabled', true);
+        $.post('/marketing/brands/' + $('#mkRevisionBrand').val() + '/content-items/' + $('#mkRevisionItem').val() + '/request-revision', {
+            note: note,
+        }).done(function () {
+            bootstrap.Modal.getInstance('#mkRevisionModal').hide();
+            Swal.fire({ icon: 'success', title: 'Sent back for revision', timer: 1500, showConfirmButton: false });
+            loadReview();
+        }).fail(function (x) {
+            const errors = x.responseJSON && x.responseJSON.errors;
+            Swal.fire('Could not send back', errors ? Object.values(errors).flat().join(' ') : (x.responseJSON?.message || 'Please try again.'), 'error');
+        }).always(() => $btn.prop('disabled', false));
     });
 
     loadReview();

@@ -49,8 +49,8 @@
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-sm align-middle mb-0" style="font-size:.82rem">
-                <thead><tr><th>Brand</th><th>Title</th><th>Facebook post</th><th>Published by</th><th>Published at</th><th>Review</th></tr></thead>
-                <tbody id="pubRows"><tr><td colspan="6" class="smm-empty">Loading…</td></tr></tbody>
+                <thead><tr><th>Brand</th><th>Title</th><th>Facebook post</th><th>Published by</th><th>Published at</th><th>Review</th><th class="text-end">Actions</th></tr></thead>
+                <tbody id="pubRows"><tr><td colspan="7" class="smm-empty">Loading…</td></tr></tbody>
             </table>
         </div>
     </div>
@@ -81,7 +81,7 @@
             <div class="modal-header py-2"><h6 class="modal-title fw-bold" id="smmRevisionTitle">Send back for revision</h6><button class="btn-close btn-sm" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
                 <input type="hidden" id="smmRevisionBrand"><input type="hidden" id="smmRevisionItem">
-                <label class="form-label small fw-semibold">Note <span style="color:var(--text3);font-weight:400">(optional)</span></label>
+                <label class="form-label small fw-semibold">Reason <span class="text-danger">*</span></label>
                 <textarea id="smmRevisionNote" class="form-control form-control-sm" rows="3" placeholder="What needs to change?"></textarea>
             </div>
             <div class="modal-footer py-2">
@@ -160,7 +160,11 @@ function loadCollected() {
 function loadPublished() {
     $.get('{{ route('panels.smm.published') }}').done(function (r) {
         const rows = r.data || [];
-        if (!rows.length) { $('#pubRows').html('<tr><td colspan="6" class="smm-empty">Nothing published yet.</td></tr>'); return; }
+        if (!rows.length) { $('#pubRows').html('<tr><td colspan="7" class="smm-empty">Nothing published yet.</td></tr>'); return; }
+        // Publication history stays visible here regardless of a later
+        // revision — requesting one only moves the ContentItem back to
+        // needs_revision, it never touches this published row or its
+        // facebook_post_url/published_at/reviewed_at.
         $('#pubRows').html(rows.map(p => '<tr>'
             + '<td>' + escSmm(p.brand) + '</td>'
             + '<td><span class="smm-title">' + escSmm(p.title) + '</span></td>'
@@ -170,7 +174,9 @@ function loadPublished() {
             + '<td>' + (p.is_reviewed
                 ? '<span class="spill spill-completed">Reviewed</span>'
                 : '<span class="spill spill-hold">Awaiting review</span>')
-            + '</td></tr>').join(''));
+            + '</td>'
+            + '<td class="text-end"><button class="btn btn-sm btn-outline-danger smm-revision-btn" data-id="' + p.content_item_id + '" data-brand="' + p.brand_id + '" data-title="' + escSmm(p.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button></td>'
+            + '</tr>').join(''));
     });
 }
 
@@ -193,13 +199,22 @@ $(document).on('click', '.smm-revision-btn', function () {
 });
 
 $('#smmRevisionSave').on('click', function () {
+    const note = $('#smmRevisionNote').val().trim();
+    if (note.length < 3) { Swal.fire('Reason required', 'Say what needs to change before sending it back.', 'warning'); return; }
+
     const $btn = $(this).prop('disabled', true);
     $.post('/marketing/brands/' + $('#smmRevisionBrand').val() + '/content-items/' + $('#smmRevisionItem').val() + '/request-revision', {
-        note: $('#smmRevisionNote').val().trim(), _token: $('meta[name=csrf-token]').attr('content'),
+        note: note, _token: $('meta[name=csrf-token]').attr('content'),
     }).done(function () {
         bootstrap.Modal.getInstance('#smmRevisionModal').hide();
         Swal.fire({ icon: 'success', title: 'Sent back', timer: 1200, showConfirmButton: false });
+        // Available/Collected refresh unconditionally; Published is only
+        // populated once its tab has been opened at least once (loadAvailable()
+        // runs on page load, loadPublished() does not) — refreshing it here
+        // when it's already loaded keeps a revision requested from Published
+        // reflected without forcing a tab switch.
         loadAvailable(); loadCollected();
+        if ($('#panePublished').is(':visible')) loadPublished();
     }).fail(x => Swal.fire('Error', x.responseJSON?.message || Object.values(x.responseJSON?.errors || {}).flat().join(' ') || 'Could not send back.', 'error'))
       .always(() => $btn.prop('disabled', false));
 });
