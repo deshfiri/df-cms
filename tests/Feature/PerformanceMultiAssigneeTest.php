@@ -14,9 +14,10 @@ use Tests\TestCase;
  * The performance engine's other side of true shared ownership: a task with
  * several current assignees is not scored as if it belonged to just one of
  * them — each gets their own share of task credit, independently, not a
- * pool split evenly by headcount. Also guards against a task earning credit
- * twice for the same work: Output Volume has no task scope precisely
- * because Task Completion already scores every task an assignee is given.
+ * pool split evenly by headcount. Also confirms Output Volume's
+ * task_workload scope (PerformanceCalculationService::outputVolume()) keeps
+ * that same "each current assignee independently gets their own full
+ * share" rule rather than pooling or doubling credit for a shared task.
  */
 class PerformanceMultiAssigneeTest extends TestCase
 {
@@ -88,14 +89,14 @@ class PerformanceMultiAssigneeTest extends TestCase
     }
 
     /**
-     * Output Volume has no task scope (Task Completion already scores every
-     * task an assignee is given — see PerformanceCalculationService::
-     * outputVolume()), so a shared task earning both assignees a perfect
-     * Task Completion rate must not also hand them a matching Output
-     * Volume score off the same tasks — that was the exact double-count a
-     * multi-assignee task made easy to fall into.
+     * A shared task's workload credit for Output Volume's task_workload
+     * scope follows the exact same per-assignee share Task Completion
+     * already uses (see TaskWorkloadPerformanceTest for the scope's own
+     * dedicated coverage) — each current assignee independently earns their
+     * own full share of the one shared task, not half each and not a
+     * doubled, pooled credit for the pair.
      */
-    public function test_a_shared_completed_task_does_not_also_score_output_volume(): void
+    public function test_a_shared_completed_task_credits_each_assignees_own_share_of_task_workload(): void
     {
         $anika  = User::factory()->create(['is_active' => true]);
         $bashir = User::factory()->create(['is_active' => true]);
@@ -104,7 +105,16 @@ class PerformanceMultiAssigneeTest extends TestCase
         $this->assertSame(100.0, $this->score()->taskCompletion($anika, self::PERIOD)['completion_pct']);
         $this->assertSame(100.0, $this->score()->taskCompletion($bashir, self::PERIOD)['completion_pct']);
 
-        $this->assertNull($this->score()->outputVolume($anika, self::PERIOD));
-        $this->assertNull($this->score()->outputVolume($bashir, self::PERIOD));
+        $anikaVolume  = $this->score()->outputVolume($anika, self::PERIOD);
+        $bashirVolume = $this->score()->outputVolume($bashir, self::PERIOD);
+
+        // Neither is pooled or doubled — each independently credits exactly
+        // the one shared task's full workload credit, same as Task
+        // Completion does, and (with only the two of them) each is the
+        // other's cohort max, so both land on 100%.
+        $this->assertEqualsWithDelta(1.0, $anikaVolume['scopes']['task_workload']['mine'], 0.01);
+        $this->assertEqualsWithDelta(1.0, $bashirVolume['scopes']['task_workload']['mine'], 0.01);
+        $this->assertSame(100.0, $anikaVolume['scopes']['task_workload']['pct']);
+        $this->assertSame(100.0, $bashirVolume['scopes']['task_workload']['pct']);
     }
 }
