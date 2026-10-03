@@ -55,4 +55,21 @@ class ClientRepositoryDfidNumberTest extends TestCase
     {
         $this->assertSame('DF25001', $this->repo()->nextDfidNumber());
     }
+
+    public function test_a_legacy_dfp_record_does_not_shadow_a_numerically_larger_df_record(): void
+    {
+        // SQL MAX() compares dfid_number as a string, and 'P' sorts after
+        // any digit — so a smaller legacy "DFP#####" value would otherwise
+        // outrank a larger "DF9######" one. The real max must win numerically.
+        Client::create([
+            'dfid_number' => 'DFP25154', 'client_name' => 'Legacy Client', 'brand_name' => 'Brand',
+            'category_id' => $this->category()->id,
+        ]);
+        Client::create([
+            'dfid_number' => 'DF925154', 'client_name' => 'Latest Client', 'brand_name' => 'Brand',
+            'category_id' => $this->category()->id,
+        ]);
+
+        $this->assertSame('DF925155', $this->repo()->nextDfidNumber());
+    }
 }

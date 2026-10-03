@@ -89,10 +89,16 @@ class ClientRepository implements ClientRepositoryInterface
 
     public function nextDfidNumber(): string
     {
-        $last  = Client::withTrashed()->max('dfid_number');
-        $parts = preg_match('/(\d+)$/', $last ?? 'DF25000', $m) ? (int) $m[1] : 25000;
+        // SQL MAX() on dfid_number compares the column as a string, so a
+        // legacy "DFP#####" record always outranks a larger "DF9######" one
+        // ('P' sorts after any digit) — the trailing number is extracted and
+        // compared numerically in PHP instead, across every prefix style.
+        $max = Client::withTrashed()
+            ->pluck('dfid_number')
+            ->map(fn ($dfid) => preg_match('/(\d+)$/', (string) $dfid, $m) ? (int) $m[1] : 0)
+            ->max();
 
-        return 'DF' . ($parts + 1);
+        return 'DF' . (($max ?: 25000) + 1);
     }
 
     private function applyFilters(Builder $query, array $filters): Builder
