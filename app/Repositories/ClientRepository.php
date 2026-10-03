@@ -90,9 +90,9 @@ class ClientRepository implements ClientRepositoryInterface
     public function nextDfidNumber(): string
     {
         $last  = Client::withTrashed()->max('dfid_number');
-        $parts = preg_match('/(\d+)$/', $last ?? 'DFP25000', $m) ? (int) $m[1] : 25000;
+        $parts = preg_match('/(\d+)$/', $last ?? 'DF25000', $m) ? (int) $m[1] : 25000;
 
-        return 'DFP' . ($parts + 1);
+        return 'DF' . ($parts + 1);
     }
 
     private function applyFilters(Builder $query, array $filters): Builder
