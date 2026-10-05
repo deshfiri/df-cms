@@ -134,7 +134,8 @@
                                                 · collected by {{ $version['collection']->collectedBy?->name ?? '—' }} on {{ $version['collection']->collected_at?->format('d M Y, h:i A') }}
                                             @endif
                                             @if($version['publication'])
-                                                · published {{ $version['publication']->published_at?->format('d M Y, h:i A') }}
+                                                · published by {{ $version['publication']->publishedBy?->name ?? '—' }}
+                                                on {{ $version['publication']->published_at?->format('d M Y, h:i A') }}
                                                 @if($version['publication']->facebook_post_url)
                                                     (<a href="{{ $version['publication']->facebook_post_url }}" target="_blank" rel="noopener">post</a>)
                                                 @endif

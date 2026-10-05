@@ -11,6 +11,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentCategory;
 use App\Models\User;
+use App\Services\BrandChecklistProjectionService;
 use App\Services\ContentItemService;
 use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -282,6 +283,101 @@ class BrandChecklistProjectionTest extends TestCase
         $this->assertNotEquals($v1['publication']->id, $v2['publication']->id);
         $this->assertSame($submission1->id, $v1['submission']->id);
         $this->assertSame($submission2->id, $v2['submission']->id);
+    }
+
+    // ── Published By — each version's history shows ITS OWN publisher ──────
+
+    public function test_published_by_shows_the_actual_publisher_and_v1_v2_differ(): void
+    {
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $smmOne = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
+        $smmTwo = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'poster', 'title' => 'Two Publishers'], $content);
+        $submission1 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->service()->collect($item->fresh(), $smmOne);
+        $this->service()->publish($item->fresh(), $brand, $submission1->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smmOne);
+
+        $this->actingAs($marketing)->postJson(
+            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
+        )->assertOk();
+
+        $this->travel(1)->seconds();
+        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
+        $submission2 = ContentItemSubmission::where('content_item_id', $item->id)->where('id', '!=', $submission1->id)->first();
+        $this->travel(1)->seconds();
+        $this->service()->collect($item->fresh(), $smmTwo);
+        $this->travel(1)->seconds();
+        $this->service()->publish($item->fresh(), $brand, $submission2->fresh(), ['facebook_post_url' => 'https://facebook.com/v2'], $smmTwo);
+
+        $page = $this->actingAs($manager)->get(route('marketing.checklist', $brand));
+        $page->assertOk();
+        // Default (escaping) assertSee — a generated name can contain an
+        // apostrophe, which Blade's {{ }} output escapes.
+        $page->assertSee('published by '.$smmOne->name);
+        $page->assertSee('published by '.$smmTwo->name);
+
+        $row = $page->viewData('categories')['poster']->firstWhere(fn ($r) => $r['item']->id === $item->id);
+        $v1 = $row['history'][0];
+        $v2 = $row['history'][1];
+
+        // Each version's publisher comes from THAT version's own publication
+        // row — never the item's latest, never the collector or reviewer.
+        $this->assertSame($smmOne->id, $v1['publication']->publishedBy->id);
+        $this->assertSame($smmTwo->id, $v2['publication']->publishedBy->id);
+        $this->assertNotSame($v1['publication']->publishedBy->id, $v2['publication']->publishedBy->id);
+
+        // Everything else already on the row stays intact alongside the new field.
+        $this->assertSame($smmOne->id, $v1['collection']->collectedBy->id);
+        $this->assertSame($content->id, $v1['submission']->submittedBy->id);
+        $this->assertNotNull($v1['publication']->published_at);
+        $this->assertSame('https://facebook.com/v1', $v1['publication']->facebook_post_url);
+        $this->assertSame('revision_requested', $v1['review_state']);
+    }
+
+    // ── Published By — a missing/deleted publisher never crashes the page ──
+
+    public function test_missing_publisher_does_not_crash_the_checklist(): void
+    {
+        // published_by is actually a required, cascade-on-delete column
+        // (confirmed in the migration), so a row with no publisher at all
+        // can't be produced through normal use or even through
+        // ->update(['published_by' => null]) — SQLite's NOT NULL
+        // constraint refuses it. The requirement is still that the view
+        // must not crash if a publisher relation is ever unavailable, so
+        // this exercises that defensive `?->name ?? '—'` fallback directly
+        // by nulling the already-loaded, in-memory relation only — nothing
+        // is written to the database.
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $brand = $this->readyBrand($manager);
+
+        // Two versions, so the collapsible History section (which only
+        // renders once count() > 1 — the single-version summary line is
+        // untouched by this fix) is actually reached.
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Orphaned Publisher'], $content);
+        $submission1 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->service()->collect($item->fresh(), $smm);
+        $this->service()->publish($item->fresh(), $brand, $submission1->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
+        $this->actingAs($marketing)->postJson(
+            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
+        )->assertOk();
+        $this->travel(1)->seconds();
+        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
+
+        $data = app(BrandChecklistProjectionService::class)->detail($brand->fresh());
+        $row = $data['categories']['raw_content']->firstWhere(fn ($r) => $r['item']->id === $item->id);
+        $this->assertCount(2, $row['history']);
+        $row['history'][0]['publication']->setRelation('publishedBy', null);
+
+        $this->actingAs($manager);
+        $html = view('checklist.show', $data)->render();
+        $this->assertStringContainsString('published by —', $html);
     }
 
     // ── TEST 15 — Old submitted file remains downloadable after V2 exists ──
