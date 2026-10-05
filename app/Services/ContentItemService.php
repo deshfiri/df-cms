@@ -36,16 +36,16 @@ class ContentItemService
         return DB::transaction(function () use ($checklist, $brand, $data, $actor) {
             $item = ContentItem::create([
                 'checklist_id' => $checklist->id,
-                'brand_id'     => $brand->id,
-                'product_id'   => $data['product_id'] ?? null,
-                'category'     => $data['category'],
-                'title'        => $data['title'],
-                'status'       => ContentItem::STATUS_PENDING,
-                'created_by'   => $actor->id,
+                'brand_id' => $brand->id,
+                'product_id' => $data['product_id'] ?? null,
+                'category' => $data['category'],
+                'title' => $data['title'],
+                'status' => ContentItem::STATUS_PENDING,
+                'created_by' => $actor->id,
             ]);
 
             $this->activityLog->log('Content Item', 'Created', $brand->client_id, null, [
-                'brand'    => $brand->name, 'category' => $item->category, 'title' => $item->title,
+                'brand' => $brand->name, 'category' => $item->category, 'title' => $item->title,
             ]);
 
             return $item;
@@ -67,11 +67,11 @@ class ContentItemService
 
         $path = null;
         $disk = null;
-        if (!empty($data['file']) && $data['file'] instanceof UploadedFile) {
-            $storedName = Str::uuid() . '.' . strtolower($data['file']->getClientOriginalExtension());
-            [$path, $disk] = $this->uploads->store($data['file'], 'content-items/' . $item->id, $storedName);
+        if (! empty($data['file']) && $data['file'] instanceof UploadedFile) {
+            $storedName = Str::uuid().'.'.strtolower($data['file']->getClientOriginalExtension());
+            [$path, $disk] = $this->uploads->store($data['file'], 'content-items/'.$item->id, $storedName);
 
-            if (!$path) {
+            if (! $path) {
                 throw ValidationException::withMessages([
                     'file' => 'The file could not be stored. Please try again, or ask an admin to check Settings → Storage & CDN.',
                 ]);
@@ -81,10 +81,10 @@ class ContentItemService
         return DB::transaction(function () use ($item, $data, $actor, $path, $disk) {
             $submission = ContentItemSubmission::create([
                 'content_item_id' => $item->id,
-                'file_path'       => $path,
-                'disk'            => $disk,
-                'link_url'        => $data['link_url'] ?? null,
-                'submitted_by'    => $actor->id,
+                'file_path' => $path,
+                'disk' => $disk,
+                'link_url' => $data['link_url'] ?? null,
+                'submitted_by' => $actor->id,
             ]);
 
             $item->update(['status' => ContentItem::STATUS_AVAILABLE]);
@@ -115,13 +115,25 @@ class ContentItemService
     public function requestRevision(ContentItem $item, array $data, User $actor): ContentItemRevision
     {
         $this->refuseIfOnHold($item);
+
+        // One active revision cycle at a time — a second click (or a second
+        // reviewer) while the item is already needs_revision must not pile
+        // up a duplicate ContentItemRevision row for work that's already
+        // been sent back once. The Designer's own resubmission is what
+        // clears this, not another revision request.
+        if ($item->status === ContentItem::STATUS_NEEDS_REVISION) {
+            throw ValidationException::withMessages([
+                'content_item' => 'A revision has already been requested for this item — it is already waiting on a resubmission.',
+            ]);
+        }
+
         $submitter = $item->latestSubmission()?->submittedBy;
 
         $revision = DB::transaction(function () use ($item, $data, $actor) {
             $revision = ContentItemRevision::create([
                 'content_item_id' => $item->id,
-                'requested_by'    => $actor->id,
-                'note'            => $data['note'] ?? null,
+                'requested_by' => $actor->id,
+                'note' => $data['note'] ?? null,
                 'previous_status' => $item->status,
             ]);
 
@@ -158,7 +170,7 @@ class ContentItemService
             $item = ContentItem::whereKey($item->id)->lockForUpdate()->firstOrFail();
             $submission = $item->latestSubmission();
 
-            if (!$submission || $item->status !== ContentItem::STATUS_AVAILABLE) {
+            if (! $submission || $item->status !== ContentItem::STATUS_AVAILABLE) {
                 throw ValidationException::withMessages([
                     'item' => 'This item is not available to collect right now.',
                 ]);
@@ -166,9 +178,9 @@ class ContentItemService
 
             $collection = ContentItemCollection::create([
                 'content_item_id' => $item->id,
-                'submission_id'   => $submission->id,
-                'collected_by'    => $actor->id,
-                'collected_at'    => now(),
+                'submission_id' => $submission->id,
+                'collected_by' => $actor->id,
+                'collected_at' => now(),
             ]);
 
             $item->update(['status' => ContentItem::STATUS_COLLECTED]);
@@ -236,19 +248,19 @@ class ContentItemService
             }
 
             $collection = ContentItemCollection::where('submission_id', $submission->id)->latest('id')->first();
-            if (!$collection) {
+            if (! $collection) {
                 throw ValidationException::withMessages([
                     'submission' => 'This version has not been collected yet.',
                 ]);
             }
 
             $published = PublishedContent::create([
-                'content_item_id'   => $item->id,
-                'submission_id'     => $submission->id,
-                'brand_id'          => $item->brand_id,
+                'content_item_id' => $item->id,
+                'submission_id' => $submission->id,
+                'brand_id' => $item->brand_id,
                 'facebook_post_url' => $data['facebook_post_url'],
-                'published_by'      => $actor->id,
-                'published_at'      => now(),
+                'published_by' => $actor->id,
+                'published_at' => now(),
             ]);
 
             $item->update(['status' => ContentItem::STATUS_PUBLISHED]);
@@ -266,7 +278,7 @@ class ContentItemService
     {
         $checklist = $brand->checklist;
 
-        if (!$checklist) {
+        if (! $checklist) {
             throw ValidationException::withMessages([
                 'brand' => "{$brand->name} doesn't have an active checklist yet — its advertising-budget payment and content-charge invoice have to be recorded first.",
             ]);

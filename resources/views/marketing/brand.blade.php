@@ -940,7 +940,11 @@ if ($('#mkReviewRows').length) {
                     }
                 });
             })
-            .fail(x => { Swal.fire('Could not mark reviewed', x.responseJSON?.message || 'Please try again.', 'error'); $btn.prop('disabled', false); });
+            .fail(x => {
+                const errors = x.responseJSON && x.responseJSON.errors;
+                Swal.fire('Could not mark reviewed', errors ? Object.values(errors).flat().join(' ') : (x.responseJSON?.message || 'Please try again.'), 'error');
+                $btn.prop('disabled', false);
+            });
     });
 
     // Reuses the existing marketing.content-items.request-revision route —

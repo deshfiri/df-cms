@@ -2,15 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AdvertisingExpenditure;
 use App\Models\Brand;
 use App\Models\BrandChecklist;
 use App\Models\ContentItem;
 use App\Models\PendingChange;
 use App\Models\PublishedContent;
-use App\Models\AdvertisingExpenditure;
 use App\Services\BrandChecklistHoldService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 
@@ -34,11 +35,15 @@ class ManagerOversightController extends Controller
 
     public function index(): View
     {
+        // Computed once and shared — the workload tile's count must never
+        // disagree with the list it's summarizing.
+        $unreviewed = $this->unreviewedPublishedContents();
+
         return view('manager.oversight', [
-            'budgets'    => $this->budgetTable(),
+            'budgets' => $this->budgetTable(),
             'checklists' => BrandChecklist::with('brand.client')->get(),
-            'workload'   => $this->departmentWorkload(),
-            'unreviewed' => $this->unreviewedPublishedContents(),
+            'workload' => $this->departmentWorkload($unreviewed->count()),
+            'unreviewed' => $unreviewed,
         ]);
     }
 
@@ -63,7 +68,7 @@ class ManagerOversightController extends Controller
      * advertisingBudget()+advertisingSpent() internally, which would mean
      * 8 queries per brand instead of 2 if called directly in this loop.
      */
-    private function budgetTable(): \Illuminate\Support\Collection
+    private function budgetTable(): Collection
     {
         return Cache::remember('dash.manager_brand_budgets', 600, function () {
             return Brand::with('client:id,client_name')
@@ -75,12 +80,12 @@ class ManagerOversightController extends Controller
                     $isOverspent = $remaining < 0;
 
                     return [
-                        'brand'             => $brand,
-                        'budget'            => $budget,
-                        'spent'             => $spent,
-                        'remaining'         => $remaining,
-                        'is_overspent'      => $isOverspent,
-                        'overspent_amount'  => $isOverspent ? round(abs($remaining), 2) : 0.0,
+                        'brand' => $brand,
+                        'budget' => $budget,
+                        'spent' => $spent,
+                        'remaining' => $remaining,
+                        'is_overspent' => $isOverspent,
+                        'overspent_amount' => $isOverspent ? round(abs($remaining), 2) : 0.0,
                     ];
                 })
                 ->filter(fn ($row) => $row['budget'] > 0 || $row['spent'] > 0)
@@ -93,7 +98,7 @@ class ManagerOversightController extends Controller
      * not a historical activity log (ActivityLog has no brand_id to filter
      * by, and this is meant to answer "what's piling up", not "what happened").
      */
-    private function departmentWorkload(): array
+    private function departmentWorkload(int $unreviewedPublishes): array
     {
         $byCategoryStatus = ContentItem::query()
             ->selectRaw('category, status, count(*) as total')
@@ -119,11 +124,14 @@ class ManagerOversightController extends Controller
             ],
             'smm' => [
                 'available' => $withStatus(ContentItem::$categories, ContentItem::STATUS_AVAILABLE),
-                'collected'  => $withStatus(ContentItem::$categories, ContentItem::STATUS_COLLECTED),
+                'collected' => $withStatus(ContentItem::$categories, ContentItem::STATUS_COLLECTED),
             ],
             'marketing' => [
-                'unreviewed_publishes' => PublishedContent::whereNull('reviewed_at')->count(),
-                'pending_corrections'  => PendingChange::where('model_type', AdvertisingExpenditure::class)->pending()->count(),
+                // Passed in from index() — the same computed list the
+                // "Unreviewed Published Content" table below renders, so
+                // this count never disagrees with what that table shows.
+                'unreviewed_publishes' => $unreviewedPublishes,
+                'pending_corrections' => PendingChange::where('model_type', AdvertisingExpenditure::class)->pending()->count(),
             ],
         ];
     }
@@ -135,11 +143,19 @@ class ManagerOversightController extends Controller
      * screen (budgets, checklists) is already cross-brand. Read-only; the
      * actual review/revision actions reuse the existing Marketing routes.
      */
-    private function unreviewedPublishedContents(): \Illuminate\Support\Collection
+    private function unreviewedPublishedContents(): Collection
     {
-        return PublishedContent::whereNull('reviewed_at')
+        $items = PublishedContent::whereNull('reviewed_at')
             ->with(['item:id,title,category,brand_id', 'item.brand:id,name', 'publishedBy:id,name'])
             ->orderBy('published_at')
             ->get();
+
+        // Same exclusion MarketingBillingController::unreviewedPublishedContents()
+        // applies — a publication a revision has since been requested
+        // against is historical, not actionable. See
+        // PublishedContent::annotateReviewStates().
+        return PublishedContent::annotateReviewStates($items)
+            ->reject(fn (PublishedContent $p) => $p->review_state === PublishedContent::REVIEW_STATE_REVISION_REQUESTED)
+            ->values();
     }
 }

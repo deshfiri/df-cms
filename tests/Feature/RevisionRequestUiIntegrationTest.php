@@ -7,7 +7,6 @@ use App\Models\Category;
 use App\Models\Client;
 use App\Models\ContentItem;
 use App\Models\ContentItemCollection;
-use App\Models\ContentItemRevision;
 use App\Models\ContentItemSubmission;
 use App\Models\Invoice;
 use App\Models\Payment;
@@ -61,17 +60,17 @@ class RevisionRequestUiIntegrationTest extends TestCase
 
     private function readyBrand(User $manager): Brand
     {
-        $category = Category::create(['name' => 'Cat ' . uniqid(), 'slug' => 'cat-' . uniqid(), 'status' => true]);
+        $category = Category::create(['name' => 'Cat '.uniqid(), 'slug' => 'cat-'.uniqid(), 'status' => true]);
         $client = Client::create([
-            'dfid_number' => 'DF' . uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
+            'dfid_number' => 'DF'.uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
             'category_id' => $category->id,
         ]);
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
 
         $budget = Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Social Media Ads')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 1000, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 1000, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
         Payment::create([
@@ -83,7 +82,7 @@ class RevisionRequestUiIntegrationTest extends TestCase
         Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Content Production')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 300, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 300, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
 
@@ -94,7 +93,7 @@ class RevisionRequestUiIntegrationTest extends TestCase
     private function publishedItem(Brand $brand, User $content, User $smm, string $category = 'raw_content'): array
     {
         $service = app(ContentItemService::class);
-        $item = $service->create($brand, ['category' => $category, 'title' => 'Item ' . uniqid()], $content);
+        $item = $service->create($brand, ['category' => $category, 'title' => 'Item '.uniqid()], $content);
         $submission = $service->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
         $collection = $service->collect($item->fresh(), $smm);
         $published = $service->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
@@ -281,6 +280,12 @@ class RevisionRequestUiIntegrationTest extends TestCase
             route('marketing.content-items.request-revision', [$brand, $item]),
             ['note' => 'Redo please.']
         )->assertOk();
+
+        // Real lifecycle steps are always seconds-to-minutes apart — travel
+        // forward so PublishedContent::annotateReviewStates()'s review-state
+        // window isn't exercised at the same stored second this revision
+        // was requested in (it compares against published_at, not id order).
+        $this->travel(1)->seconds();
 
         $this->actingAs($content)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
             'link_url' => 'https://example.com/v2.jpg',

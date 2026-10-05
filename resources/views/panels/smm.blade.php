@@ -157,6 +157,12 @@ function loadCollected() {
     });
 }
 
+function reviewBadge(state) {
+    if (state === 'reviewed') return '<span class="spill spill-completed">Reviewed</span>';
+    if (state === 'revision_requested') return '<span class="spill spill-cancelled">Revision requested</span>';
+    return '<span class="spill spill-hold">Awaiting review</span>';
+}
+
 function loadPublished() {
     $.get('{{ route('panels.smm.published') }}').done(function (r) {
         const rows = r.data || [];
@@ -171,11 +177,10 @@ function loadPublished() {
             + '<td><a href="' + escSmm(p.facebook_post_url) + '" target="_blank" rel="noopener">' + escSmm(p.facebook_post_url) + '</a></td>'
             + '<td>' + escSmm(p.published_by) + '</td>'
             + '<td>' + escSmm(p.published_at) + '</td>'
-            + '<td>' + (p.is_reviewed
-                ? '<span class="spill spill-completed">Reviewed</span>'
-                : '<span class="spill spill-hold">Awaiting review</span>')
+            + '<td>' + reviewBadge(p.review_state)
             + '</td>'
-            + '<td class="text-end"><button class="btn btn-sm btn-outline-danger smm-revision-btn" data-id="' + p.content_item_id + '" data-brand="' + p.brand_id + '" data-title="' + escSmm(p.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button></td>'
+            + '<td class="text-end">' + (p.review_state === 'revision_requested' ? '' :
+                '<button class="btn btn-sm btn-outline-danger smm-revision-btn" data-id="' + p.content_item_id + '" data-brand="' + p.brand_id + '" data-title="' + escSmm(p.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>') + '</td>'
             + '</tr>').join(''));
     });
 }

@@ -79,20 +79,26 @@ class PanelController extends Controller
         $published = PublishedContent::with(['item:id,title,category,brand_id', 'item.brand:id,name', 'submission', 'publishedBy:id,name', 'reviewedBy:id,name'])
             ->when($request->filled('brand_id'), fn ($q) => $q->where('brand_id', $request->brand_id))
             ->orderByDesc('published_at')
-            ->get()
+            ->get();
+
+        // Publication history always stays visible here (see the class
+        // docblock) — review_state only changes the badge, never which
+        // rows appear. See PublishedContent::annotateReviewStates().
+        $published = PublishedContent::annotateReviewStates($published)
             ->map(fn (PublishedContent $p) => [
-                'id'                => $p->id,
-                'content_item_id'   => $p->content_item_id,
-                'brand_id'          => $p->brand_id,
-                'title'             => $p->item->title,
-                'category'          => $p->item->category,
-                'brand'             => $p->item->brand->name ?? '—',
+                'id' => $p->id,
+                'content_item_id' => $p->content_item_id,
+                'brand_id' => $p->brand_id,
+                'title' => $p->item->title,
+                'category' => $p->item->category,
+                'brand' => $p->item->brand->name ?? '—',
                 'facebook_post_url' => $p->facebook_post_url,
-                'published_by'      => $p->publishedBy->name ?? '—',
-                'published_at'      => $p->published_at?->format('d M Y, h:i A'),
-                'reviewed_at'       => $p->reviewed_at?->format('d M Y, h:i A'),
-                'reviewed_by'       => $p->reviewedBy->name ?? null,
-                'is_reviewed'       => $p->isReviewed(),
+                'published_by' => $p->publishedBy->name ?? '—',
+                'published_at' => $p->published_at?->format('d M Y, h:i A'),
+                'reviewed_at' => $p->reviewed_at?->format('d M Y, h:i A'),
+                'reviewed_by' => $p->reviewedBy->name ?? null,
+                'is_reviewed' => $p->isReviewed(),
+                'review_state' => $p->review_state,
             ]);
 
         return response()->json(['data' => $published]);
@@ -114,13 +120,13 @@ class PanelController extends Controller
     private function presentItem(ContentItem $item, array $extra = []): array
     {
         return array_merge([
-            'id'         => $item->id,
-            'brand_id'   => $item->brand_id,
-            'brand'      => $item->brand->name ?? '—',
-            'product'    => $item->product->name ?? null,
-            'category'   => $item->category,
-            'title'      => $item->title,
-            'status'     => $item->status,
+            'id' => $item->id,
+            'brand_id' => $item->brand_id,
+            'brand' => $item->brand->name ?? '—',
+            'product' => $item->product->name ?? null,
+            'category' => $item->category,
+            'title' => $item->title,
+            'status' => $item->status,
             'created_at' => $item->created_at?->format('d M Y, h:i A'),
         ], $extra);
     }

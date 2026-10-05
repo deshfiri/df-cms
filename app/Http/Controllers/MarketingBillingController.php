@@ -13,6 +13,7 @@ use App\Services\InvoiceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * The Marketing Panel's own additions (Phase 3): content-charge entry,
@@ -40,16 +41,16 @@ class MarketingBillingController extends Controller
 
         $data = $request->validate([
             'total_payable' => ['required', 'numeric', 'min:0.01', 'max:9999999999'],
-            'title'         => ['nullable', 'string', 'max:200'],
-            'due_date'      => ['nullable', 'date'],
+            'title' => ['nullable', 'string', 'max:200'],
+            'due_date' => ['nullable', 'date'],
         ]);
 
         $invoice = $this->invoices->create($brand->client, [
-            'brand_id'             => $brand->id,
-            'payment_category_id'  => PaymentCategory::where('name', PaymentCategory::NAME_CONTENT_CHARGE)->value('id'),
-            'total_payable'        => $data['total_payable'],
-            'title'                => $data['title'] ?? null,
-            'due_date'             => $data['due_date'] ?? null,
+            'brand_id' => $brand->id,
+            'payment_category_id' => PaymentCategory::where('name', PaymentCategory::NAME_CONTENT_CHARGE)->value('id'),
+            'total_payable' => $data['total_payable'],
+            'title' => $data['title'] ?? null,
+            'due_date' => $data['due_date'] ?? null,
         ], $request->user());
 
         return response()->json(['success' => true, 'data' => $this->invoices->present($invoice->load('category'))]);
@@ -77,15 +78,15 @@ class MarketingBillingController extends Controller
         $checklist = $brand->checklist;
 
         return response()->json([
-            'budget'                  => $brand->advertisingBudget(),
-            'spent'                   => $brand->advertisingSpent(),
-            'remaining'               => $brand->advertisingRemaining(),
-            'is_overspent'            => $brand->isAdvertisingOverspent(),
-            'overspent_amount'        => $brand->advertisingOverspentAmount(),
-            'has_available_budget'    => $brand->hasAvailableAdvertisingBudget(),
+            'budget' => $brand->advertisingBudget(),
+            'spent' => $brand->advertisingSpent(),
+            'remaining' => $brand->advertisingRemaining(),
+            'is_overspent' => $brand->isAdvertisingOverspent(),
+            'overspent_amount' => $brand->advertisingOverspentAmount(),
+            'has_available_budget' => $brand->hasAvailableAdvertisingBudget(),
             // Read-only workflow context (Fix H/I) — never mutated from this endpoint.
-            'checklist_status'        => !$checklist ? 'not_eligible' : ($checklist->isOnHold() ? 'on_hold' : 'active'),
-            'checklist_hold_reason'   => $checklist?->on_hold_reason,
+            'checklist_status' => ! $checklist ? 'not_eligible' : ($checklist->isOnHold() ? 'on_hold' : 'active'),
+            'checklist_hold_reason' => $checklist?->on_hold_reason,
         ]);
     }
 
@@ -105,13 +106,13 @@ class MarketingBillingController extends Controller
             ->latest('reporting_date')
             ->get()
             ->map(fn (AdvertisingExpenditure $e) => [
-                'id'                 => $e->id,
-                'amount'             => (float) $e->amount,
-                'reporting_date'     => $e->reporting_date->toDateString(),
-                'note'               => $e->note,
-                'ad_campaign'        => $e->adCampaign?->name,
-                'recorded_by'        => $e->recordedBy?->name,
-                'created_at'         => $e->created_at->toDateString(),
+                'id' => $e->id,
+                'amount' => (float) $e->amount,
+                'reporting_date' => $e->reporting_date->toDateString(),
+                'note' => $e->note,
+                'ad_campaign' => $e->adCampaign?->name,
+                'recorded_by' => $e->recordedBy?->name,
+                'created_at' => $e->created_at->toDateString(),
                 'has_pending_change' => $pendingIds->contains($e->id),
             ]);
 
@@ -123,11 +124,11 @@ class MarketingBillingController extends Controller
         abort_unless($request->user()->can('manage advertising-expenditure'), 403);
 
         $data = $request->validate([
-            'amount'            => ['required', 'numeric', 'min:0.01', 'max:9999999999'],
-            'reporting_date'    => ['required', 'date'],
-            'ad_campaign_id'    => ['nullable', 'integer', Rule::exists('ad_campaigns', 'id')->where('brand_id', $brand->id)],
-            'note'              => ['nullable', 'string', 'max:1000'],
-            'idempotency_key'   => ['nullable', 'string', 'max:64'],
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:9999999999'],
+            'reporting_date' => ['required', 'date'],
+            'ad_campaign_id' => ['nullable', 'integer', Rule::exists('ad_campaigns', 'id')->where('brand_id', $brand->id)],
+            'note' => ['nullable', 'string', 'max:1000'],
+            'idempotency_key' => ['nullable', 'string', 'max:64'],
             'confirm_duplicate' => ['sometimes', 'boolean'],
         ]);
 
@@ -135,11 +136,11 @@ class MarketingBillingController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => $expenditure,
-            'budget'  => [
-                'budget'       => $brand->advertisingBudget(),
-                'spent'        => $brand->advertisingSpent(),
-                'remaining'    => $brand->advertisingRemaining(),
+            'data' => $expenditure,
+            'budget' => [
+                'budget' => $brand->advertisingBudget(),
+                'spent' => $brand->advertisingSpent(),
+                'remaining' => $brand->advertisingRemaining(),
                 'is_overspent' => $brand->isAdvertisingOverspent(),
             ],
         ]);
@@ -152,10 +153,10 @@ class MarketingBillingController extends Controller
         abort_if((int) $expenditure->brand_id !== (int) $brand->id, 404);
 
         $data = $request->validate([
-            'amount'         => ['sometimes', 'numeric', 'min:0.01', 'max:9999999999'],
+            'amount' => ['sometimes', 'numeric', 'min:0.01', 'max:9999999999'],
             'reporting_date' => ['sometimes', 'date'],
             'ad_campaign_id' => ['sometimes', 'nullable', 'integer', Rule::exists('ad_campaigns', 'id')->where('brand_id', $brand->id)],
-            'note'           => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'note' => ['sometimes', 'nullable', 'string', 'max:1000'],
         ]);
         $reason = $this->reason($request);
 
@@ -185,6 +186,13 @@ class MarketingBillingController extends Controller
             ->orderBy('published_at')
             ->get();
 
+        // A publication a revision has since been requested against isn't
+        // "awaiting review" any more — it's historical. See
+        // PublishedContent::annotateReviewStates().
+        $items = PublishedContent::annotateReviewStates($items)
+            ->reject(fn (PublishedContent $p) => $p->review_state === PublishedContent::REVIEW_STATE_REVISION_REQUESTED)
+            ->values();
+
         return response()->json(['data' => $items]);
     }
 
@@ -198,6 +206,17 @@ class MarketingBillingController extends Controller
     {
         abort_unless($request->user()->can('manage publishing-review'), 403);
         abort_if((int) $publishedContent->brand_id !== (int) $brand->id, 404);
+
+        // A revision already requested against this exact publication means
+        // it's historical, not awaiting review — reviewed_at/reviewed_by
+        // must never be set on it after the fact. See
+        // PublishedContent::annotateReviewStates().
+        $state = PublishedContent::annotateReviewStates(collect([$publishedContent]))->first()->review_state;
+        if ($state === PublishedContent::REVIEW_STATE_REVISION_REQUESTED) {
+            throw ValidationException::withMessages([
+                'published_content' => 'A revision has already been requested for this publication — it can no longer be marked reviewed.',
+            ]);
+        }
 
         $old = ['reviewed_at' => $publishedContent->reviewed_at?->toIso8601String(), 'reviewed_by' => $publishedContent->reviewedBy?->name];
 
@@ -218,24 +237,24 @@ class MarketingBillingController extends Controller
         )['reason'];
     }
 
-    /** @param array{applied:bool, change:\App\Models\PendingChange, expenditure?:AdvertisingExpenditure} $result */
+    /** @param array{applied:bool, change:PendingChange, expenditure?:AdvertisingExpenditure} $result */
     private function changeResponse(array $result, string $appliedMessage): JsonResponse
     {
         if ($result['applied']) {
             return response()->json([
-                'success'     => true,
-                'applied'     => true,
-                'message'     => $appliedMessage,
+                'success' => true,
+                'applied' => true,
+                'message' => $appliedMessage,
                 'expenditure' => $result['expenditure'] ?? null,
-                'change_id'   => $result['change']->id,
+                'change_id' => $result['change']->id,
             ]);
         }
 
         return response()->json([
-            'success'   => true,
-            'applied'   => false,
-            'pending'   => true,
-            'message'   => 'Sent for approval. A Super Admin or Manager has to approve it before it takes effect.',
+            'success' => true,
+            'applied' => false,
+            'pending' => true,
+            'message' => 'Sent for approval. A Super Admin or Manager has to approve it before it takes effect.',
             'change_id' => $result['change']->id,
         ], 202);
     }
