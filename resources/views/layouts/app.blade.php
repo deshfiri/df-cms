@@ -536,7 +536,7 @@
                  under Management. Only genuinely Super Admin-only tools carry the
                  Administration heading below. --}}
             @php $canApproveChanges = auth()->user()->hasAnyRole(['Super Admin', 'Manager']); @endphp
-            @if($canApproveChanges || auth()->user()->canAny(['manage categories', 'manage users']))
+            @if($canApproveChanges || auth()->user()->canAny(['manage categories', 'manage users', 'view brand-checklist-overview']))
                 <div class="sb-section">Management</div>
             @endif
             @can('manage categories')
@@ -560,6 +560,14 @@
                     <i class="bi bi-hourglass-split"></i><span class="sb-lbl">Pending Changes</span>
                 </a>
             @endif
+
+            @can('view brand-checklist-overview')
+                <a href="{{ route('manager.oversight') }}"
+                    class="sb-link {{ request()->routeIs('manager.oversight') ? 'active' : '' }}" title="Manager Oversight"
+                    data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-clipboard2-data"></i><span class="sb-lbl">Manager Oversight</span>
+                </a>
+            @endcan
 
             @role('Super Admin')
             <div class="sb-section">Administration</div>
