@@ -101,11 +101,15 @@
                     <th>Client</th>
                     <th>Status</th>
                     <th>Reason</th>
+                    <th>Raw Content</th>
+                    <th>Advertising Content</th>
+                    <th>Poster</th>
                     <th></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($checklists as $checklist)
+                    @php($counts = $categoryCounts->get($checklist->brand_id, collect()))
                     <tr data-id="{{ $checklist->id }}">
                         <td>{{ $checklist->brand?->name ?? '—' }}</td>
                         <td class="small" style="color:var(--text3)">{{ $checklist->brand?->client?->client_name ?? '—' }}</td>
@@ -117,14 +121,20 @@
                             @endif
                         </td>
                         <td class="small">{{ $checklist->on_hold_reason ?? '—' }}</td>
+                        <td class="small">{{ $counts->get('raw_content', 0) }}</td>
+                        <td class="small">{{ $counts->get('advertising_content', 0) }}</td>
+                        <td class="small">{{ $counts->get('poster', 0) }}</td>
                         <td class="text-end">
+                            @if($checklist->brand)
+                                <a href="{{ route('marketing.checklist', $checklist->brand) }}" class="btn btn-sm btn-outline-secondary">View Content Checklist</a>
+                            @endif
                             @if($checklist->isOnHold())
                                 <button class="btn btn-sm btn-outline-primary ov-clear-hold" data-id="{{ $checklist->id }}">Clear hold</button>
                             @endif
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="5" class="text-center py-4" style="color:var(--text3)">No checklists yet.</td></tr>
+                    <tr><td colspan="8" class="text-center py-4" style="color:var(--text3)">No checklists yet.</td></tr>
                 @endforelse
             </tbody>
         </table>

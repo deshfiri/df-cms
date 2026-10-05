@@ -36,6 +36,7 @@
             {{ $brand->client->client_name ?? '—' }}
             &nbsp;·&nbsp; <a href="{{ route('marketing.index') }}" style="color:var(--primary)">Switch brand</a>
             &nbsp;·&nbsp; <a href="{{ route('marketing.browse', $brand) }}" style="color:var(--primary)">Campaigns, ad sets &amp; ads</a>
+            &nbsp;·&nbsp; <a href="{{ route('marketing.checklist', $brand) }}" style="color:var(--primary)">View Content Checklist</a>
         </small>
     </div>
     <div class="mk-context">

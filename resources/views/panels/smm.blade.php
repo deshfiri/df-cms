@@ -132,7 +132,8 @@ function loadAvailable() {
             + '<td>' + submissionLink(it.submission, it.brand_id, it.id) + '</td>'
             + '<td class="text-end">'
             + '<button class="btn btn-sm btn-primary smm-collect-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '"><i class="bi bi-hand-index"></i> Collect</button>'
-            + '<button class="btn btn-sm btn-outline-danger smm-revision-btn" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + escSmm(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>'
+            + '<button class="btn btn-sm btn-outline-danger smm-revision-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + escSmm(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>'
+            + '<a class="btn btn-sm btn-outline-secondary" href="/marketing/brands/' + it.brand_id + '/checklist" title="View this brand\'s full content checklist"><i class="bi bi-list-check"></i></a>'
             + '</td></tr>').join(''));
     });
 }
@@ -151,7 +152,8 @@ function loadCollected() {
                 + '<td>' + (c?.collected_at ? escSmm(c.collected_at) : '—') + '</td>'
                 + '<td class="text-end">'
                 + '<button class="btn btn-sm btn-primary smm-publish-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-submission="' + (c?.submission?.id || '') + '" data-title="' + escSmm(it.title) + '"><i class="bi bi-send"></i> Publish</button>'
-                + '<button class="btn btn-sm btn-outline-danger smm-revision-btn" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + escSmm(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>'
+                + '<button class="btn btn-sm btn-outline-danger smm-revision-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + escSmm(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>'
+                + '<a class="btn btn-sm btn-outline-secondary" href="/marketing/brands/' + it.brand_id + '/checklist" title="View this brand\'s full content checklist"><i class="bi bi-list-check"></i></a>'
                 + '</td></tr>';
         }).join(''));
     });
@@ -180,7 +182,9 @@ function loadPublished() {
             + '<td>' + reviewBadge(p.review_state)
             + '</td>'
             + '<td class="text-end">' + (p.review_state === 'revision_requested' ? '' :
-                '<button class="btn btn-sm btn-outline-danger smm-revision-btn" data-id="' + p.content_item_id + '" data-brand="' + p.brand_id + '" data-title="' + escSmm(p.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>') + '</td>'
+                '<button class="btn btn-sm btn-outline-danger smm-revision-btn me-1" data-id="' + p.content_item_id + '" data-brand="' + p.brand_id + '" data-title="' + escSmm(p.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>')
+            + '<a class="btn btn-sm btn-outline-secondary" href="/marketing/brands/' + p.brand_id + '/checklist" title="View this brand\'s full content checklist"><i class="bi bi-list-check"></i></a>'
+            + '</td>'
             + '</tr>').join(''));
     });
 }

@@ -3,67 +3,68 @@
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\AdCampaignController;
+use App\Http\Controllers\AlertSoundController;
+use App\Http\Controllers\BrandChecklistController;
 use App\Http\Controllers\BrandController;
+use App\Http\Controllers\BrandIntegrationController;
+use App\Http\Controllers\BugReportController;
+use App\Http\Controllers\CallController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ChatController;
-use App\Http\Controllers\CallController;
-use App\Http\Controllers\FlowController;
-use App\Http\Controllers\FlowItemController;
+use App\Http\Controllers\ChatSettingsController;
 use App\Http\Controllers\ClientActionRequestController;
 use App\Http\Controllers\ClientApprovalRequestController;
+use App\Http\Controllers\ClientController;
 use App\Http\Controllers\ClientCorrectionRequestController;
 use App\Http\Controllers\ClientPortalAccountController;
-use App\Http\Controllers\InvoiceController;
-use App\Http\Controllers\MeetingController;
-use App\Http\Controllers\MyWorkController;
-use App\Http\Controllers\NotificationController;
-use App\Http\Controllers\PaymentProofController;
-use App\Http\Controllers\PerformanceController;
-use App\Http\Controllers\PerformanceConfigController;
 use App\Http\Controllers\ContentItemController;
-use App\Http\Controllers\PanelController;
-use App\Http\Controllers\ProductController;
-use App\Http\Controllers\ProjectUpdateController;
-use App\Http\Controllers\SearchController;
-use App\Http\Controllers\BrandIntegrationController;
-use App\Http\Controllers\GoogleIntegrationController;
-use App\Http\Controllers\MarketingBillingController;
-use App\Http\Controllers\MarketingController;
-use App\Http\Controllers\ManagerOversightController;
-use App\Http\Controllers\LandingController;
-use App\Http\Controllers\ChatSettingsController;
-use App\Http\Controllers\SoundSettingsController;
-use App\Http\Controllers\DocumentTypeController;
-use App\Http\Controllers\ForbiddenWordController;
-use App\Http\Controllers\AlertSoundController;
-use App\Http\Controllers\MetaSettingsController;
-use App\Http\Controllers\StorageSettingsController;
-use App\Http\Controllers\WhatsApp\WhatsAppInboxController;
-use App\Http\Controllers\WhatsApp\WhatsAppSettingsController;
-use App\Http\Controllers\WhatsApp\WhatsAppWebhookController;
-use App\Http\Middleware\VerifyWhatsAppWebhookSignature;
-use App\Http\Controllers\SettingController;
-use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
-use App\Http\Controllers\BugReportController;
+use App\Http\Controllers\DocumentTypeController;
 use App\Http\Controllers\EmployeeRequestController;
 use App\Http\Controllers\ExportController;
 use App\Http\Controllers\FileManagerController;
+use App\Http\Controllers\FlowController;
+use App\Http\Controllers\FlowItemController;
+use App\Http\Controllers\ForbiddenWordController;
+use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\ImportController;
+use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\LandingController;
+use App\Http\Controllers\ManagerOversightController;
+use App\Http\Controllers\MarketingBillingController;
+use App\Http\Controllers\MarketingController;
+use App\Http\Controllers\MeetingController;
+use App\Http\Controllers\MetaSettingsController;
+use App\Http\Controllers\MyWorkController;
 use App\Http\Controllers\NoteController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PanelController;
 use App\Http\Controllers\PaymentCategoryController;
 use App\Http\Controllers\PaymentController;
-use App\Http\Controllers\RefundController;
+use App\Http\Controllers\PaymentProofController;
 use App\Http\Controllers\PendingChangeController;
+use App\Http\Controllers\PerformanceConfigController;
+use App\Http\Controllers\PerformanceController;
 use App\Http\Controllers\PermissionController;
+use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProductUpdateController;
+use App\Http\Controllers\ProjectUpdateController;
+use App\Http\Controllers\RefundController;
 use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\SearchController;
+use App\Http\Controllers\SettingController;
+use App\Http\Controllers\SoundSettingsController;
+use App\Http\Controllers\StorageSettingsController;
 use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\WhatsApp\WhatsAppInboxController;
+use App\Http\Controllers\WhatsApp\WhatsAppSettingsController;
+use App\Http\Controllers\WhatsApp\WhatsAppWebhookController;
 use App\Http\Controllers\WorkflowController;
+use App\Http\Middleware\VerifyWhatsAppWebhookSignature;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -191,23 +192,23 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('notes/{note}', [NoteController::class, 'destroy'])->name('notes.destroy');
 
         // Documents (ClientDocument system)
-        Route::get('documents',                                [DocumentController::class, 'index'])->name('documents.index');
-        Route::post('documents',                               [DocumentController::class, 'store'])->name('documents.store');
-        Route::get('documents/{document}/preview',             [DocumentController::class, 'preview'])->name('documents.preview');
-        Route::get('documents/{document}/download',            [DocumentController::class, 'download'])->name('documents.download');
-        Route::get('documents/{document}/versions',            [DocumentController::class, 'versions'])->name('documents.versions');
-        Route::delete('documents/{document}',                  [DocumentController::class, 'destroy'])->name('documents.destroy');
+        Route::get('documents', [DocumentController::class, 'index'])->name('documents.index');
+        Route::post('documents', [DocumentController::class, 'store'])->name('documents.store');
+        Route::get('documents/{document}/preview', [DocumentController::class, 'preview'])->name('documents.preview');
+        Route::get('documents/{document}/download', [DocumentController::class, 'download'])->name('documents.download');
+        Route::get('documents/{document}/versions', [DocumentController::class, 'versions'])->name('documents.versions');
+        Route::delete('documents/{document}', [DocumentController::class, 'destroy'])->name('documents.destroy');
 
         // Meetings
-        Route::get('meetings',                                 [MeetingController::class, 'index'])->name('meetings.index');
-        Route::post('meetings',                                [MeetingController::class, 'store'])->name('meetings.store');
-        Route::put('meetings/{meeting}',                       [MeetingController::class, 'update'])->name('meetings.update');
-        Route::delete('meetings/{meeting}',                    [MeetingController::class, 'destroy'])->name('meetings.destroy');
-        Route::post('meetings/{meeting}/complete',             [MeetingController::class, 'complete'])->name('meetings.complete');
-        Route::post('meetings/{meeting}/force-complete',       [MeetingController::class, 'forceComplete'])->name('meetings.force-complete');
-        Route::post('meetings/{meeting}/cancel',               [MeetingController::class, 'cancel'])->name('meetings.cancel');
-        Route::post('meetings/{meeting}/no-show',              [MeetingController::class, 'noShow'])->name('meetings.no-show');
-        Route::post('meetings/{meeting}/regenerate-link',      [MeetingController::class, 'regenerateLink'])->name('meetings.regenerate-link');
+        Route::get('meetings', [MeetingController::class, 'index'])->name('meetings.index');
+        Route::post('meetings', [MeetingController::class, 'store'])->name('meetings.store');
+        Route::put('meetings/{meeting}', [MeetingController::class, 'update'])->name('meetings.update');
+        Route::delete('meetings/{meeting}', [MeetingController::class, 'destroy'])->name('meetings.destroy');
+        Route::post('meetings/{meeting}/complete', [MeetingController::class, 'complete'])->name('meetings.complete');
+        Route::post('meetings/{meeting}/force-complete', [MeetingController::class, 'forceComplete'])->name('meetings.force-complete');
+        Route::post('meetings/{meeting}/cancel', [MeetingController::class, 'cancel'])->name('meetings.cancel');
+        Route::post('meetings/{meeting}/no-show', [MeetingController::class, 'noShow'])->name('meetings.no-show');
+        Route::post('meetings/{meeting}/regenerate-link', [MeetingController::class, 'regenerateLink'])->name('meetings.regenerate-link');
 
         // Client Portal — project updates, action requests, approval requests, invoices, portal accounts
         Route::get('project-updates', [ProjectUpdateController::class, 'index'])->name('project-updates.index');
@@ -247,14 +248,14 @@ Route::middleware(['auth'])->group(function () {
 
     // File Manager
     Route::prefix('file-manager')->name('file-manager.')->group(function () {
-        Route::get('/',        [FileManagerController::class, 'index'])->name('index');
-        Route::get('list',     [FileManagerController::class, 'list'])->name('list');
+        Route::get('/', [FileManagerController::class, 'index'])->name('index');
+        Route::get('list', [FileManagerController::class, 'list'])->name('list');
         Route::get('download', [FileManagerController::class, 'download'])->name('download');
-        Route::get('preview',  [FileManagerController::class, 'preview'])->name('preview');
-        Route::post('folder',  [FileManagerController::class, 'createFolder'])->name('folder.create');
-        Route::post('upload',  [FileManagerController::class, 'upload'])->name('upload');
-        Route::post('rename',  [FileManagerController::class, 'rename'])->name('rename');
-        Route::delete('/',     [FileManagerController::class, 'destroy'])->name('destroy');
+        Route::get('preview', [FileManagerController::class, 'preview'])->name('preview');
+        Route::post('folder', [FileManagerController::class, 'createFolder'])->name('folder.create');
+        Route::post('upload', [FileManagerController::class, 'upload'])->name('upload');
+        Route::post('rename', [FileManagerController::class, 'rename'])->name('rename');
+        Route::delete('/', [FileManagerController::class, 'destroy'])->name('destroy');
     });
 
     // Performance / KPI scoreboard (view performance — enforced in the controller)
@@ -366,6 +367,12 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/', [MarketingController::class, 'index'])->name('index');
         Route::get('brands/{brand}', [MarketingController::class, 'brand'])->name('brand');
         Route::get('brands/{brand}/dashboard', [MarketingController::class, 'dashboardData'])->name('dashboard');
+
+        // Shared, read-only content checklist/progress — reachable from
+        // Manager Oversight, this Brand page, and the Raw Content/Designer/
+        // SMM panels alike. See BrandChecklistProjectionService; never a
+        // workflow action, those stay on the routes above.
+        Route::get('brands/{brand}/checklist', [BrandChecklistController::class, 'show'])->name('checklist');
         Route::get('brands/{brand}/browse', [MarketingController::class, 'browse'])->name('browse');
         Route::get('brands/{brand}/campaigns', [MarketingController::class, 'campaigns'])->name('campaigns');
         Route::get('brands/{brand}/ad-sets', [MarketingController::class, 'adSets'])->name('ad-sets');
@@ -651,4 +658,3 @@ Route::middleware(['auth'])->group(function () {
 });
 
 require __DIR__.'/portal.php';
-

@@ -138,8 +138,9 @@ function loadItems() {
                 + '<td><span class="spill ' + (statusSpill[it.status] || 'spill-hold') + '">' + statusLabel[it.status] + '</span></td>'
                 + '<td>' + subText + '</td>'
                 + '<td class="text-end">' + (canSubmit
-                    ? '<button class="btn btn-sm btn-primary ds-submit-btn" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + escDesigner(it.title) + '"><i class="bi bi-upload"></i> Submit</button>'
-                    : '<span style="color:var(--text3);font-size:.72rem">—</span>')
+                    ? '<button class="btn btn-sm btn-primary ds-submit-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + escDesigner(it.title) + '"><i class="bi bi-upload"></i> Submit</button>'
+                    : '')
+                + '<a class="btn btn-sm btn-outline-secondary" href="/marketing/brands/' + it.brand_id + '/checklist" title="View this brand\'s full content checklist"><i class="bi bi-list-check"></i></a>'
                 + '</td></tr>';
         }).join(''));
     });

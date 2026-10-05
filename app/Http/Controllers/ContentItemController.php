@@ -38,9 +38,9 @@ class ContentItemController extends Controller
             : collect();
 
         return response()->json([
-            'data'          => $items,
-            'checklist'     => $brand->checklist,
-            'on_hold'       => (bool) $brand->checklist?->isOnHold(),
+            'data' => $items,
+            'checklist' => $brand->checklist,
+            'on_hold' => (bool) $brand->checklist?->isOnHold(),
             'on_hold_reason' => $brand->checklist?->on_hold_reason,
         ]);
     }
@@ -48,8 +48,8 @@ class ContentItemController extends Controller
     public function store(Request $request, Brand $brand): JsonResponse
     {
         $data = $request->validate([
-            'category'   => ['required', Rule::in(ContentItem::$categories)],
-            'title'      => ['required', 'string', 'max:200'],
+            'category' => ['required', Rule::in(ContentItem::$categories)],
+            'title' => ['required', 'string', 'max:200'],
             'product_id' => ['nullable', 'integer', Rule::exists('products', 'id')->where('brand_id', $brand->id)],
         ]);
 
@@ -67,7 +67,7 @@ class ContentItemController extends Controller
 
         $data = $request->validate([
             'link_url' => ['nullable', 'string', 'max:2048', 'url'],
-            'file'     => ['nullable', 'file', 'max:20480'],
+            'file' => ['nullable', 'file', 'max:20480'],
         ]);
         $data['file'] = $request->file('file');
 
@@ -106,7 +106,7 @@ class ContentItemController extends Controller
         abort_unless($request->user()->can('manage published-content'), 403);
 
         $data = $request->validate([
-            'submission_id'     => ['required', 'integer', Rule::exists('content_item_submissions', 'id')->where('content_item_id', $contentItem->id)],
+            'submission_id' => ['required', 'integer', Rule::exists('content_item_submissions', 'id')->where('content_item_id', $contentItem->id)],
             'facebook_post_url' => ['required', 'string', 'max:2048', 'url'],
         ]);
 
@@ -128,7 +128,7 @@ class ContentItemController extends Controller
         $this->authorizeView($request);
         abort_if($contentItem->brand_id !== $brand->id, 404);
         abort_if($submission->content_item_id !== $contentItem->id, 404);
-        abort_if(!$submission->file_path, 404);
+        abort_if(! $submission->file_path, 404);
 
         return StoredFileResponse::download(
             $submission->disk,
@@ -137,11 +137,18 @@ class ContentItemController extends Controller
         );
     }
 
-    /** Any panel role, or Manager oversight, may look at a brand's checklist. */
+    /**
+     * Any panel role, Manager oversight, or Marketing may look at a brand's
+     * checklist — the same read-only set BrandChecklistController::
+     * authorizeRead() grants for the shared checklist page, so a submission
+     * shown there never 403s on Download. Never grants any write action;
+     * every mutating method below checks its own, narrower permission.
+     */
     private function authorizeView(Request $request): void
     {
         abort_unless($request->user()->hasAnyPermission([
             'view raw-content-panel', 'view designer-panel', 'view smm-panel', 'view brand-checklist-overview',
+            'manage publishing-review', 'manage content-charges', 'manage advertising-expenditure',
         ]), 403);
     }
 

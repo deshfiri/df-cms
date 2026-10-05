@@ -9,6 +9,7 @@ use App\Models\ContentItem;
 use App\Models\PendingChange;
 use App\Models\PublishedContent;
 use App\Services\BrandChecklistHoldService;
+use App\Services\BrandChecklistProjectionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -25,6 +26,7 @@ class ManagerOversightController extends Controller
 {
     public function __construct(
         private readonly BrandChecklistHoldService $holds,
+        private readonly BrandChecklistProjectionService $projection,
     ) {
         $this->middleware(function (Request $request, $next) {
             abort_unless($request->user()->can('view brand-checklist-overview'), 403);
@@ -42,6 +44,11 @@ class ManagerOversightController extends Controller
         return view('manager.oversight', [
             'budgets' => $this->budgetTable(),
             'checklists' => BrandChecklist::with('brand.client')->get(),
+            // One query for every brand's per-category item counts — see
+            // BrandChecklistProjectionService::categoryCounts(). The full
+            // item/submission/file breakdown lives on the dedicated
+            // checklist detail page (marketing.checklist), not here.
+            'categoryCounts' => $this->projection->categoryCounts(),
             'workload' => $this->departmentWorkload($unreviewed->count()),
             'unreviewed' => $unreviewed,
         ]);
