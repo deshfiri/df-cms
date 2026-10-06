@@ -7,11 +7,14 @@ use App\Models\Brand;
 use App\Models\PaymentCategory;
 use App\Models\PendingChange;
 use App\Models\PublishedContent;
+use App\Notifications\ContentPublishedAndReviewed;
 use App\Services\ActivityLogService;
 use App\Services\AdvertisingExpenditureService;
+use App\Services\Concerns\NotifiesStaff;
 use App\Services\InvoiceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -22,6 +25,8 @@ use Illuminate\Validation\ValidationException;
  */
 class MarketingBillingController extends Controller
 {
+    use NotifiesStaff;
+
     public function __construct(
         private readonly InvoiceService $invoices,
         private readonly AdvertisingExpenditureService $expenditures,
@@ -207,26 +212,62 @@ class MarketingBillingController extends Controller
         abort_unless($request->user()->can('manage publishing-review'), 403);
         abort_if((int) $publishedContent->brand_id !== (int) $brand->id, 404);
 
-        // A revision already requested against this exact publication means
-        // it's historical, not awaiting review — reviewed_at/reviewed_by
-        // must never be set on it after the fact. See
-        // PublishedContent::annotateReviewStates().
-        $state = PublishedContent::annotateReviewStates(collect([$publishedContent]))->first()->review_state;
-        if ($state === PublishedContent::REVIEW_STATE_REVISION_REQUESTED) {
-            throw ValidationException::withMessages([
-                'published_content' => 'A revision has already been requested for this publication — it can no longer be marked reviewed.',
+        // Locked so a retried/double-submitted request, or two reviewers
+        // acting at once, can't both pass the "not yet reviewed" check below
+        // — the loser re-reads a row the winner has already updated, once it
+        // gets the lock, and takes the idempotent-no-op path instead of
+        // reviewing (and renotifying) a second time.
+        $alreadyReviewed = DB::transaction(function () use ($request, $brand, $publishedContent) {
+            $locked = PublishedContent::whereKey($publishedContent->id)->lockForUpdate()->firstOrFail();
+
+            if ($locked->reviewed_at !== null) {
+                return true;
+            }
+
+            // A revision already requested against this exact publication
+            // means it's historical, not awaiting review — reviewed_at/
+            // reviewed_by must never be set on it after the fact. See
+            // PublishedContent::annotateReviewStates().
+            $state = PublishedContent::annotateReviewStates(collect([$locked]))->first()->review_state;
+            if ($state === PublishedContent::REVIEW_STATE_REVISION_REQUESTED) {
+                throw ValidationException::withMessages([
+                    'published_content' => 'A revision has already been requested for this publication — it can no longer be marked reviewed.',
+                ]);
+            }
+
+            $locked->update(['reviewed_at' => now(), 'reviewed_by' => $request->user()->id]);
+
+            $this->activityLog->log('Publishing Review', 'Reviewed', $brand->client_id, ['reviewed_at' => null, 'reviewed_by' => null], [
+                'published_content_id' => $locked->id, 'reviewed_by' => $request->user()->name,
             ]);
+
+            return false;
+        });
+
+        $publishedContent = $publishedContent->fresh()->load('reviewedBy:id,name');
+
+        // After commit, and only for a review that just happened here (a
+        // retried/duplicate request above never reaches this line a second
+        // time) — and only when the reviewed submission is still this
+        // item's latest. A revision already blocks review of a superseded
+        // publication (see above), but a review that was already in flight
+        // when a newer version showed up elsewhere must still not tell the
+        // Manager this item's *current* cycle is done.
+        if (! $alreadyReviewed && ! $publishedContent->submission->isSuperseded()) {
+            $this->notifyStaff(
+                ['Manager'],
+                new ContentPublishedAndReviewed(
+                    $publishedContent->item,
+                    $publishedContent,
+                    $publishedContent->item->submissions()->count(),
+                    $request->user(),
+                ),
+                permission: 'view brand-checklist-overview',
+                except: $request->user(),
+            );
         }
 
-        $old = ['reviewed_at' => $publishedContent->reviewed_at?->toIso8601String(), 'reviewed_by' => $publishedContent->reviewedBy?->name];
-
-        $publishedContent->update(['reviewed_at' => now(), 'reviewed_by' => $request->user()->id]);
-
-        $this->activityLog->log('Publishing Review', 'Reviewed', $brand->client_id, $old, [
-            'published_content_id' => $publishedContent->id, 'reviewed_by' => $request->user()->name,
-        ]);
-
-        return response()->json(['success' => true, 'data' => $publishedContent->fresh()->load('reviewedBy:id,name')]);
+        return response()->json(['success' => true, 'data' => $publishedContent]);
     }
 
     private function reason(Request $request): string

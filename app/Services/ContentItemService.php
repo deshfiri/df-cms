@@ -10,6 +10,9 @@ use App\Models\ContentItemSubmission;
 use App\Models\PublishedContent;
 use App\Models\User;
 use App\Notifications\ChecklistRevisionRequested;
+use App\Notifications\ContentReadyForPublishingReview;
+use App\Notifications\ContentSubmissionReadyForCollection;
+use App\Services\Concerns\NotifiesStaff;
 use App\Services\Storage\UploadStaging;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +27,8 @@ use Illuminate\Validation\ValidationException;
  */
 class ContentItemService
 {
+    use NotifiesStaff;
+
     public function __construct(
         private readonly ActivityLogService $activityLog,
         private readonly UploadStaging $uploads,
@@ -78,7 +83,7 @@ class ContentItemService
             }
         }
 
-        return DB::transaction(function () use ($item, $data, $actor, $path, $disk) {
+        $submission = DB::transaction(function () use ($item, $data, $actor, $path, $disk) {
             $submission = ContentItemSubmission::create([
                 'content_item_id' => $item->id,
                 'file_path' => $path,
@@ -102,6 +107,22 @@ class ContentItemService
 
             return $submission;
         });
+
+        // After commit, never before — a rollback (e.g. the lock in
+        // collect()/publish() detecting a conflict elsewhere) must never
+        // leave a "ready for collection" notification for a submission that
+        // doesn't durably exist. Fires for a first submission exactly the
+        // same as a resubmission after revision — each is its own new
+        // ContentItemSubmission row, so each gets its own new notification;
+        // nothing here ever mutates an earlier one.
+        $this->notifyStaff(
+            ['Social Media Manager'],
+            new ContentSubmissionReadyForCollection($item, $submission, $item->submissions()->count(), $actor),
+            permission: 'manage smm-collection',
+            except: $actor,
+        );
+
+        return $submission;
     }
 
     /**
@@ -218,7 +239,7 @@ class ContentItemService
             throw ValidationException::withMessages(['submission' => 'That submission does not belong to this item.']);
         }
 
-        return DB::transaction(function () use ($item, $submission, $data, $actor) {
+        $published = DB::transaction(function () use ($item, $submission, $data, $actor) {
             // Locked so two SMM users publishing the same item at once can't
             // both succeed against what's already a superseded state.
             $item = ContentItem::whereKey($item->id)->lockForUpdate()->firstOrFail();
@@ -271,6 +292,20 @@ class ContentItemService
 
             return $published;
         });
+
+        // After commit — publishing alone is not workflow completion, so
+        // this only tells Marketing their review queue has a new row. The
+        // separate Manager "published & reviewed" notification only fires
+        // later, from the review action itself, once Marketing actually
+        // reviews it (see MarketingBillingController::reviewPublishedContent()).
+        $this->notifyStaff(
+            ['Marketing'],
+            new ContentReadyForPublishingReview($item, $published, $item->submissions()->count(), $actor),
+            permission: 'manage publishing-review',
+            except: $actor,
+        );
+
+        return $published;
     }
 
     /** The brand's checklist, refusing when there isn't one yet or it's on hold. */
