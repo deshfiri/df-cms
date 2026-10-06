@@ -9,7 +9,10 @@ use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentCategory;
+use App\Models\Product;
+use App\Models\PublishedContent;
 use App\Models\User;
+use App\Services\AdvertisingExpenditureService;
 use App\Services\ContentItemService;
 use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -58,10 +61,10 @@ class MarketingBrandPageIntegrationTest extends TestCase
 
     private function client(): Client
     {
-        $category = Category::create(['name' => 'Cat ' . uniqid(), 'slug' => 'cat-' . uniqid(), 'status' => true]);
+        $category = Category::create(['name' => 'Cat '.uniqid(), 'slug' => 'cat-'.uniqid(), 'status' => true]);
 
         return Client::create([
-            'dfid_number' => 'DF' . uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
+            'dfid_number' => 'DF'.uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
             'category_id' => $category->id,
         ]);
     }
@@ -79,7 +82,7 @@ class MarketingBrandPageIntegrationTest extends TestCase
         $invoice = Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Social Media Ads')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => $amount, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => $amount, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $actor->id, 'issued_date' => now(),
         ]);
         Payment::create([
@@ -95,7 +98,7 @@ class MarketingBrandPageIntegrationTest extends TestCase
     {
         $marketing = $this->marketing();
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
 
         $response = $this->actingAs($marketing)->postJson(route('marketing.content-charge.store', $brand), [
             'total_payable' => 500, 'title' => 'October content',
@@ -111,8 +114,8 @@ class MarketingBrandPageIntegrationTest extends TestCase
     {
         $marketing = $this->marketing();
         $client = $this->client();
-        $brandA = Brand::create(['client_id' => $client->id, 'name' => 'Brand A ' . uniqid()]);
-        $brandB = Brand::create(['client_id' => $client->id, 'name' => 'Brand B ' . uniqid()]);
+        $brandA = Brand::create(['client_id' => $client->id, 'name' => 'Brand A '.uniqid()]);
+        $brandB = Brand::create(['client_id' => $client->id, 'name' => 'Brand B '.uniqid()]);
 
         $this->actingAs($marketing)->postJson(route('marketing.content-charge.store', $brandA), ['total_payable' => 300, 'title' => 'Alpha charge'])->assertOk();
         $this->actingAs($marketing)->postJson(route('marketing.content-charge.store', $brandB), ['total_payable' => 400, 'title' => 'Beta charge'])->assertOk();
@@ -133,7 +136,7 @@ class MarketingBrandPageIntegrationTest extends TestCase
     {
         $marketing = $this->marketing();
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
         $this->fundAdBudget($client, $brand, $marketing);
 
         $this->assertNull($brand->fresh()->checklist);
@@ -150,11 +153,11 @@ class MarketingBrandPageIntegrationTest extends TestCase
     {
         $marketing = $this->marketing();
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
         $this->fundAdBudget($client, $brand, $marketing, 1000);
         $this->actingAs($marketing)->postJson(route('marketing.content-charge.store', $brand), ['total_payable' => 300])->assertOk();
 
-        app(\App\Services\AdvertisingExpenditureService::class)->create($brand->fresh(), [
+        app(AdvertisingExpenditureService::class)->create($brand->fresh(), [
             'amount' => 1200, 'reporting_date' => now()->toDateString(),
         ], $marketing);
 
@@ -172,7 +175,7 @@ class MarketingBrandPageIntegrationTest extends TestCase
     {
         $marketing = $this->marketing();
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
 
         $response = $this->actingAs($marketing)->get(route('marketing.brand', $brand));
 
@@ -190,7 +193,7 @@ class MarketingBrandPageIntegrationTest extends TestCase
     {
         $marketing = $this->marketing();
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
         $this->fundAdBudget($client, $brand, $marketing, 1000);
 
         $response = $this->actingAs($marketing)->postJson(route('marketing.expenditures.store', $brand), [
@@ -208,7 +211,7 @@ class MarketingBrandPageIntegrationTest extends TestCase
     {
         $marketing = $this->marketing();
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
         $this->fundAdBudget($client, $brand, $marketing, 1000);
         $this->actingAs($marketing)->postJson(route('marketing.content-charge.store', $brand), ['total_payable' => 300])->assertOk();
 
@@ -226,25 +229,25 @@ class MarketingBrandPageIntegrationTest extends TestCase
 
     // ── 7-8: Publishing review listing + action ─────────────────────────────
 
-    private function publishedItemFor(Brand $brand): \App\Models\PublishedContent
+    private function publishedItemFor(Brand $brand): PublishedContent
     {
         $content = $this->user('Content', ['manage raw-content']);
         $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
         BrandChecklist::firstOrCreate(['brand_id' => $brand->id]);
         $service = app(ContentItemService::class);
-        $item = $service->create($brand, ['category' => 'raw_content', 'title' => 'Item ' . uniqid()], $content);
+        $item = $service->create($brand, ['category' => 'raw_content', 'title' => 'Item '.uniqid()], $content);
         $submission = $service->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
         $service->collect($item->fresh(), $smm);
 
-        return $service->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/post/' . uniqid()], $smm);
+        return $service->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/post/'.uniqid()], $smm);
     }
 
     public function test_unreviewed_published_content_appears_for_the_correct_brand_only(): void
     {
         $marketing = $this->marketing();
         $client = $this->client();
-        $brandA = Brand::create(['client_id' => $client->id, 'name' => 'Brand A ' . uniqid()]);
-        $brandB = Brand::create(['client_id' => $client->id, 'name' => 'Brand B ' . uniqid()]);
+        $brandA = Brand::create(['client_id' => $client->id, 'name' => 'Brand A '.uniqid()]);
+        $brandB = Brand::create(['client_id' => $client->id, 'name' => 'Brand B '.uniqid()]);
         $pubA = $this->publishedItemFor($brandA);
         $this->publishedItemFor($brandB);
 
@@ -258,7 +261,7 @@ class MarketingBrandPageIntegrationTest extends TestCase
     {
         $marketing = $this->marketing();
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
         $published = $this->publishedItemFor($brand);
 
         $response = $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published]));
@@ -275,13 +278,13 @@ class MarketingBrandPageIntegrationTest extends TestCase
     {
         $marketing = $this->marketing();
         $client = $this->client();
-        $brandA = Brand::create(['client_id' => $client->id, 'name' => 'Brand A ' . uniqid()]);
-        $brandB = Brand::create(['client_id' => $client->id, 'name' => 'Brand B ' . uniqid()]);
+        $brandA = Brand::create(['client_id' => $client->id, 'name' => 'Brand A '.uniqid()]);
+        $brandB = Brand::create(['client_id' => $client->id, 'name' => 'Brand B '.uniqid()]);
         $this->fundAdBudget($client, $brandA, $marketing, 1000);
         $this->fundAdBudget($client, $brandB, $marketing, 2000);
 
-        app(\App\Services\AdvertisingExpenditureService::class)->create($brandA->fresh(), ['amount' => 100, 'reporting_date' => now()->toDateString()], $marketing);
-        app(\App\Services\AdvertisingExpenditureService::class)->create($brandB->fresh(), ['amount' => 400, 'reporting_date' => now()->toDateString()], $marketing);
+        app(AdvertisingExpenditureService::class)->create($brandA->fresh(), ['amount' => 100, 'reporting_date' => now()->toDateString()], $marketing);
+        app(AdvertisingExpenditureService::class)->create($brandB->fresh(), ['amount' => 400, 'reporting_date' => now()->toDateString()], $marketing);
 
         $expA = $this->actingAs($marketing)->getJson(route('marketing.expenditures.index', $brandA));
         $this->assertCount(1, $expA->json('data'));
@@ -303,7 +306,7 @@ class MarketingBrandPageIntegrationTest extends TestCase
     {
         $content = $this->user('Content', ['manage raw-content']);
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
 
         $this->actingAs($content)->postJson(route('marketing.content-charge.store', $brand), ['total_payable' => 100])->assertForbidden();
         $this->actingAs($content)->getJson(route('marketing.content-charges.index', $brand))->assertForbidden();
@@ -313,7 +316,7 @@ class MarketingBrandPageIntegrationTest extends TestCase
     {
         $content = $this->user('Content', ['manage raw-content']);
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
 
         $this->actingAs($content)->postJson(route('marketing.expenditures.store', $brand), ['amount' => 10, 'reporting_date' => now()->toDateString()])->assertForbidden();
         $this->actingAs($content)->getJson(route('marketing.expenditures.index', $brand))->assertForbidden();
@@ -323,7 +326,7 @@ class MarketingBrandPageIntegrationTest extends TestCase
     {
         $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
         $published = $this->publishedItemFor($brand);
 
         $this->actingAs($smm)->getJson(route('marketing.published-contents.unreviewed', $brand))->assertForbidden();
@@ -338,7 +341,7 @@ class MarketingBrandPageIntegrationTest extends TestCase
         // not rendered for someone who could never use them anyway.
         $viewer = $this->user('Viewer', ['view clients', 'view ads', 'manage ads']);
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
 
         $response = $this->actingAs($viewer)->get(route('marketing.brand', $brand));
 
@@ -350,5 +353,146 @@ class MarketingBrandPageIntegrationTest extends TestCase
         $response->assertDontSee('id="mkAddChargeBtn"', false);
         $response->assertDontSee('id="mkAddExpenseBtn"', false);
         $response->assertDontSee('id="mkReviewRows"', false);
+    }
+
+    // ── Manual-QA bug: the Products "+" button on this exact page ───────────
+
+    public function test_an_authorized_user_can_add_a_product_to_a_brand(): void
+    {
+        $marketing = $this->marketing();
+        $client = $this->client();
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
+
+        $response = $this->actingAs($marketing)->postJson(route('marketing.products.store', $brand), ['name' => 'Test Product']);
+
+        $response->assertOk();
+        $response->assertJsonPath('data.name', 'Test Product');
+        $response->assertJsonPath('data.brand_id', $brand->id);
+        $this->assertDatabaseHas('products', ['brand_id' => $brand->id, 'name' => 'Test Product']);
+    }
+
+    public function test_a_product_added_to_one_brand_is_not_visible_on_another_brand(): void
+    {
+        $marketing = $this->marketing();
+        $client = $this->client();
+        $brandA = Brand::create(['client_id' => $client->id, 'name' => 'Brand A '.uniqid()]);
+        $brandB = Brand::create(['client_id' => $client->id, 'name' => 'Brand B '.uniqid()]);
+
+        $this->actingAs($marketing)->postJson(route('marketing.products.store', $brandA), ['name' => 'Only On A'])->assertOk();
+
+        $indexB = $this->actingAs($marketing)->getJson(route('marketing.products.index', $brandB));
+        $indexB->assertOk();
+        $this->assertSame([], $indexB->json('data'));
+
+        $indexA = $this->actingAs($marketing)->getJson(route('marketing.products.index', $brandA));
+        $indexA->assertOk();
+        $this->assertCount(1, $indexA->json('data'));
+    }
+
+    public function test_an_empty_or_invalid_product_name_is_rejected(): void
+    {
+        $marketing = $this->marketing();
+        $client = $this->client();
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
+
+        $this->actingAs($marketing)->postJson(route('marketing.products.store', $brand), ['name' => ''])->assertStatus(422);
+        $this->actingAs($marketing)->postJson(route('marketing.products.store', $brand), [])->assertStatus(422);
+
+        // Existing validation rule: unique per brand — already-covered
+        // Product CRUD behavior, confirmed still intact alongside the fix.
+        $this->actingAs($marketing)->postJson(route('marketing.products.store', $brand), ['name' => 'Dup'])->assertOk();
+        $this->actingAs($marketing)->postJson(route('marketing.products.store', $brand), ['name' => 'Dup'])->assertStatus(422);
+    }
+
+    public function test_a_user_without_manage_products_cannot_add_a_product(): void
+    {
+        $viewer = $this->user('Viewer', ['view clients', 'view ads']);
+        $client = $this->client();
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
+
+        $response = $this->actingAs($viewer)->postJson(route('marketing.products.store', $brand), ['name' => 'Nope']);
+
+        $response->assertForbidden();
+        $this->assertDatabaseMissing('products', ['brand_id' => $brand->id, 'name' => 'Nope']);
+    }
+
+    public function test_a_guest_cannot_add_a_product(): void
+    {
+        $client = $this->client();
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
+
+        $response = $this->post(route('marketing.products.store', $brand), ['name' => 'Nope']);
+
+        $response->assertRedirect(route('login'));
+        $this->assertDatabaseMissing('products', ['brand_id' => $brand->id, 'name' => 'Nope']);
+    }
+
+    public function test_a_product_cannot_be_tampered_into_belonging_to_a_different_brand(): void
+    {
+        // store() takes the brand from the route itself, never from request
+        // data — there is no brand_id field in the validated payload for an
+        // attacker to override. Confirmed by trying to smuggle one in.
+        $marketing = $this->marketing();
+        $client = $this->client();
+        $brandA = Brand::create(['client_id' => $client->id, 'name' => 'Brand A '.uniqid()]);
+        $brandB = Brand::create(['client_id' => $client->id, 'name' => 'Brand B '.uniqid()]);
+
+        $response = $this->actingAs($marketing)->postJson(
+            route('marketing.products.store', $brandA),
+            ['name' => 'Smuggled', 'brand_id' => $brandB->id]
+        );
+
+        $response->assertOk();
+        $this->assertDatabaseHas('products', ['brand_id' => $brandA->id, 'name' => 'Smuggled']);
+        $this->assertDatabaseMissing('products', ['brand_id' => $brandB->id, 'name' => 'Smuggled']);
+    }
+
+    public function test_existing_product_update_and_delete_still_work(): void
+    {
+        $marketing = $this->marketing();
+        $client = $this->client();
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
+        $product = $this->actingAs($marketing)->postJson(route('marketing.products.store', $brand), ['name' => 'Original']);
+        $product = Product::where('brand_id', $brand->id)->where('name', 'Original')->firstOrFail();
+
+        $this->actingAs($marketing)->putJson(route('marketing.products.update', [$brand, $product]), [
+            'name' => 'Renamed', 'is_active' => false,
+        ])->assertOk();
+        $this->assertDatabaseHas('products', ['id' => $product->id, 'name' => 'Renamed', 'is_active' => false]);
+
+        $this->actingAs($marketing)->deleteJson(route('marketing.products.destroy', [$brand, $product]))->assertOk();
+        $this->assertSoftDeleted('products', ['id' => $product->id]);
+    }
+
+    /**
+     * The bug this whole section exists for: a console TypeError from an
+     * unrelated, globally-included realtime widget (see layouts/app.blade.php
+     * — vendor/js/echo.iife.js leaks a bare, uninstantiated Echo class onto
+     * window.Echo even with Reverb disabled) was suspected of silently
+     * breaking this page's own JS. It doesn't — the Products section's own
+     * script tag finishes binding its handlers before that widget's script
+     * even runs — but the underlying leak is real and is fixed at its one
+     * source (app.blade.php nulls window.Echo when Reverb isn't ready).
+     * PHPUnit can't execute browser JS to re-prove the click handler itself,
+     * so this instead asserts the actual server-rendered contract every
+     * `if (window.Echo)` guard across the app depends on: that the page
+     * renders normally, every control is present, and Echo is explicitly
+     * neutralized rather than left as a truthy non-instance.
+     */
+    public function test_the_marketing_brand_page_renders_normally_with_realtime_disabled(): void
+    {
+        $marketing = $this->marketing();
+        $client = $this->client();
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
+
+        config(['broadcasting.connections.reverb.key' => '', 'broadcasting.connections.reverb.options.host' => '']);
+
+        $response = $this->actingAs($marketing)->get(route('marketing.brand', $brand));
+
+        $response->assertOk();
+        $response->assertSee('window.RealtimeReady = false', false);
+        $response->assertSee('window.Echo = null;', false);
+        $response->assertSee('id="mkAddProduct"', false);
+        $response->assertSee('id="mkNewProduct"', false);
     }
 }

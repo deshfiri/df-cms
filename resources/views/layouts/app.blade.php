@@ -951,6 +951,21 @@
             'Realtime disabled — REVERB_APP_KEY and REVERB_HOST are empty. ' +
             'Set them in .env, then run: php artisan config:cache && php artisan reverb:restart'
         );
+        // vendor/js/echo.iife.js is a classic (non-module) script, so its
+        // top-level `var Echo = ...` is auto-promoted to `window.Echo` by the
+        // browser the instant that <script> tag loads — a bare, uninstantiated
+        // class, not a connected client, and this happens regardless of
+        // whether Reverb is actually configured. Every page below (chat,
+        // calls, WhatsApp, flows) guards its own realtime code with a plain
+        // `if (window.Echo)` truthy check, trusting that to mean "a real
+        // instance with .private()/.join()/etc. available" — a class is
+        // just as truthy, so that guard passes and the very next line throws
+        // ("window.Echo.private is not a function"), since none of Echo's
+        // real methods exist as *static* members on the class itself. Null
+        // it out here, the one place realtime availability is actually
+        // decided, so every existing `if (window.Echo)` guard across the
+        // app means what it already assumed it meant.
+        window.Echo = null;
     @else
         try {
             window.Echo = new Echo({
