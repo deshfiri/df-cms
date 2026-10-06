@@ -678,6 +678,11 @@ class BrandChecklistProjectionTest extends TestCase
         $this->assertStringNotContainsString('View V1', $html);
         $this->assertStringNotContainsString('Download V1', $html);
 
+        // The "Latest ... submitted by" summary line follows the same
+        // single-version-means-no-label rule as the action buttons above.
+        $this->assertStringContainsString('Latest submitted by', $latestHtml);
+        $this->assertStringNotContainsString('Latest V1 submitted by', $html);
+
         // The label change is cosmetic only — the preview endpoint behind
         // that unlabelled "View" still works exactly as before. $manager
         // has 'view brand-checklist-overview', one of ContentItemController
@@ -739,6 +744,9 @@ class BrandChecklistProjectionTest extends TestCase
         // The latest action (V2, a link-only submission here) carries its version.
         $this->assertStringContainsString('Open V2 link', $latestHtml);
         $this->assertStringNotContainsString('>Open link<', $latestHtml);
+
+        // Same version label on the "Latest ... submitted by" summary line.
+        $this->assertStringContainsString('Latest V2 submitted by', $latestHtml);
 
         // History spells out V1 and V2 explicitly via their own <strong> tag,
         // in order, and never repeats the version inside the action text

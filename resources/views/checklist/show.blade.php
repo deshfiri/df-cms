@@ -95,12 +95,13 @@
             @php($item = $row['item'])
             @php($latest = $row['latest'])
             {{-- A version suffix only earns its place on the latest-submission
-                 actions once there's more than one version to tell apart —
-                 see $row['history']->count(), the actual submission count
-                 from the projection, never inferred from status. History's
-                 own rows always show their version label up front (the
-                 <strong>V1</strong>/<strong>V2</strong> tag below), so its
-                 action buttons never repeat it in their own text. --}}
+                 summary line and its actions once there's more than one
+                 version to tell apart — see $row['history']->count(), the
+                 actual submission count from the projection, never inferred
+                 from status. History's own rows always show their version
+                 label up front (the <strong>V1</strong>/<strong>V2</strong>
+                 tag below), so neither the summary line nor the action
+                 buttons ever repeat it there. --}}
             @php($versionSuffix = $latest && $row['history']->count() > 1 ? ' '.$latest['version_label'] : '')
             <div class="cl-item-card">
                 <div class="cl-item-head">
@@ -109,7 +110,7 @@
                         <div class="cl-item-meta">
                             Created by {{ $item->createdBy?->name ?? '—' }}
                             @if($latest)
-                                · Latest {{ $latest['version_label'] }} submitted by {{ $latest['submission']->submittedBy?->name ?? '—' }}
+                                · Latest{{ $versionSuffix }} submitted by {{ $latest['submission']->submittedBy?->name ?? '—' }}
                                 on {{ $dhaka($latest['submission']->created_at) }}
                             @endif
                         </div>
