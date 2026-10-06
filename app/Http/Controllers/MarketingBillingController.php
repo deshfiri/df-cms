@@ -254,17 +254,27 @@ class MarketingBillingController extends Controller
         // when a newer version showed up elsewhere must still not tell the
         // Manager this item's *current* cycle is done.
         if (! $alreadyReviewed && ! $publishedContent->submission->isSuperseded()) {
-            $this->notifyStaff(
-                ['Manager'],
-                new ContentPublishedAndReviewed(
-                    $publishedContent->item,
-                    $publishedContent,
-                    $publishedContent->item->submissions()->count(),
-                    $request->user(),
-                ),
-                permission: 'view brand-checklist-overview',
-                except: $request->user(),
-            );
+            // The notification's broadcast push runs on the "sync" queue
+            // connection (see BroadcastsInstantlyToDashboard) so it doesn't
+            // wait on a worker — but that means a genuinely unreachable
+            // broadcaster now throws inline, in this same request. The
+            // review itself already committed above, so that must never
+            // turn into a 500 for an action that already succeeded.
+            try {
+                $this->notifyStaff(
+                    ['Manager'],
+                    new ContentPublishedAndReviewed(
+                        $publishedContent->item,
+                        $publishedContent,
+                        $publishedContent->item->submissions()->count(),
+                        $request->user(),
+                    ),
+                    permission: 'view brand-checklist-overview',
+                    except: $request->user(),
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
         }
 
         return response()->json(['success' => true, 'data' => $publishedContent]);

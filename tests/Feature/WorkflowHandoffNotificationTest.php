@@ -428,4 +428,66 @@ class WorkflowHandoffNotificationTest extends TestCase
         // existing panel route, still gated by its own existing middleware.
         $this->get($smmNotification->data['url'])->assertRedirect(route('login'));
     }
+
+    // ── Realtime integration gap: same channel contract as Task, delivered instantly ──
+
+    public function test_new_workflow_notifications_use_the_same_channel_contract_as_task_plus_instant_delivery(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
+        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+
+        $notification = new ContentSubmissionReadyForCollection($item->fresh(), $submission, 1, $content);
+
+        // Exactly the channel set every already-working dashboard notification
+        // (e.g. TaskAssigned) uses — 'database' as the source of truth,
+        // 'broadcast' for the live bell/sound/desktop alert.
+        $this->assertSame(['database', 'broadcast'], $notification->via($smm));
+
+        $broadcast = $notification->toBroadcast($smm);
+        // Same payload shape the database row stores — no separate contract.
+        $this->assertSame($notification->toDatabase($smm), $broadcast->data);
+        // The one deliberate difference from a plain BroadcastsToDashboard
+        // notification: this is the fix — delivery no longer waits on a
+        // queue worker to pick up the broadcast job.
+        $this->assertSame('sync', $broadcast->connection);
+    }
+
+    public function test_revision_notification_also_uses_instant_broadcast_delivery(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $brand = $this->readyBrand($manager);
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
+
+        $notification = new ChecklistRevisionRequested($item->fresh(), $manager, 'Redo.');
+
+        $this->assertSame(['database', 'broadcast'], $notification->via($content));
+        $this->assertSame('sync', $notification->toBroadcast($content)->connection);
+    }
+
+    public function test_a_broadcast_delivery_failure_does_not_break_the_underlying_submission(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $this->user('Social Media Manager', ['manage smm-collection']); // must exist to be resolved as a recipient
+        $brand = $this->readyBrand($manager);
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
+
+        // Simulates exactly what forcing the broadcast onto the "sync"
+        // connection risks: Reverb unreachable, surfacing as an exception in
+        // this same request instead of an isolated queued-job failure.
+        Notification::shouldReceive('send')->once()->andThrow(new \RuntimeException('Reverb unreachable'));
+
+        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+
+        // The submission already committed before the notification was ever
+        // attempted — notifySafely() must have caught and swallowed the
+        // exception above rather than letting it bubble out of submit().
+        $this->assertDatabaseHas('content_item_submissions', ['id' => $submission->id]);
+    }
 }

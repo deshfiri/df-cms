@@ -5,7 +5,7 @@ namespace App\Notifications;
 use App\Models\ContentItem;
 use App\Models\PublishedContent;
 use App\Models\User;
-use App\Notifications\Concerns\BroadcastsToDashboard;
+use App\Notifications\Concerns\BroadcastsInstantlyToDashboard;
 use Illuminate\Notifications\Notification;
 
 /**
@@ -17,7 +17,7 @@ use Illuminate\Notifications\Notification;
  */
 class ContentReadyForPublishingReview extends Notification
 {
-    use BroadcastsToDashboard;
+    use BroadcastsInstantlyToDashboard;
 
     public function __construct(
         private readonly ContentItem $item,

@@ -115,12 +115,12 @@ class ContentItemService
         // same as a resubmission after revision — each is its own new
         // ContentItemSubmission row, so each gets its own new notification;
         // nothing here ever mutates an earlier one.
-        $this->notifyStaff(
+        $this->notifySafely(fn () => $this->notifyStaff(
             ['Social Media Manager'],
             new ContentSubmissionReadyForCollection($item, $submission, $item->submissions()->count(), $actor),
             permission: 'manage smm-collection',
             except: $actor,
-        );
+        ));
 
         return $submission;
     }
@@ -169,7 +169,7 @@ class ContentItemService
 
         // Asking for yourself back isn't news; only notify someone else.
         if ($submitter && (int) $submitter->id !== (int) $actor->id) {
-            $submitter->notify(new ChecklistRevisionRequested($item, $actor, $revision->note));
+            $this->notifySafely(fn () => $submitter->notify(new ChecklistRevisionRequested($item, $actor, $revision->note)));
         }
 
         return $revision;
@@ -298,14 +298,35 @@ class ContentItemService
         // separate Manager "published & reviewed" notification only fires
         // later, from the review action itself, once Marketing actually
         // reviews it (see MarketingBillingController::reviewPublishedContent()).
-        $this->notifyStaff(
+        $this->notifySafely(fn () => $this->notifyStaff(
             ['Marketing'],
             new ContentReadyForPublishingReview($item, $published, $item->submissions()->count(), $actor),
             permission: 'manage publishing-review',
             except: $actor,
-        );
+        ));
 
         return $published;
+    }
+
+    /**
+     * Every handoff notification above is dispatched strictly after the
+     * workflow transition that triggered it has already committed, so the
+     * underlying submit/revision/publish has already durably succeeded by
+     * the time this runs. The notifications using BroadcastsInstantlyToDashboard
+     * push their broadcast on the "sync" queue connection specifically so it
+     * doesn't wait on a queue worker — which also means a genuinely
+     * unreachable broadcaster (Reverb not running) now throws inline, in
+     * this same request, instead of failing a job in total isolation later.
+     * That must never turn into a 500 for an operation that already
+     * succeeded, so it's caught and reported here, never rethrown.
+     */
+    private function notifySafely(callable $dispatch): void
+    {
+        try {
+            $dispatch();
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /** The brand's checklist, refusing when there isn't one yet or it's on hold. */

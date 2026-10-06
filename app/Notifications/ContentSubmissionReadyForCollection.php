@@ -5,7 +5,7 @@ namespace App\Notifications;
 use App\Models\ContentItem;
 use App\Models\ContentItemSubmission;
 use App\Models\User;
-use App\Notifications\Concerns\BroadcastsToDashboard;
+use App\Notifications\Concerns\BroadcastsInstantlyToDashboard;
 use Illuminate\Notifications\Notification;
 
 /**
@@ -18,7 +18,7 @@ use Illuminate\Notifications\Notification;
  */
 class ContentSubmissionReadyForCollection extends Notification
 {
-    use BroadcastsToDashboard;
+    use BroadcastsInstantlyToDashboard;
 
     private const CATEGORY_LABELS = [
         ContentItem::CATEGORY_RAW_CONTENT => 'Raw Content',

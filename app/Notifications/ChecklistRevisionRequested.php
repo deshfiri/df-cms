@@ -4,7 +4,7 @@ namespace App\Notifications;
 
 use App\Models\ContentItem;
 use App\Models\User;
-use App\Notifications\Concerns\BroadcastsToDashboard;
+use App\Notifications\Concerns\BroadcastsInstantlyToDashboard;
 use Illuminate\Notifications\Notification;
 
 /**
@@ -14,7 +14,7 @@ use Illuminate\Notifications\Notification;
  */
 class ChecklistRevisionRequested extends Notification
 {
-    use BroadcastsToDashboard;
+    use BroadcastsInstantlyToDashboard;
 
     public function __construct(
         private readonly ContentItem $item,
@@ -30,10 +30,10 @@ class ChecklistRevisionRequested extends Notification
     public function toDatabase($notifiable): array
     {
         return [
-            'title'   => 'Content sent back for revision',
+            'title' => 'Content sent back for revision',
             'message' => "{$this->requestedBy->name} sent \"{$this->item->title}\" ({$this->item->brand->name}) back for revision"
-                . ($this->note ? " — {$this->note}" : ''),
-            'url'     => $this->item->category === ContentItem::CATEGORY_POSTER
+                .($this->note ? " — {$this->note}" : ''),
+            'url' => $this->item->category === ContentItem::CATEGORY_POSTER
                 ? route('panels.designer')
                 : route('panels.raw-content'),
         ];
