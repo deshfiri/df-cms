@@ -94,6 +94,14 @@
         @forelse(($categories[$catKey] ?? collect()) as $row)
             @php($item = $row['item'])
             @php($latest = $row['latest'])
+            {{-- A version suffix only earns its place on the latest-submission
+                 actions once there's more than one version to tell apart —
+                 see $row['history']->count(), the actual submission count
+                 from the projection, never inferred from status. History's
+                 own rows always show their version label up front (the
+                 <strong>V1</strong>/<strong>V2</strong> tag below), so its
+                 action buttons never repeat it in their own text. --}}
+            @php($versionSuffix = $latest && $row['history']->count() > 1 ? ' '.$latest['version_label'] : '')
             <div class="cl-item-card">
                 <div class="cl-item-head">
                     <div>
@@ -114,15 +122,15 @@
                         @if($latest && $latest['submission']->file_path)
                             @if($looksPreviewable($latest['submission']->file_path))
                                 <a class="btn btn-sm btn-outline-secondary" href="{{ route('marketing.content-items.submissions.preview', [$brand, $item, $latest['submission']]) }}" target="_blank" rel="noopener noreferrer">
-                                    <i class="bi bi-eye"></i> View {{ $latest['version_label'] }}
+                                    <i class="bi bi-eye"></i> View{{ $versionSuffix }}
                                 </a>
                             @endif
                             <a class="btn btn-sm btn-outline-secondary" href="{{ route('marketing.content-items.submissions.download', [$brand, $item, $latest['submission']]) }}">
-                                <i class="bi bi-download"></i> Download {{ $latest['version_label'] }}
+                                <i class="bi bi-download"></i> Download{{ $versionSuffix }}
                             </a>
                         @elseif($latest && $latest['submission']->link_url)
                             <a class="btn btn-sm btn-outline-secondary" href="{{ $latest['submission']->link_url }}" target="_blank" rel="noopener">
-                                <i class="bi bi-box-arrow-up-right"></i> Open {{ $latest['version_label'] }} link
+                                <i class="bi bi-box-arrow-up-right"></i> Open{{ $versionSuffix }} link
                             </a>
                         @endif
                         @if($row['history']->count() > 1)

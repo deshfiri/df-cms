@@ -16,6 +16,7 @@ use App\Services\ContentItemService;
 use App\Services\InvoiceService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Permission;
@@ -627,5 +628,132 @@ class BrandChecklistProjectionTest extends TestCase
         $queryCountLarger = count(DB::getQueryLog());
 
         $this->assertLessThan($queryCount + 5, $queryCountLarger, 'Query count grew with item count — likely an N+1.');
+    }
+
+    // ── Single-version items don't show a meaningless "V1" on View/Download ──
+
+    /**
+     * The latest-submission action row sits in the markup before the
+     * collapsible History section (which, per the view, only ever exists
+     * at all once there's more than one version) — splitting on that
+     * marker isolates "what the latest actions say" from "what each
+     * History row says" without caring about any other item on the page.
+     *
+     * @return array{0: string, 1: string} [latestSectionHtml, historySectionHtml]
+     */
+    private function splitLatestAndHistoryHtml(string $html): array
+    {
+        $pos = strpos($html, 'class="collapse" id="cl-hist-');
+
+        return $pos === false ? [$html, ''] : [substr($html, 0, $pos), substr($html, $pos)];
+    }
+
+    /** @return list<string> every action's visible text for the given Bootstrap icon class, in document order */
+    private function actionTexts(string $html, string $icon): array
+    {
+        preg_match_all('/<i class="bi bi-'.$icon.'"><\/i>\s*([^\n<]*)/', $html, $matches);
+
+        return array_map('trim', $matches[1]);
+    }
+
+    public function test_a_single_image_submission_shows_unlabelled_view_and_download_and_still_previews(): void
+    {
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Solo Photo'], $content);
+        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/placeholder.jpg'], $content);
+        $image = UploadedFile::fake()->image('solo.jpg', 20, 20);
+        Storage::disk('local')->put('content-items/solo.jpg', file_get_contents($image->getPathname()));
+        $submission->update(['file_path' => 'content-items/solo.jpg', 'disk' => 'local', 'link_url' => null]);
+
+        $data = app(BrandChecklistProjectionService::class)->detail($brand->fresh());
+        $this->actingAs($manager);
+        $html = view('checklist.show', $data)->render();
+        [$latestHtml] = $this->splitLatestAndHistoryHtml($html);
+
+        $this->assertSame(['View'], $this->actionTexts($latestHtml, 'eye'));
+        $this->assertSame(['Download'], $this->actionTexts($latestHtml, 'download'));
+        $this->assertStringNotContainsString('View V1', $html);
+        $this->assertStringNotContainsString('Download V1', $html);
+
+        // The label change is cosmetic only — the preview endpoint behind
+        // that unlabelled "View" still works exactly as before. $manager
+        // has 'view brand-checklist-overview', one of ContentItemController
+        // ::authorizeView()'s accepted permissions — the same set Download
+        // already uses.
+        $preview = $this->actingAs($manager)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $submission->fresh()]));
+        $preview->assertOk();
+        $preview->assertHeader('Content-Type', 'image/jpeg');
+    }
+
+    public function test_a_single_pdf_submission_shows_unlabelled_view_and_download_and_still_previews(): void
+    {
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Solo Brief'], $content);
+        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/placeholder.pdf'], $content);
+        Storage::disk('local')->put('content-items/solo.pdf', "%PDF-1.4\n%solo\n%%EOF");
+        $submission->update(['file_path' => 'content-items/solo.pdf', 'disk' => 'local', 'link_url' => null]);
+
+        $data = app(BrandChecklistProjectionService::class)->detail($brand->fresh());
+        $this->actingAs($manager);
+        $html = view('checklist.show', $data)->render();
+        [$latestHtml] = $this->splitLatestAndHistoryHtml($html);
+
+        $this->assertSame(['View'], $this->actionTexts($latestHtml, 'eye'));
+        $this->assertSame(['Download'], $this->actionTexts($latestHtml, 'download'));
+        $this->assertStringNotContainsString('View V1', $html);
+        $this->assertStringNotContainsString('Download V1', $html);
+
+        $preview = $this->actingAs($manager)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $submission->fresh()]));
+        $preview->assertOk();
+        $preview->assertHeader('Content-Type', 'application/pdf');
+    }
+
+    public function test_multiple_submissions_label_the_latest_action_with_its_version_while_history_stays_explicit(): void
+    {
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Versioned Photo'], $content);
+        $submission1 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->actingAs($marketing)->postJson(
+            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
+        )->assertOk();
+        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
+
+        $data = app(BrandChecklistProjectionService::class)->detail($brand->fresh());
+        $row = $data['categories']['raw_content']->firstWhere(fn ($r) => $r['item']->id === $item->id);
+        $this->assertCount(2, $row['history']);
+
+        $this->actingAs($manager);
+        $html = view('checklist.show', $data)->render();
+        [$latestHtml, $historyHtml] = $this->splitLatestAndHistoryHtml($html);
+
+        // The latest action (V2, a link-only submission here) carries its version.
+        $this->assertStringContainsString('Open V2 link', $latestHtml);
+        $this->assertStringNotContainsString('>Open link<', $latestHtml);
+
+        // History spells out V1 and V2 explicitly via their own <strong> tag,
+        // in order, and never repeats the version inside the action text
+        // itself (it would be redundant right next to that tag).
+        $this->assertStringContainsString('<strong>V1</strong>', $historyHtml);
+        $this->assertStringContainsString('<strong>V2</strong>', $historyHtml);
+        $this->assertTrue(strpos($historyHtml, '<strong>V1</strong>') < strpos($historyHtml, '<strong>V2</strong>'));
+        $this->assertSame(['Open link', 'Open link'], $this->historyLinkTexts($historyHtml));
+    }
+
+    /** @return list<string> each History row's "Open … link" text (or View/Download pair), in V1..Vn order */
+    private function historyLinkTexts(string $historyHtml): array
+    {
+        preg_match_all('/<i class="bi bi-box-arrow-up-right"><\/i>\s*([^\n<]*)/', $historyHtml, $matches);
+
+        return array_map('trim', $matches[1]);
     }
 }
