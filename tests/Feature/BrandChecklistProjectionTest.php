@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\BrandChecklistProjectionService;
 use App\Services\ContentItemService;
 use App\Services\InvoiceService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -378,6 +379,106 @@ class BrandChecklistProjectionTest extends TestCase
         $this->actingAs($manager);
         $html = view('checklist.show', $data)->render();
         $this->assertStringContainsString('published by —', $html);
+    }
+
+    // ── Timezone — stored UTC timestamps display as Asia/Dhaka (UTC+06:00) ──
+
+    public function test_submission_timestamp_displays_in_asia_dhaka_not_utc(): void
+    {
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $brand = $this->readyBrand($manager);
+
+        // config('app.timezone') is UTC, so now() at this frozen instant is
+        // exactly the stored created_at — the worked example from the spec.
+        $this->travelTo(Carbon::parse('2026-10-06 03:50:00', 'UTC'));
+        $item = $this->service()->create($brand, ['category' => 'poster', 'title' => 'Timezone Poster'], $content);
+        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/tz.jpg'], $content);
+
+        $page = $this->actingAs($manager)->get(route('marketing.checklist', $brand));
+        $page->assertOk();
+        $page->assertDontSee('03:50 AM');
+        $page->assertSee('06 Oct 2026, 09:50 AM');
+    }
+
+    public function test_collection_and_publication_timestamps_display_in_asia_dhaka(): void
+    {
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $brand = $this->readyBrand($manager);
+
+        // A second version so the collapsible History section — where
+        // collected_at/published_at render — is actually reached (a
+        // single-submission item never shows it; see the "missing
+        // publisher" test above for the same lesson).
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Collect Publish TZ'], $content);
+        $submission1 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->service()->collect($item->fresh(), $smm);
+        $this->service()->publish($item->fresh(), $brand, $submission1->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
+        $this->actingAs($marketing)->postJson(
+            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
+        )->assertOk();
+        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
+        $submission2 = ContentItemSubmission::where('content_item_id', $item->id)->where('id', '!=', $submission1->id)->first();
+
+        $this->travelTo(Carbon::parse('2026-10-06 04:15:00', 'UTC'));
+        $this->service()->collect($item->fresh(), $smm);
+
+        $this->travelTo(Carbon::parse('2026-10-06 05:30:00', 'UTC'));
+        $this->service()->publish($item->fresh(), $brand, $submission2->fresh(), ['facebook_post_url' => 'https://facebook.com/v2'], $smm);
+
+        $page = $this->actingAs($manager)->get(route('marketing.checklist', $brand));
+        $page->assertOk();
+        // 04:15 UTC -> 10:15 AM Dhaka; 05:30 UTC -> 11:30 AM Dhaka.
+        $page->assertSee('10:15 AM');
+        $page->assertSee('11:30 AM');
+        $page->assertDontSee('04:15 AM');
+        $page->assertDontSee('05:30 AM');
+    }
+
+    public function test_v1_and_v2_history_timestamps_both_convert_to_asia_dhaka(): void
+    {
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'poster', 'title' => 'TZ History Poster'], $content);
+        $this->travelTo(Carbon::parse('2026-10-06 00:00:00', 'UTC'));
+        $submission1 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->service()->collect($item->fresh(), $smm);
+        $this->service()->publish($item->fresh(), $brand, $submission1->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
+        $this->actingAs($marketing)->postJson(
+            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
+        )->assertOk();
+
+        // 18:00 UTC -> 07 Oct 2026, 12:00 AM Dhaka — also proves the DATE,
+        // not just the hour, shifts across midnight correctly.
+        $this->travelTo(Carbon::parse('2026-10-06 18:00:00', 'UTC'));
+        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
+        $submission2 = ContentItemSubmission::where('content_item_id', $item->id)->where('id', '!=', $submission1->id)->first();
+        $this->service()->collect($item->fresh(), $smm);
+        $this->service()->publish($item->fresh(), $brand, $submission2->fresh(), ['facebook_post_url' => 'https://facebook.com/v2'], $smm);
+
+        $page = $this->actingAs($manager)->get(route('marketing.checklist', $brand));
+        $page->assertOk();
+        // V1's whole cluster of events happened at UTC midnight -> 06:00 AM Dhaka.
+        $page->assertSee('06 Oct 2026, 06:00 AM');
+        // V2's happened at 18:00 UTC -> past midnight Dhaka, the next calendar day.
+        $page->assertSee('07 Oct 2026, 12:00 AM');
+        // The un-converted raw-UTC rendering of that same instant must not leak through.
+        $page->assertDontSee('06 Oct 2026, 06:00 PM');
+
+        // Submitted-by/collected-by/published-by relationships are unaffected by this change.
+        $row = $page->viewData('categories')['poster']->firstWhere(fn ($r) => $r['item']->id === $item->id);
+        $this->assertSame($content->id, $row['history'][0]['submission']->submittedBy->id);
+        $this->assertSame($smm->id, $row['history'][0]['collection']->collectedBy->id);
+        $this->assertSame($smm->id, $row['history'][0]['publication']->publishedBy->id);
+        $this->assertSame('revision_requested', $row['history'][0]['review_state']);
+        $this->assertSame('awaiting_review', $row['history'][1]['review_state']);
     }
 
     // ── TEST 15 — Old submitted file remains downloadable after V2 exists ──

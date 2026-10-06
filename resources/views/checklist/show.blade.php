@@ -21,6 +21,11 @@
     $reviewSpill = [
         'reviewed' => 'spill-completed', 'revision_requested' => 'spill-cancelled', 'awaiting_review' => 'spill-hold',
     ];
+    // Stored/computed in UTC (config('app.timezone') is 'UTC', unchanged
+    // here) — this page's audience is Bangladesh-local, so every
+    // user-facing timestamp on it converts explicitly to Asia/Dhaka via
+    // Carbon's timezone-aware setTimezone(), never by adding hours.
+    $dhaka = fn ($at) => $at ? $at->copy()->setTimezone('Asia/Dhaka')->format('d M Y, h:i A') : null;
 @endphp
 
 @push('styles')
@@ -94,7 +99,7 @@
                             Created by {{ $item->createdBy?->name ?? '—' }}
                             @if($latest)
                                 · Latest {{ $latest['version_label'] }} submitted by {{ $latest['submission']->submittedBy?->name ?? '—' }}
-                                on {{ $latest['submission']->created_at?->format('d M Y, h:i A') }}
+                                on {{ $dhaka($latest['submission']->created_at) }}
                             @endif
                         </div>
                     </div>
@@ -129,13 +134,13 @@
                                         <strong>{{ $version['version_label'] }}</strong>
                                         <span class="cl-item-meta">
                                             — submitted by {{ $version['submission']->submittedBy?->name ?? '—' }}
-                                            on {{ $version['submission']->created_at?->format('d M Y, h:i A') }}
+                                            on {{ $dhaka($version['submission']->created_at) }}
                                             @if($version['collection'])
-                                                · collected by {{ $version['collection']->collectedBy?->name ?? '—' }} on {{ $version['collection']->collected_at?->format('d M Y, h:i A') }}
+                                                · collected by {{ $version['collection']->collectedBy?->name ?? '—' }} on {{ $dhaka($version['collection']->collected_at) }}
                                             @endif
                                             @if($version['publication'])
                                                 · published by {{ $version['publication']->publishedBy?->name ?? '—' }}
-                                                on {{ $version['publication']->published_at?->format('d M Y, h:i A') }}
+                                                on {{ $dhaka($version['publication']->published_at) }}
                                                 @if($version['publication']->facebook_post_url)
                                                     (<a href="{{ $version['publication']->facebook_post_url }}" target="_blank" rel="noopener">post</a>)
                                                 @endif
