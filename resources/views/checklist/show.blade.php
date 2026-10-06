@@ -113,6 +113,23 @@
                                 on {{ $dhaka($latest['submission']->created_at) }}
                             @endif
                         </div>
+                        {{-- History already carries this per version once there's
+                             more than one — showing it here too would just repeat
+                             the same fact twice. A single-version item never gets
+                             a History section at all, so this is its only place to
+                             show who published it, when, and the post link. Reads
+                             straight from $latest['publication'], the exact same
+                             submission-scoped lookup History itself uses — never
+                             the item's newest publication across versions. --}}
+                        @if($latest && $row['history']->count() <= 1 && $latest['publication'])
+                            <div class="cl-item-meta">
+                                Published by {{ $latest['publication']->publishedBy?->name ?? '—' }}
+                                on {{ $dhaka($latest['publication']->published_at) }}
+                                @if($latest['publication']->facebook_post_url)
+                                    · <a href="{{ $latest['publication']->facebook_post_url }}" target="_blank" rel="noopener noreferrer">View post</a>
+                                @endif
+                            </div>
+                        @endif
                     </div>
                     <div class="d-flex align-items-center gap-2 flex-wrap">
                         <span class="spill {{ $statusSpill[$item->status] ?? 'spill-hold' }}">{{ $statusLabel[$item->status] ?? $item->status }}</span>

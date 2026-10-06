@@ -756,4 +756,159 @@ class BrandChecklistProjectionTest extends TestCase
 
         return array_map('trim', $matches[1]);
     }
+
+    // ── Single-version items show publication metadata inline (no History to carry it) ──
+
+    public function test_a_single_version_unpublished_item_shows_no_publication_metadata(): void
+    {
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Unpublished Solo'], $content);
+        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+
+        $page = $this->actingAs($manager)->get(route('marketing.checklist', $brand));
+        $page->assertOk();
+        $page->assertDontSee('Published by');
+        $page->assertDontSee('View post');
+    }
+
+    public function test_a_single_version_published_item_shows_publication_metadata_with_dhaka_timestamp_and_post_link(): void
+    {
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Published Solo'], $content);
+        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->service()->collect($item->fresh(), $smm);
+
+        $this->travelTo(Carbon::parse('2026-10-06 06:15:00', 'UTC'));
+        $published = $this->service()->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/solo'], $smm);
+
+        $page = $this->actingAs($manager)->get(route('marketing.checklist', $brand));
+        $page->assertOk();
+        $page->assertSee('Published by '.$smm->name);
+        // 06:15 UTC -> 12:15 PM Dhaka — the same conversion History already uses.
+        $page->assertSee('06 Oct 2026, 12:15 PM');
+        $page->assertSee('View post');
+        $page->assertSee($published->facebook_post_url);
+        // A single version never gets a History control at all.
+        $page->assertDontSee('History (');
+    }
+
+    public function test_a_single_version_published_item_with_null_post_url_shows_metadata_without_a_broken_link(): void
+    {
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'No Post URL Solo'], $content);
+        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->service()->collect($item->fresh(), $smm);
+        $this->service()->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/solo'], $smm);
+
+        $data = app(BrandChecklistProjectionService::class)->detail($brand->fresh());
+        $row = $data['categories']['raw_content']->firstWhere(fn ($r) => $r['item']->id === $item->id);
+        // facebook_post_url is NOT NULL at the schema level, so an empty one
+        // can't exist in the database — this nulls the already-loaded model
+        // in memory only (never saved) to exercise the view's defensive
+        // branch, the same technique the "missing publisher" test above
+        // uses for a null publishedBy relation.
+        $row['latest']['publication']->facebook_post_url = null;
+
+        $this->actingAs($manager);
+        $html = view('checklist.show', $data)->render();
+        $this->assertStringContainsString('Published by '.$smm->name, $html);
+        $this->assertStringNotContainsString('View post', $html);
+        $this->assertStringNotContainsString('href=""', $html);
+    }
+
+    public function test_a_single_version_reviewed_publication_keeps_metadata_and_reviewed_state(): void
+    {
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Reviewed Solo'], $content);
+        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->service()->collect($item->fresh(), $smm);
+        $published = $this->service()->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/solo'], $smm);
+        $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published]))->assertOk();
+
+        $page = $this->actingAs($manager)->get(route('marketing.checklist', $brand));
+        $page->assertOk();
+        $page->assertSee('Reviewed');
+        $page->assertSee('Published by '.$smm->name);
+        $page->assertSee('View post');
+    }
+
+    public function test_a_single_version_revision_requested_publication_keeps_metadata_as_history(): void
+    {
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Revise Solo'], $content);
+        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->service()->collect($item->fresh(), $smm);
+        $this->service()->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/solo'], $smm);
+        $this->actingAs($marketing)->postJson(
+            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
+        )->assertOk();
+
+        $page = $this->actingAs($manager)->get(route('marketing.checklist', $brand));
+        $page->assertOk();
+        $page->assertSee('Revision requested');
+        // The old publication is historical/audit information — a revision
+        // request on the item doesn't erase or hide it.
+        $page->assertSee('Published by '.$smm->name);
+        $page->assertSee('View post');
+    }
+
+    public function test_the_latest_submissions_exact_publication_is_used_never_an_earlier_versions(): void
+    {
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Two Publications'], $content);
+        $submission1 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->service()->collect($item->fresh(), $smm);
+        $this->service()->publish($item->fresh(), $brand, $submission1->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
+        $this->actingAs($marketing)->postJson(
+            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
+        )->assertOk();
+
+        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
+        $submission2 = ContentItemSubmission::where('content_item_id', $item->id)->where('id', '!=', $submission1->id)->first();
+        $this->service()->collect($item->fresh(), $smm);
+        $this->service()->publish($item->fresh(), $brand, $submission2->fresh(), ['facebook_post_url' => 'https://facebook.com/v2'], $smm);
+
+        $data = app(BrandChecklistProjectionService::class)->detail($brand->fresh());
+        $row = $data['categories']['raw_content']->firstWhere(fn ($r) => $r['item']->id === $item->id);
+        $this->assertCount(2, $row['history']);
+        $this->assertSame('https://facebook.com/v2', $row['latest']['publication']->facebook_post_url);
+
+        // Now that there are two versions, the top-level row must not show
+        // the single-version publication line at all — History (lowercase
+        // "published by", already proven correct per-version by the
+        // existing V1/V2 isolation test) is the detailed source instead.
+        $this->actingAs($manager);
+        $html = view('checklist.show', $data)->render();
+        [$latestHtml, $historyHtml] = $this->splitLatestAndHistoryHtml($html);
+        $this->assertStringNotContainsString('Published by', $latestHtml);
+        $this->assertStringContainsString('published by', $historyHtml);
+        $this->assertStringContainsString('https://facebook.com/v1', $historyHtml);
+        $this->assertStringContainsString('https://facebook.com/v2', $historyHtml);
+    }
 }
