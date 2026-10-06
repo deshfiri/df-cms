@@ -495,4 +495,37 @@ class MarketingBrandPageIntegrationTest extends TestCase
         $response->assertSee('id="mkAddProduct"', false);
         $response->assertSee('id="mkNewProduct"', false);
     }
+
+    /**
+     * Follow-up manual QA: the Echo fix above was confirmed in real Chrome,
+     * but clicking "+" with the name field empty still did nothing visible —
+     * no console error, no request, no feedback. Investigated every other
+     * angle first (exactly one #mkAddProduct/#mkNewProduct each, the script
+     * is syntactically balanced start to finish — checked with a dedicated
+     * brace/string/comment-aware scanner over the actual rendered output,
+     * not just the source — runs and finishes binding before the realtime
+     * widget that was already cleared, routes/CSRF/controller already
+     * covered above). The one concrete defect found: `if (!name) return;`
+     * had zero visible feedback — structurally indistinguishable, to a
+     * user, from the button not working at all. PHPUnit cannot execute
+     * browser JS to prove a click fires this code path, so this instead
+     * proves the two things that are actually checkable: the old silent
+     * early-return is gone from the rendered script, and an Enter-key
+     * handler now exists alongside the click handler. Final confirmation
+     * that the button responds to a real click in Chrome is manual (see
+     * the report's QA steps).
+     */
+    public function test_the_product_name_field_no_longer_fails_silently_when_empty(): void
+    {
+        $marketing = $this->marketing();
+        $client = $this->client();
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
+
+        $response = $this->actingAs($marketing)->get(route('marketing.brand', $brand));
+
+        $response->assertOk();
+        $response->assertSee("Swal.fire('Missing name', 'Enter a product name first.', 'warning')", false);
+        $response->assertSee("\$('#mkNewProduct').on('keydown'", false);
+        $response->assertDontSee('if (!name) return;', false);
+    }
 }

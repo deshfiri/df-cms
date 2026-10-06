@@ -679,14 +679,29 @@ if ($('#mkProductRows').length) {
         });
     }
 
-    $('#mkAddProduct').on('click', function () {
+    function addProduct() {
         const name = $('#mkNewProduct').val().trim();
-        if (!name) return;
-        const $btn = $(this).prop('disabled', true);
+        // An empty field used to just `return` here with nothing on screen —
+        // indistinguishable from the button not working at all. Now it says
+        // so, the same way every other "missing required field" check on
+        // this page already does.
+        if (!name) {
+            Swal.fire('Missing name', 'Enter a product name first.', 'warning');
+            $('#mkNewProduct').trigger('focus');
+            return;
+        }
+        const $btn = $('#mkAddProduct').prop('disabled', true);
         $.post(PRODUCTS_URL, { name: name })
             .done(function () { $('#mkNewProduct').val(''); loadProducts(); })
             .fail(x => Swal.fire('Error', x.responseJSON?.message || 'Could not save.', 'error'))
             .always(() => $btn.prop('disabled', false));
+    }
+
+    $('#mkAddProduct').on('click', addProduct);
+    // Enter submits too, same as pressing the + button — consistent with
+    // every other single-line "add" field elsewhere in this app.
+    $('#mkNewProduct').on('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); addProduct(); }
     });
 
     $('#mkProductRows').on('click', '.mk-prod-toggle', function () {
