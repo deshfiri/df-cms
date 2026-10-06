@@ -173,6 +173,22 @@ final class StoredFileResponse
      * builds; the CSP below is defense in depth on top of it, not a
      * replacement for it. We are not sanitizing PDF content (no stripping
      * of embedded JS/actions/forms) — that is explicitly out of scope here.
+     *
+     * The PDF branch deliberately omits the "sandbox" CSP token that the
+     * image branch still uses. Chrome's built-in PDF viewer is implemented
+     * as a privileged internal component that needs script/extension
+     * execution to render anything at all; a top-level navigation whose
+     * response carries "Content-Security-Policy: sandbox" forces that
+     * navigation into a restricted, script-less context the viewer cannot
+     * run in, so Chrome refuses the load outright (surfaces to the user as
+     * ERR_BLOCKED_BY_CLIENT, indistinguishable at a glance from an
+     * extension/ad-blocker block — confirmed by manual QA against this
+     * exact endpoint, and matches long-documented Chromium behavior).
+     * Plain <img> rendering has no such internal-extension dependency, so
+     * "sandbox" never broke the image branch. "frame-ancestors 'none'"
+     * takes over the one property "sandbox" was actually contributing here
+     * (this resource can't be framed by another page) without that cost —
+     * it has no effect on our own top-level-tab flow either way.
      */
     public static function preview(?string $disk, string $path, string $name, ?string $mime, ?int $size = null, bool $allowDocuments = false): StreamedResponse
     {
@@ -183,7 +199,7 @@ final class StoredFileResponse
 
         $response = self::make($disk, $path, $name, $mime, $size, HeaderUtils::DISPOSITION_INLINE);
         $response->headers->set('Content-Security-Policy', $isPdf
-            ? "default-src 'none'; sandbox"
+            ? "default-src 'none'; frame-ancestors 'none'"
             : "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
         $response->headers->set('Cache-Control', 'private, max-age=600');
         $response->headers->set('Cross-Origin-Resource-Policy', 'same-origin');

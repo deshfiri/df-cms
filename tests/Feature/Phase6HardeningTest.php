@@ -605,7 +605,8 @@ class Phase6HardeningTest extends TestCase
         $manager = $this->user('Manager', ['manage payments']);
         $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
         $brand = $this->readyBrand($manager);
-        [$item, $submission] = $this->itemWithPdfSubmission($brand, $content);
+        $pdfBytes = "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF";
+        [$item, $submission] = $this->itemWithPdfSubmission($brand, $content, 'document.pdf', $pdfBytes);
 
         $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item, $submission]));
 
@@ -613,9 +614,27 @@ class Phase6HardeningTest extends TestCase
         $response->assertHeader('Content-Type', 'application/pdf');
         $this->assertStringContainsString('inline', (string) $response->headers->get('Content-Disposition'));
         $response->assertHeader('X-Content-Type-Options', 'nosniff');
-        $response->assertHeader('Content-Security-Policy');
         $response->assertHeader('Cache-Control');
         $response->assertHeader('Cross-Origin-Resource-Policy', 'same-origin');
+
+        // The regression this exists to catch: a browser-native PDF viewer
+        // (Chrome's own) needs script/extension execution to run at all, so
+        // a CSP "sandbox" token on a top-level PDF navigation makes Chrome
+        // refuse the load outright (ERR_BLOCKED_BY_CLIENT) — found by manual
+        // QA, not by any automated test, which is exactly why this
+        // assertion exists now. A CSP header is still expected, just never
+        // one that disables the one thing the browser needs to render it.
+        $csp = (string) $response->headers->get('Content-Security-Policy');
+        $this->assertNotEmpty($csp);
+        $this->assertStringNotContainsString('sandbox', $csp);
+
+        // Full byte-for-byte equality, not just a "starts with %PDF-" check:
+        // detectMimeType() and make() each open their own independent
+        // readStream() call on the same path, so proving the response body
+        // matches the original content byte-for-byte rules out the sniffing
+        // read leaving the response's own stream mis-positioned.
+        $this->assertStringStartsWith('%PDF-', $response->streamedContent());
+        $this->assertSame($pdfBytes, $response->streamedContent());
     }
 
     /**
