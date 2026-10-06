@@ -142,11 +142,16 @@ class ContentItemController extends Controller
      * downloadSubmission() above — the only difference is what
      * StoredFileResponse is asked to do with the file. content_item_
      * submissions stores no mime_type, so the real type is detected here,
-     * for this one file, at the moment it's actually requested (a single
-     * cheap metadata call — see StoredFileResponse::detectMimeType()),
+     * for this one file, at the moment it's actually requested (a bounded
+     * read of its actual bytes — see StoredFileResponse::detectMimeType()),
      * never assumed from its extension. preview() itself refuses anything
-     * that isn't a genuinely safe raster image, so a submission mislabelled
-     * with an image extension is still never rendered inline.
+     * that isn't a genuinely safe raster image or a genuinely PDF-signed
+     * PDF, so a submission mislabelled with a safe extension is still never
+     * rendered inline as something it isn't.
+     *
+     * allowDocuments: true is passed only here — task and flow-item
+     * attachment previews (TaskController, FlowItemController) still call
+     * preview() without it, so PDFs remain refused there exactly as before.
      */
     public function previewSubmission(Request $request, Brand $brand, ContentItem $contentItem, ContentItemSubmission $submission): StreamedResponse
     {
@@ -162,6 +167,7 @@ class ContentItemController extends Controller
             (string) $submission->file_path,
             basename((string) $submission->file_path),
             $mime,
+            allowDocuments: true,
         );
     }
 

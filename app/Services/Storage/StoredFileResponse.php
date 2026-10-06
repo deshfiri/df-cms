@@ -31,15 +31,24 @@ final class StoredFileResponse
     public const PREVIEWABLE_IMAGES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp'];
 
     /**
-     * The extensions that correspond to PREVIEWABLE_IMAGES — a cheap, I/O-free
-     * hint for whether a listing should even offer a View button, nothing
-     * more. An upload's real content is never decided by this: looksPreviewable()
-     * only gates a button render; detectMimeType() + preview()'s own
-     * isPreviewableImage() check are what actually decide whether a file
-     * is ever streamed inline. A file renamed to a safe extension still
-     * gets refused by that real check — see detectMimeType().
+     * The one non-image document type a browser may also render inline —
+     * every modern browser has its own sandboxed PDF viewer, isolated from
+     * this origin's page scripts, which is the only reason this is safe
+     * without building a PDF sanitizer (see preview()'s docblock).
      */
-    public const PREVIEWABLE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'];
+    public const PREVIEWABLE_DOCUMENTS = ['application/pdf'];
+
+    /**
+     * The extensions that correspond to PREVIEWABLE_IMAGES/PREVIEWABLE_DOCUMENTS
+     * — a cheap, I/O-free hint for whether a listing should even offer a View
+     * button, nothing more. An upload's real content is never decided by
+     * this: looksPreviewable() only gates a button render; detectMimeType()
+     * + preview()'s own isPreviewableImage()/isPreviewableDocument() checks
+     * are what actually decide whether a file is ever streamed inline. A
+     * file renamed to a safe extension still gets refused by that real
+     * check — see detectMimeType().
+     */
+    public const PREVIEWABLE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'pdf'];
 
     public static function download(?string $disk, string $path, string $name, ?string $mime = null, ?int $size = null): StreamedResponse
     {
@@ -49,6 +58,11 @@ final class StoredFileResponse
     public static function isPreviewableImage(?string $mime): bool
     {
         return in_array(strtolower((string) $mime), self::PREVIEWABLE_IMAGES, true);
+    }
+
+    public static function isPreviewableDocument(?string $mime): bool
+    {
+        return in_array(strtolower((string) $mime), self::PREVIEWABLE_DOCUMENTS, true);
     }
 
     /**
@@ -89,6 +103,14 @@ final class StoredFileResponse
      * same problem one step earlier: it's whatever the upload believed at
      * write time, not a reflection of the bytes on read. Reading the
      * content itself and sniffing it here sidesteps both.
+     *
+     * PDF gets one extra, explicit check on top of finfo's own verdict: its
+     * sample must literally start with the "%PDF-" signature. finfo already
+     * requires this internally to report application/pdf at all, so this
+     * never changes finfo's answer — it's a second, independent read of the
+     * same bytes already in hand, not a second disk round trip, kept
+     * because a PDF is the one previewable type whose bytes go straight to
+     * the browser's own document viewer rather than an <img> tag.
      */
     public static function detectMimeType(?string $disk, string $path): ?string
     {
@@ -104,9 +126,10 @@ final class StoredFileResponse
             return null;
         }
 
-        // Every format in PREVIEWABLE_IMAGES carries its magic bytes in its
-        // first few dozen bytes, so a small fixed sample is enough — this
-        // never reads the rest of the file.
+        // Every format in PREVIEWABLE_IMAGES/PREVIEWABLE_DOCUMENTS carries
+        // its magic bytes in its first few dozen bytes, so a small fixed
+        // sample is enough — this never reads the rest of the file, however
+        // large it is.
         $sample = fread($stream, 8192);
         fclose($stream);
 
@@ -114,22 +137,54 @@ final class StoredFileResponse
             return null;
         }
 
-        $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($sample);
+        $mime = strtolower((string) (new \finfo(FILEINFO_MIME_TYPE))->buffer($sample));
 
-        return $mime ?: null;
+        if ($mime === '') {
+            return null;
+        }
+
+        if ($mime === 'application/pdf' && ! str_starts_with($sample, '%PDF-')) {
+            return null;
+        }
+
+        return $mime;
     }
 
     /**
-     * An image shown in the page rather than saved — for thumbnails and the
-     * lightbox. Refuses anything outside PREVIEWABLE_IMAGES, and locks the
-     * response down so even a mislabelled file cannot act as a page.
+     * A file shown in the browser rather than saved — images for thumbnails
+     * and the lightbox everywhere this is called, PDFs opened in their own
+     * tab wherever the caller opts in. Refuses anything outside
+     * PREVIEWABLE_IMAGES (plus PREVIEWABLE_DOCUMENTS when $allowDocuments is
+     * true), and locks the response down so even a mislabelled file cannot
+     * act as a page.
+     *
+     * $allowDocuments defaults false so every existing caller (task
+     * attachments, flow item attachments) keeps refusing PDFs exactly as
+     * before — only ContentItemController::previewSubmission() passes true.
+     * That caller also only ever hands this a server-sniffed $mime from
+     * detectMimeType(), never a stored/client-reported one, so a PDF only
+     * gets this far on the strength of its actual bytes.
+     *
+     * A PDF is never embedded in this app's own DOM (no <iframe>/<object>) —
+     * it is only ever opened as a new top-level tab, so the browser's own
+     * PDF viewer renders it in a browsing context isolated from this
+     * origin's page scripts and cookies-bearing DOM. That isolation is the
+     * browser vendor's own security boundary, not something this response
+     * builds; the CSP below is defense in depth on top of it, not a
+     * replacement for it. We are not sanitizing PDF content (no stripping
+     * of embedded JS/actions/forms) — that is explicitly out of scope here.
      */
-    public static function preview(?string $disk, string $path, string $name, ?string $mime, ?int $size = null): StreamedResponse
+    public static function preview(?string $disk, string $path, string $name, ?string $mime, ?int $size = null, bool $allowDocuments = false): StreamedResponse
     {
-        abort_unless(self::isPreviewableImage($mime), 415, 'This file cannot be previewed. Download it instead.');
+        $mime = strtolower((string) $mime);
+        $isPdf = $allowDocuments && self::isPreviewableDocument($mime);
 
-        $response = self::make($disk, $path, $name, strtolower((string) $mime), $size, HeaderUtils::DISPOSITION_INLINE);
-        $response->headers->set('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
+        abort_unless(self::isPreviewableImage($mime) || $isPdf, 415, 'This file cannot be previewed. Download it instead.');
+
+        $response = self::make($disk, $path, $name, $mime, $size, HeaderUtils::DISPOSITION_INLINE);
+        $response->headers->set('Content-Security-Policy', $isPdf
+            ? "default-src 'none'; sandbox"
+            : "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
         $response->headers->set('Cache-Control', 'private, max-age=600');
         $response->headers->set('Cross-Origin-Resource-Policy', 'same-origin');
 

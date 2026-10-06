@@ -588,6 +588,221 @@ class Phase6HardeningTest extends TestCase
         $response->assertForbidden();
     }
 
+    // ── Item 5c: secure PDF preview ──────────────────────────────────────────
+
+    private function itemWithPdfSubmission(Brand $brand, User $content, string $name = 'document.pdf', ?string $bytes = null): array
+    {
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item '.uniqid()], $content);
+        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+            'file' => UploadedFile::fake()->createWithContent($name, $bytes ?? "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF"),
+        ], $content);
+
+        return [$item->fresh(), $submission];
+    }
+
+    public function test_a_workflow_user_can_preview_a_genuine_pdf_submission(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithPdfSubmission($brand, $content);
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item, $submission]));
+
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'application/pdf');
+        $this->assertStringContainsString('inline', (string) $response->headers->get('Content-Disposition'));
+        $response->assertHeader('X-Content-Type-Options', 'nosniff');
+        $response->assertHeader('Content-Security-Policy');
+        $response->assertHeader('Cache-Control');
+        $response->assertHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    }
+
+    /**
+     * A genuine PDF mislabelled with an image extension must still preview as
+     * a PDF — detectMimeType() reads the real bytes, never the extension, so
+     * looksPreviewable()'s image-extension hint being true changes nothing
+     * about what the server actually serves.
+     */
+    public function test_a_real_pdf_renamed_with_a_jpg_extension_is_still_served_as_pdf(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithPdfSubmission($brand, $content, 'disguised.jpg');
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item, $submission]));
+
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'application/pdf');
+    }
+
+    /**
+     * The PDF counterpart of the plain-text-renamed-to-".jpg" regression
+     * test above: a non-PDF file named ".pdf" must never be streamed inline
+     * as if it were one.
+     */
+    public function test_a_non_pdf_file_renamed_with_a_pdf_extension_is_not_previewable(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
+        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+            'file' => UploadedFile::fake()->createWithContent('malicious.pdf', 'This is plain text content, not a PDF file at all.'),
+        ], $content);
+
+        $this->assertTrue(StoredFileResponse::looksPreviewable($submission->file_path));
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $submission]));
+
+        $response->assertStatus(415);
+    }
+
+    /**
+     * A real JPEG named ".pdf" must be served as what it actually is (an
+     * image), never coerced into a PDF response just because of its name.
+     */
+    public function test_a_jpeg_renamed_with_a_pdf_extension_is_served_as_an_image_not_a_pdf(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
+        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+            'file' => UploadedFile::fake()->image('fake.pdf'),
+        ], $content);
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $submission]));
+
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'image/jpeg');
+    }
+
+    public function test_an_svg_renamed_with_a_pdf_extension_is_not_previewable(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
+        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+            'file' => UploadedFile::fake()->createWithContent('image.pdf', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),
+        ], $content);
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $submission]));
+
+        $response->assertStatus(415);
+    }
+
+    public function test_a_guest_cannot_preview_a_pdf_submission(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithPdfSubmission($brand, $content);
+
+        $response = $this->get(route('marketing.content-items.submissions.preview', [$brand, $item, $submission]));
+
+        $response->assertRedirect(route('login'));
+    }
+
+    public function test_a_user_without_any_panel_permission_cannot_preview_a_pdf(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $bystander = $this->user('Website');
+        $brand = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithPdfSubmission($brand, $content);
+
+        $response = $this->actingAs($bystander)->get(route('marketing.content-items.submissions.preview', [$brand, $item, $submission]));
+
+        $response->assertForbidden();
+    }
+
+    public function test_previewing_a_pdf_submission_through_the_wrong_brand_404s(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brandA = $this->readyBrand($manager);
+        $brandB = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithPdfSubmission($brandA, $content);
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brandB, $item, $submission]));
+
+        $response->assertNotFound();
+    }
+
+    public function test_previewing_a_pdf_submission_belonging_to_a_different_item_404s(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        [$itemA, $submissionA] = $this->itemWithPdfSubmission($brand, $content);
+        [$itemB] = $this->itemWithPdfSubmission($brand, $content);
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $itemB, $submissionA]));
+
+        $response->assertNotFound();
+    }
+
+    public function test_previewing_v1_pdf_never_returns_v2_pdfs_file(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Versioned PDF'], $content);
+
+        $v1 = app(ContentItemService::class)->submit($item->fresh(), [
+            'file' => UploadedFile::fake()->createWithContent('v1.pdf', "%PDF-1.4\n%version-one\n%%EOF"),
+        ], $content);
+        $v2 = app(ContentItemService::class)->submit($item->fresh(), [
+            'file' => UploadedFile::fake()->createWithContent('v2.pdf', "%PDF-1.4\n%version-two-with-more-bytes\n%%EOF"),
+        ], $content);
+
+        $responseV1 = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $v1]));
+        $responseV2 = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $v2]));
+
+        $responseV1->assertOk();
+        $responseV2->assertOk();
+        $this->assertNotEquals($responseV1->streamedContent(), $responseV2->streamedContent());
+    }
+
+    public function test_pdf_download_behavior_is_unaffected_by_pdf_preview(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithPdfSubmission($brand, $content);
+
+        $download = $this->actingAs($content)->get(route('marketing.content-items.submissions.download', [$brand, $item, $submission]));
+
+        $download->assertOk();
+        $this->assertStringContainsString('attachment', (string) $download->headers->get('Content-Disposition'));
+        $download->assertHeader('Content-Type', 'application/octet-stream');
+    }
+
+    /** Same authorization matrix as the image case — confirms PDF preview adds no new permission. */
+    public function test_every_role_that_can_download_can_also_preview_a_pdf(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithPdfSubmission($brand, $content);
+
+        foreach ([
+            'view raw-content-panel', 'view designer-panel', 'view smm-panel', 'view brand-checklist-overview',
+            'manage publishing-review', 'manage content-charges', 'manage advertising-expenditure',
+        ] as $permission) {
+            $viewer = $this->user('Viewer', [$permission]);
+
+            $downloadResponse = $this->actingAs($viewer)->get(route('marketing.content-items.submissions.download', [$brand, $item, $submission]));
+            $previewResponse = $this->actingAs($viewer)->get(route('marketing.content-items.submissions.preview', [$brand, $item, $submission]));
+
+            $downloadResponse->assertOk();
+            $previewResponse->assertOk();
+        }
+    }
+
     // ── Item 6: query hardening ─────────────────────────────────────────────
 
     public function test_budget_table_does_not_scale_queries_per_brand(): void
