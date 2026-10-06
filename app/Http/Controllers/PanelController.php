@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Brand;
 use App\Models\ContentItem;
+use App\Models\ContentItemSubmission;
 use App\Models\PublishedContent;
+use App\Services\Storage\StoredFileResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -119,6 +121,16 @@ class PanelController extends Controller
 
     private function presentItem(ContentItem $item, array $extra = []): array
     {
+        // Cheap, I/O-free extension check only — whether View renders at
+        // all. The actual security decision happens server-side, on the
+        // real detected MIME, the moment someone clicks it — see
+        // ContentItemController::previewSubmission() and
+        // StoredFileResponse::looksPreviewable()'s own docblock.
+        if (($extra['submission'] ?? null) instanceof ContentItemSubmission) {
+            $extra['submission']->setAttribute('previewable', StoredFileResponse::looksPreviewable($extra['submission']->file_path));
+            $extra['submission']->syncOriginalAttribute('previewable');
+        }
+
         return array_merge([
             'id' => $item->id,
             'brand_id' => $item->brand_id,

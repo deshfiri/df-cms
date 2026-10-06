@@ -392,6 +392,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('brands/{brand}/content-items/{contentItem}/collect', [ContentItemController::class, 'collect'])->name('content-items.collect');
         Route::post('brands/{brand}/content-items/{contentItem}/publish', [ContentItemController::class, 'publish'])->name('content-items.publish');
         Route::get('brands/{brand}/content-items/{contentItem}/submissions/{submission}/download', [ContentItemController::class, 'downloadSubmission'])->name('content-items.submissions.download');
+        Route::get('brands/{brand}/content-items/{contentItem}/submissions/{submission}/preview', [ContentItemController::class, 'previewSubmission'])->name('content-items.submissions.preview');
 
         // Phase 3: content-charge entry, advertising expenditure, publishing review.
         Route::post('brands/{brand}/content-charge', [MarketingBillingController::class, 'storeContentCharge'])->name('content-charge.store');

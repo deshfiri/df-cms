@@ -26,6 +26,9 @@
     // user-facing timestamp on it converts explicitly to Asia/Dhaka via
     // Carbon's timezone-aware setTimezone(), never by adding hours.
     $dhaka = fn ($at) => $at ? $at->copy()->setTimezone('Asia/Dhaka')->format('d M Y, h:i A') : null;
+    // Cheap UI hint only — see StoredFileResponse::looksPreviewable()'s own
+    // docblock for why this never decides what's actually streamed.
+    $looksPreviewable = fn ($path) => \App\Services\Storage\StoredFileResponse::looksPreviewable($path);
 @endphp
 
 @push('styles')
@@ -109,6 +112,11 @@
                             <span class="spill {{ $reviewSpill[$latest['review_state']] }}">{{ $reviewLabel[$latest['review_state']] }}</span>
                         @endif
                         @if($latest && $latest['submission']->file_path)
+                            @if($looksPreviewable($latest['submission']->file_path))
+                                <a class="btn btn-sm btn-outline-secondary" href="{{ route('marketing.content-items.submissions.preview', [$brand, $item, $latest['submission']]) }}" target="_blank" rel="noopener noreferrer">
+                                    <i class="bi bi-eye"></i> View {{ $latest['version_label'] }}
+                                </a>
+                            @endif
                             <a class="btn btn-sm btn-outline-secondary" href="{{ route('marketing.content-items.submissions.download', [$brand, $item, $latest['submission']]) }}">
                                 <i class="bi bi-download"></i> Download {{ $latest['version_label'] }}
                             </a>
@@ -152,6 +160,11 @@
                                             <span class="spill {{ $reviewSpill[$version['review_state']] }}">{{ $reviewLabel[$version['review_state']] }}</span>
                                         @endif
                                         @if($version['submission']->file_path)
+                                            @if($looksPreviewable($version['submission']->file_path))
+                                                <a class="btn btn-sm btn-outline-secondary" href="{{ route('marketing.content-items.submissions.preview', [$brand, $item, $version['submission']]) }}" target="_blank" rel="noopener noreferrer">
+                                                    <i class="bi bi-eye"></i> View
+                                                </a>
+                                            @endif
                                             <a class="btn btn-sm btn-outline-secondary" href="{{ route('marketing.content-items.submissions.download', [$brand, $item, $version['submission']]) }}">
                                                 <i class="bi bi-download"></i> Download
                                             </a>

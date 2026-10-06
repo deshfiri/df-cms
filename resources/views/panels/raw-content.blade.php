@@ -145,8 +145,15 @@ function loadItems() {
         if (!rows.length) { $('#rcRows').html('<tr><td colspan="7" class="rc-empty">No content items match these filters.</td></tr>'); return; }
         $('#rcRows').html(rows.map(function (it) {
             const sub = it.submission;
-            const subDownloadUrl = '/marketing/brands/' + it.brand_id + '/content-items/' + it.id + '/submissions/' + (sub ? sub.id : '') + '/download';
-            const subText = sub ? (sub.link_url ? '<a href="' + escRawContent(sub.link_url) + '" target="_blank" rel="noopener">Link</a>' : (sub.file_path ? '<a href="' + escRawContent(subDownloadUrl) + '">Download file</a>' : '—')) : '—';
+            const subBaseUrl = '/marketing/brands/' + it.brand_id + '/content-items/' + it.id + '/submissions/' + (sub ? sub.id : '');
+            // previewable is computed server-side from the real file's
+            // extension (see PanelController::presentItem()) — never
+            // decided here; the preview endpoint re-checks the actual
+            // content before ever showing it.
+            const subText = sub ? (sub.link_url ? '<a href="' + escRawContent(sub.link_url) + '" target="_blank" rel="noopener">Link</a>' : (sub.file_path ? (
+                (sub.previewable ? '<a href="' + escRawContent(subBaseUrl + '/preview') + '" target="_blank" rel="noopener noreferrer">View</a> · ' : '')
+                + '<a href="' + escRawContent(subBaseUrl + '/download') + '">Download file</a>'
+            ) : '—')) : '—';
             const canSubmit = ['pending', 'in_progress', 'needs_revision'].includes(it.status);
             return '<tr>'
                 + '<td>' + escRawContent(it.brand) + '</td>'

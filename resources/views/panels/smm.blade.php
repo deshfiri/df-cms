@@ -115,9 +115,13 @@ function submissionLink(sub, brandId, itemId) {
     if (sub.link_url) return '<a href="' + escSmm(sub.link_url) + '" target="_blank" rel="noopener">Link</a>';
     if (!sub.file_path) return '—';
 
-    const url = '/marketing/brands/' + brandId + '/content-items/' + itemId + '/submissions/' + sub.id + '/download';
-
-    return '<a href="' + escSmm(url) + '">Download file</a>';
+    const baseUrl = '/marketing/brands/' + brandId + '/content-items/' + itemId + '/submissions/' + sub.id;
+    // previewable is computed server-side from the real file's
+    // extension (see PanelController::presentItem()) — never
+    // decided here; the preview endpoint re-checks the actual
+    // content before ever showing it.
+    return (sub.previewable ? '<a href="' + escSmm(baseUrl + '/preview') + '" target="_blank" rel="noopener noreferrer">View</a> · ' : '')
+        + '<a href="' + escSmm(baseUrl + '/download') + '">Download file</a>';
 }
 
 function loadAvailable() {

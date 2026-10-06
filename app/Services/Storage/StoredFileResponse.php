@@ -30,6 +30,17 @@ final class StoredFileResponse
      */
     public const PREVIEWABLE_IMAGES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp'];
 
+    /**
+     * The extensions that correspond to PREVIEWABLE_IMAGES — a cheap, I/O-free
+     * hint for whether a listing should even offer a View button, nothing
+     * more. An upload's real content is never decided by this: looksPreviewable()
+     * only gates a button render; detectMimeType() + preview()'s own
+     * isPreviewableImage() check are what actually decide whether a file
+     * is ever streamed inline. A file renamed to a safe extension still
+     * gets refused by that real check — see detectMimeType().
+     */
+    public const PREVIEWABLE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'];
+
     public static function download(?string $disk, string $path, string $name, ?string $mime = null, ?int $size = null): StreamedResponse
     {
         return self::make($disk, $path, $name, $mime, $size, HeaderUtils::DISPOSITION_ATTACHMENT);
@@ -38,6 +49,74 @@ final class StoredFileResponse
     public static function isPreviewableImage(?string $mime): bool
     {
         return in_array(strtolower((string) $mime), self::PREVIEWABLE_IMAGES, true);
+    }
+
+    /**
+     * Cheap, zero-I/O hint for whether a listing (a checklist row, a panel
+     * table) should render a View action at all — pure extension string
+     * matching, never a storage call. Safe to run for every row of a large
+     * list without a per-row network/disk round trip. Never the security
+     * decision: a mislabelled file that passes this still gets refused by
+     * detectMimeType() + preview()'s real check the moment anyone actually
+     * clicks View, so nothing is ever streamed on the strength of this
+     * check alone.
+     */
+    public static function looksPreviewable(?string $path): bool
+    {
+        if (! $path) {
+            return false;
+        }
+
+        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+        return in_array($extension, self::PREVIEWABLE_EXTENSIONS, true);
+    }
+
+    /**
+     * The one place a submission's real, server-verified MIME type is
+     * determined — a small, bounded read of the file's actual opening
+     * bytes, sniffed directly with finfo. Only ever called for one file at
+     * a time, on an explicit View click — never in a listing loop, see
+     * looksPreviewable() for that.
+     *
+     * Deliberately does NOT call the disk's own mimeType(): Flysystem's
+     * local adapter (FallbackMimeTypeDetector) falls back to the file's
+     * *extension* whenever finfo's read of the real content is
+     * "inconclusive" (text/plain, application/octet-stream, empty) — the
+     * exact disguise this check exists to catch, since a plain-text file
+     * renamed to ".jpg" sniffs as text/plain and would otherwise be handed
+     * back as "image/jpeg". A remote disk's stored Content-Type has the
+     * same problem one step earlier: it's whatever the upload believed at
+     * write time, not a reflection of the bytes on read. Reading the
+     * content itself and sniffing it here sidesteps both.
+     */
+    public static function detectMimeType(?string $disk, string $path): ?string
+    {
+        try {
+            $stream = Storage::disk($disk ?: 'local')->readStream($path);
+        } catch (FilesystemException $e) {
+            report($e);
+
+            return null;
+        }
+
+        if (! is_resource($stream)) {
+            return null;
+        }
+
+        // Every format in PREVIEWABLE_IMAGES carries its magic bytes in its
+        // first few dozen bytes, so a small fixed sample is enough — this
+        // never reads the rest of the file.
+        $sample = fread($stream, 8192);
+        fclose($stream);
+
+        if (! is_string($sample) || $sample === '') {
+            return null;
+        }
+
+        $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($sample);
+
+        return $mime ?: null;
     }
 
     /**
@@ -82,7 +161,7 @@ final class StoredFileResponse
 
         // Content-Disposition refuses slashes in a name, and needs a plain-ASCII
         // fallback for names like "রিপোর্ট.pdf".
-        $name     = trim(str_replace(['/', '\\'], '-', $name)) ?: basename($path);
+        $name = trim(str_replace(['/', '\\'], '-', $name)) ?: basename($path);
         $fallback = str_replace('%', '', Str::ascii($name)) ?: 'download';
 
         $response->headers->set('Content-Type', $mime ?: 'application/octet-stream');

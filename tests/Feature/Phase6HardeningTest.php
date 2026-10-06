@@ -2,20 +2,23 @@
 
 namespace Tests\Feature;
 
+use App\Models\ActivityLog;
 use App\Models\Brand;
 use App\Models\BrandChecklist;
 use App\Models\Category;
 use App\Models\Client;
-use App\Models\ContentItem;
 use App\Models\ContentItemSubmission;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentCategory;
 use App\Models\Refund;
 use App\Models\User;
+use App\Services\AdvertisingExpenditureService;
 use App\Services\ContentItemService;
 use App\Services\InvoiceService;
+use App\Services\Storage\StoredFileResponse;
 use App\Services\Storage\UploadStaging;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
@@ -42,6 +45,7 @@ class Phase6HardeningTest extends TestCase
         foreach ([
             'manage payments', 'manage raw-content', 'view raw-content-panel', 'manage smm-collection',
             'manage published-content', 'manage advertising-expenditure', 'view brand-checklist-overview',
+            'view designer-panel', 'view smm-panel', 'manage publishing-review', 'manage content-charges',
         ] as $perm) {
             Permission::firstOrCreate(['name' => $perm, 'guard_name' => 'web']);
         }
@@ -63,10 +67,10 @@ class Phase6HardeningTest extends TestCase
 
     private function client(): Client
     {
-        $category = Category::create(['name' => 'Cat ' . uniqid(), 'slug' => 'cat-' . uniqid(), 'status' => true]);
+        $category = Category::create(['name' => 'Cat '.uniqid(), 'slug' => 'cat-'.uniqid(), 'status' => true]);
 
         return Client::create([
-            'dfid_number' => 'DF' . uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
+            'dfid_number' => 'DF'.uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
             'category_id' => $category->id,
         ]);
     }
@@ -76,7 +80,7 @@ class Phase6HardeningTest extends TestCase
         return Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Social Media Ads')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => $amount, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => $amount, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
     }
@@ -95,12 +99,12 @@ class Phase6HardeningTest extends TestCase
     private function readyBrand(User $manager): Brand
     {
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
         $this->pay($this->adInvoice($client, $brand, $manager, 1000), 1000, $manager);
         Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Content Production')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 300, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 300, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
 
@@ -113,7 +117,7 @@ class Phase6HardeningTest extends TestCase
     {
         $manager = $this->user('Manager', ['manage payments']);
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
 
         $this->pay($this->adInvoice($client, $brand, $manager, 1000), 1000, $manager);
 
@@ -124,13 +128,13 @@ class Phase6HardeningTest extends TestCase
         Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Content Production')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 150, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 150, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
         Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Content Production')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 150, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 150, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
 
@@ -140,10 +144,10 @@ class Phase6HardeningTest extends TestCase
     public function test_a_duplicate_checklist_insert_is_refused_at_the_database_level(): void
     {
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
         BrandChecklist::create(['brand_id' => $brand->id]);
 
-        $this->expectException(\Illuminate\Database\UniqueConstraintViolationException::class);
+        $this->expectException(UniqueConstraintViolationException::class);
         BrandChecklist::create(['brand_id' => $brand->id]);
     }
 
@@ -157,20 +161,20 @@ class Phase6HardeningTest extends TestCase
 
         Refund::create([
             'payment_id' => $payment->id, 'invoice_id' => $budget->id, 'client_id' => $brand->client_id,
-            'refund_number' => 'RF-' . uniqid(), 'amount' => $payment->amount, 'status' => Refund::STATUS_COMPLETED,
+            'refund_number' => 'RF-'.uniqid(), 'amount' => $payment->amount, 'status' => Refund::STATUS_COMPLETED,
             'reason' => 'Hardening test', 'requested_by' => $manager->id,
         ]);
         app(InvoiceService::class)->recalculateStatus($budget->fresh());
 
         $this->assertTrue($brand->fresh()->checklist->isOnHold());
-        $this->assertSame(1, \App\Models\ActivityLog::where('module', 'Brand Checklist Hold')->where('action', 'Held')->count());
+        $this->assertSame(1, ActivityLog::where('module', 'Brand Checklist Hold')->where('action', 'Held')->count());
 
         // A second, unrelated status-changing save on the same invoice must
         // not re-evaluate into a second hold/log — the checklist is already held.
         $budget->update(['title' => 'Touched again']);
         app(InvoiceService::class)->recalculateStatus($budget->fresh());
 
-        $this->assertSame(1, \App\Models\ActivityLog::where('module', 'Brand Checklist Hold')->where('action', 'Held')->count());
+        $this->assertSame(1, ActivityLog::where('module', 'Brand Checklist Hold')->where('action', 'Held')->count());
     }
 
     // ── Item 3: Manager budget cache invalidation ───────────────────────────
@@ -185,7 +189,7 @@ class Phase6HardeningTest extends TestCase
     {
         $manager = $this->user('Manager', ['manage payments']);
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
         $invoice = $this->adInvoice($client, $brand, $manager, 1000);
 
         $this->primeBudgetCache();
@@ -206,7 +210,7 @@ class Phase6HardeningTest extends TestCase
 
         Refund::create([
             'payment_id' => $payment->id, 'invoice_id' => $budget->id, 'client_id' => $brand->client_id,
-            'refund_number' => 'RF-' . uniqid(), 'amount' => 100, 'status' => Refund::STATUS_COMPLETED,
+            'refund_number' => 'RF-'.uniqid(), 'amount' => 100, 'status' => Refund::STATUS_COMPLETED,
             'reason' => 'Cache test', 'requested_by' => $manager->id,
         ]);
 
@@ -217,7 +221,7 @@ class Phase6HardeningTest extends TestCase
     {
         $manager = $this->user('Manager', ['manage payments']);
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
         $invoice = $this->adInvoice($client, $brand, $manager, 1000);
 
         $this->primeBudgetCache();
@@ -230,7 +234,7 @@ class Phase6HardeningTest extends TestCase
     {
         $manager = $this->user('Manager', ['manage payments', 'manage advertising-expenditure']);
         $brand = $this->readyBrand($manager);
-        $service = app(\App\Services\AdvertisingExpenditureService::class);
+        $service = app(AdvertisingExpenditureService::class);
 
         $this->primeBudgetCache();
         $expenditure = $service->create($brand->fresh(), ['amount' => 100, 'reporting_date' => now()->toDateString()], $manager);
@@ -255,7 +259,7 @@ class Phase6HardeningTest extends TestCase
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
 
         $uploads = \Mockery::mock(UploadStaging::class);
-        $uploads->shouldReceive('store')->once()->andReturn(['content-items/' . $item->id . '/test.jpg', 'local']);
+        $uploads->shouldReceive('store')->once()->andReturn(['content-items/'.$item->id.'/test.jpg', 'local']);
         $uploads->shouldReceive('pushLater')->once()->with(\Mockery::type(ContentItemSubmission::class));
         $this->app->instance(UploadStaging::class, $uploads);
 
@@ -285,9 +289,19 @@ class Phase6HardeningTest extends TestCase
 
     private function itemWithFileSubmission(Brand $brand, User $content): array
     {
-        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item ' . uniqid()], $content);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item '.uniqid()], $content);
         $submission = app(ContentItemService::class)->submit($item->fresh(), [
             'file' => UploadedFile::fake()->create('report.pdf', 10),
+        ], $content);
+
+        return [$item->fresh(), $submission];
+    }
+
+    private function itemWithImageSubmission(Brand $brand, User $content, string $name = 'photo.jpg'): array
+    {
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item '.uniqid()], $content);
+        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+            'file' => UploadedFile::fake()->image($name),
         ], $content);
 
         return [$item->fresh(), $submission];
@@ -358,6 +372,222 @@ class Phase6HardeningTest extends TestCase
         $response->assertNotFound();
     }
 
+    // ── Item 5b: secure View/Preview for submitted files ────────────────────
+
+    public function test_a_workflow_user_can_preview_a_real_jpeg_submission(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithImageSubmission($brand, $content, 'photo.jpg');
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item, $submission]));
+
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'image/jpeg');
+        $this->assertStringContainsString('inline', (string) $response->headers->get('Content-Disposition'));
+        $response->assertHeader('Content-Security-Policy');
+        $response->assertHeader('X-Content-Type-Options', 'nosniff');
+        $response->assertHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    }
+
+    public function test_a_workflow_user_can_preview_a_real_png_submission(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithImageSubmission($brand, $content, 'photo.png');
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item, $submission]));
+
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'image/png');
+        $this->assertStringContainsString('inline', (string) $response->headers->get('Content-Disposition'));
+    }
+
+    public function test_a_guest_cannot_preview_a_submission(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithImageSubmission($brand, $content);
+
+        $response = $this->get(route('marketing.content-items.submissions.preview', [$brand, $item, $submission]));
+
+        $response->assertRedirect(route('login'));
+    }
+
+    public function test_a_user_without_any_panel_permission_cannot_preview(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $bystander = $this->user('Website');
+        $brand = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithImageSubmission($brand, $content);
+
+        $response = $this->actingAs($bystander)->get(route('marketing.content-items.submissions.preview', [$brand, $item, $submission]));
+
+        $response->assertForbidden();
+    }
+
+    public function test_previewing_a_submission_through_the_wrong_brand_404s(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brandA = $this->readyBrand($manager);
+        $brandB = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithImageSubmission($brandA, $content);
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brandB, $item, $submission]));
+
+        $response->assertNotFound();
+    }
+
+    public function test_previewing_a_submission_belonging_to_a_different_item_404s(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        [$itemA, $submissionA] = $this->itemWithImageSubmission($brand, $content);
+        [$itemB] = $this->itemWithImageSubmission($brand, $content);
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $itemB, $submissionA]));
+
+        $response->assertNotFound();
+    }
+
+    public function test_previewing_v1_never_returns_v2s_file(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Versioned'], $content);
+
+        $v1 = app(ContentItemService::class)->submit($item->fresh(), ['file' => UploadedFile::fake()->image('v1.png', 20, 20)], $content);
+        $v2 = app(ContentItemService::class)->submit($item->fresh(), ['file' => UploadedFile::fake()->image('v2.png', 40, 40)], $content);
+
+        $responseV1 = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $v1]));
+        $responseV2 = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $v2]));
+
+        $responseV1->assertOk();
+        $responseV2->assertOk();
+        $this->assertNotEquals($responseV1->streamedContent(), $responseV2->streamedContent());
+    }
+
+    public function test_download_behavior_is_unaffected_by_the_new_preview_endpoint(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithImageSubmission($brand, $content);
+
+        $download = $this->actingAs($content)->get(route('marketing.content-items.submissions.download', [$brand, $item, $submission]));
+
+        $download->assertOk();
+        $this->assertStringContainsString('attachment', (string) $download->headers->get('Content-Disposition'));
+        $download->assertHeader('Content-Type', 'application/octet-stream');
+    }
+
+    public function test_a_non_previewable_file_type_is_rejected_by_the_preview_endpoint(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithFileSubmission($brand, $content);
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item, $submission]));
+
+        $response->assertStatus(415);
+    }
+
+    /**
+     * The one test the spec calls out explicitly: a plain-text file renamed
+     * to ".jpg" must never be streamed inline. looksPreviewable() (extension
+     * only) would say yes — proving the button-visibility hint is never the
+     * security decision — but detectMimeType() reads the real bytes and
+     * preview()'s own isPreviewableImage() check refuses them.
+     */
+    public function test_a_non_image_file_renamed_with_a_jpg_extension_is_not_previewable(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
+        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+            'file' => UploadedFile::fake()->createWithContent('malicious.jpg', 'This is plain text content, not an image file at all.'),
+        ], $content);
+
+        $this->assertTrue(StoredFileResponse::looksPreviewable($submission->file_path));
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $submission]));
+
+        $response->assertStatus(415);
+    }
+
+    public function test_an_svg_submission_is_not_previewable(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
+        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+            'file' => UploadedFile::fake()->createWithContent('image.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),
+        ], $content);
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $submission]));
+
+        $response->assertStatus(415);
+    }
+
+    public function test_a_link_only_submission_has_nothing_to_preview(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Link item'], $content);
+        $submission = app(ContentItemService::class)->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+
+        $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $submission]));
+
+        $response->assertNotFound();
+    }
+
+    /** Preview's authorization must exactly match Download's — same permission set, every role. */
+    public function test_every_role_that_can_download_can_also_preview(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithImageSubmission($brand, $content);
+
+        foreach ([
+            'view raw-content-panel', 'view designer-panel', 'view smm-panel', 'view brand-checklist-overview',
+            'manage publishing-review', 'manage content-charges', 'manage advertising-expenditure',
+        ] as $permission) {
+            $viewer = $this->user('Viewer', [$permission]);
+
+            $downloadResponse = $this->actingAs($viewer)->get(route('marketing.content-items.submissions.download', [$brand, $item, $submission]));
+            $previewResponse = $this->actingAs($viewer)->get(route('marketing.content-items.submissions.preview', [$brand, $item, $submission]));
+
+            $downloadResponse->assertOk();
+            $previewResponse->assertOk();
+        }
+    }
+
+    public function test_preview_permission_alone_grants_no_write_capability(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $viewer = $this->user('Viewer', ['view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $manager);
+
+        $response = $this->actingAs($viewer)->post(route('marketing.content-items.submit', [$brand, $item]), [
+            'link_url' => 'https://example.com/x.jpg',
+        ]);
+
+        $response->assertForbidden();
+    }
+
     // ── Item 6: query hardening ─────────────────────────────────────────────
 
     public function test_budget_table_does_not_scale_queries_per_brand(): void
@@ -365,7 +595,7 @@ class Phase6HardeningTest extends TestCase
         $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
         for ($i = 0; $i < 5; $i++) {
             $brand = $this->readyBrand($manager);
-            app(\App\Services\AdvertisingExpenditureService::class)->create($brand->fresh(), [
+            app(AdvertisingExpenditureService::class)->create($brand->fresh(), [
                 'amount' => 10 + $i, 'reporting_date' => now()->toDateString(),
             ], $manager);
         }

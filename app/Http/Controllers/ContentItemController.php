@@ -138,6 +138,34 @@ class ContentItemController extends Controller
     }
 
     /**
+     * Same authorization, same brand/item/submission scoping as
+     * downloadSubmission() above — the only difference is what
+     * StoredFileResponse is asked to do with the file. content_item_
+     * submissions stores no mime_type, so the real type is detected here,
+     * for this one file, at the moment it's actually requested (a single
+     * cheap metadata call — see StoredFileResponse::detectMimeType()),
+     * never assumed from its extension. preview() itself refuses anything
+     * that isn't a genuinely safe raster image, so a submission mislabelled
+     * with an image extension is still never rendered inline.
+     */
+    public function previewSubmission(Request $request, Brand $brand, ContentItem $contentItem, ContentItemSubmission $submission): StreamedResponse
+    {
+        $this->authorizeView($request);
+        abort_if($contentItem->brand_id !== $brand->id, 404);
+        abort_if($submission->content_item_id !== $contentItem->id, 404);
+        abort_if(! $submission->file_path, 404);
+
+        $mime = StoredFileResponse::detectMimeType($submission->disk, (string) $submission->file_path);
+
+        return StoredFileResponse::preview(
+            $submission->disk,
+            (string) $submission->file_path,
+            basename((string) $submission->file_path),
+            $mime,
+        );
+    }
+
+    /**
      * Any panel role, Manager oversight, or Marketing may look at a brand's
      * checklist — the same read-only set BrandChecklistController::
      * authorizeRead() grants for the shared checklist page, so a submission
