@@ -201,7 +201,6 @@ final class StoredFileResponse
         $response->headers->set('Content-Security-Policy', $isPdf
             ? "default-src 'none'; frame-ancestors 'none'"
             : "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
-        $response->headers->set('Cache-Control', 'private, max-age=600');
         $response->headers->set('Cross-Origin-Resource-Policy', 'same-origin');
 
         return $response;
@@ -238,6 +237,19 @@ final class StoredFileResponse
         $response->headers->set('Content-Type', $mime ?: 'application/octet-stream');
         $response->headers->set('Content-Disposition', $response->headers->makeDisposition($disposition, $name, $fallback));
         $response->headers->set('X-Content-Type-Options', 'nosniff');
+        // "private" alone only keeps a *shared* cache (a CDN/proxy) from
+        // storing this — it does nothing to stop the requesting browser's
+        // own local cache from replaying it verbatim on a later GET to the
+        // same URL, with no new request ever reaching this app, no matter
+        // who is (or isn't) logged in by then. For a brand's private
+        // submission file, that gap is the whole security boundary this
+        // response exists to enforce, so "no-store" is used instead:
+        // nothing about this response may be cached by anyone, anywhere,
+        // under any circumstance. A separately-initiated browser/OS
+        // download that has already finished saving bytes to the user's
+        // disk is unrelated and unaffected — this only governs HTTP
+        // caching of future requests to this same URL.
+        $response->headers->set('Cache-Control', 'private, no-store');
 
         if ($size !== null && $size > 0) {
             $response->headers->set('Content-Length', (string) $size);

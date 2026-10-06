@@ -318,6 +318,19 @@ class Phase6HardeningTest extends TestCase
 
         $response->assertOk();
         $response->assertHeader('Content-Disposition');
+        $response->assertHeader('Cache-Control', 'no-store, private');
+    }
+
+    public function test_a_guest_cannot_download_a_submitted_file(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
+        $brand = $this->readyBrand($manager);
+        [$item, $submission] = $this->itemWithFileSubmission($brand, $content);
+
+        $response = $this->get(route('marketing.content-items.submissions.download', [$brand, $item, $submission]));
+
+        $response->assertRedirect(route('login'));
     }
 
     public function test_a_user_without_any_panel_permission_cannot_download(): void
@@ -389,6 +402,11 @@ class Phase6HardeningTest extends TestCase
         $response->assertHeader('Content-Security-Policy');
         $response->assertHeader('X-Content-Type-Options', 'nosniff');
         $response->assertHeader('Cross-Origin-Resource-Policy', 'same-origin');
+        // "private" alone still lets the requesting browser's own cache
+        // replay this after the session that fetched it ends — "no-store"
+        // is what actually closes that: see StoredFileResponse::make()'s
+        // own docblock for why "private, max-age=600" was never enough.
+        $response->assertHeader('Cache-Control', 'no-store, private');
     }
 
     public function test_a_workflow_user_can_preview_a_real_png_submission(): void
@@ -614,7 +632,7 @@ class Phase6HardeningTest extends TestCase
         $response->assertHeader('Content-Type', 'application/pdf');
         $this->assertStringContainsString('inline', (string) $response->headers->get('Content-Disposition'));
         $response->assertHeader('X-Content-Type-Options', 'nosniff');
-        $response->assertHeader('Cache-Control');
+        $response->assertHeader('Cache-Control', 'no-store, private');
         $response->assertHeader('Cross-Origin-Resource-Policy', 'same-origin');
 
         // The regression this exists to catch: a browser-native PDF viewer
