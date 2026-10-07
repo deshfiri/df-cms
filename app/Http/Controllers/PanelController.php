@@ -6,15 +6,12 @@ use App\Models\Brand;
 use App\Models\ContentItem;
 use App\Models\ContentItemSubmission;
 use App\Models\PublishedContent;
-use App\Models\User;
+use App\Services\Reporting\PanelActivityReport;
 use App\Services\Storage\StoredFileResponse;
 use App\Support\ReportingPeriod;
-use Carbon\CarbonInterface;
-use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 /**
@@ -25,6 +22,12 @@ use Illuminate\View\View;
  */
 class PanelController extends Controller
 {
+    public function __construct(private readonly PanelActivityReport $activity) {}
+
+    /**
+     * The queue is always current (unfiltered). The Activity section beside it
+     * is the only part that follows the Daily/Monthly/Yearly selection.
+     */
     public function rawContent(Request $request): View|JsonResponse
     {
         abort_unless($request->user()->can('view raw-content-panel'), 403);
@@ -33,7 +36,13 @@ class PanelController extends Controller
             return $this->itemsJson($request, ContentItem::contentPanelCategories());
         }
 
-        return view('panels.raw-content', ['brands' => $this->brandsWithChecklist()]);
+        $period = ReportingPeriod::fromRequest($request);
+
+        return view('panels.raw-content', [
+            'brands' => $this->brandsWithChecklist(),
+            'period' => $period,
+            'activity' => $this->activity->rawContent($period),
+        ]);
     }
 
     public function designer(Request $request): View|JsonResponse
@@ -44,14 +53,25 @@ class PanelController extends Controller
             return $this->itemsJson($request, [ContentItem::CATEGORY_POSTER]);
         }
 
-        return view('panels.designer', ['brands' => $this->brandsWithChecklist()]);
+        $period = ReportingPeriod::fromRequest($request);
+
+        return view('panels.designer', [
+            'brands' => $this->brandsWithChecklist(),
+            'period' => $period,
+            'activity' => $this->activity->designer($period),
+        ]);
     }
 
     public function smm(Request $request): View
     {
         abort_unless($request->user()->can('view smm-panel'), 403);
 
-        return view('panels.smm');
+        $period = ReportingPeriod::fromRequest($request);
+
+        return view('panels.smm', [
+            'period' => $period,
+            'activity' => $this->activity->smm($period),
+        ]);
     }
 
     public function smmAvailable(Request $request): JsonResponse
@@ -153,117 +173,34 @@ class PanelController extends Controller
     }
 
     /**
-     * The brand-wise Marketing workload dashboard. Two different kinds of
-     * number sit side by side here, and they are deliberately different:
-     *
-     *  - HISTORICAL EVENT COUNTS (Received, Handed Over, Returned for Final
-     *    Check, Completed, Revision Requested) count real business events.
-     *    Each is bounded to the selected Daily/Monthly/Yearly Asia/Dhaka
-     *    period and timestamped by the event it counts. V1 + V2 = two
-     *    Received events.
-     *  - CURRENT QUEUE COUNTS (Pending Pre-Publish, Pending Final Review) are
-     *    what is actionable right now. They are never period-filtered, so a
-     *    historical filter can never hide today's urgent item.
-     *
-     * Every metric is one grouped query across all brands at once, so the
-     * query count does not grow with the number of brands.
+     * The brand-wise Marketing workload dashboard. Historical activity is
+     * bounded to the selected Daily/Monthly/Yearly period and comes from the
+     * shared PanelActivityReport, so Manager Oversight reads the same numbers.
+     * The current queues (Pending Pre-Publish, Pending Final Review) are never
+     * period-filtered, so a historical filter never hides urgent work.
      */
     public function marketingWorkload(Request $request): JsonResponse
     {
         abort_unless($request->user()->can('manage publishing-review'), 403);
 
         $period = ReportingPeriod::fromRequest($request);
-        [$since, $until] = $period->bounds();
-
         $brands = $this->brandsWithChecklist();
+        $history = $this->activity->marketingBrands($period, $brands);
+        [$pendingPrePublish, $pendingFinalReview] = $this->marketingCurrentQueues();
 
-        $received = $this->countByBrand(
-            $this->betweenPeriod(
-                $this->liveItemJoin(DB::table('content_item_submissions'), 'content_item_submissions.content_item_id'),
-                'content_item_submissions.created_at', $since, $until,
-            ),
-        );
+        $rows = $brands->map(function (Brand $brand) use ($history, $pendingPrePublish, $pendingFinalReview) {
+            $counts = $history['rows'][$brand->id];
 
-        $handedOver = $this->countByBrand(
-            $this->betweenPeriod(
-                $this->liveItemJoin(DB::table('content_item_submission_approvals'), 'content_item_submission_approvals.content_item_id'),
-                'content_item_submission_approvals.approved_at', $since, $until,
-            ),
-        );
-
-        $returned = $this->countByBrand(
-            $this->betweenPeriod(
-                $this->liveItemJoin(DB::table('published_contents'), 'published_contents.content_item_id'),
-                'published_contents.published_at', $since, $until,
-            ),
-        );
-
-        // Completed means the kind of review that notifies the Manager: a review
-        // of the item's CURRENT version only. A review of a superseded version
-        // leaves the current cycle open (no ContentPublishedAndReviewed is sent
-        // for it), so it must not count as a completed cycle either.
-        $completed = $this->countByBrand(
-            $this->betweenPeriod(
-                $this->liveItemJoin(DB::table('published_contents'), 'published_contents.content_item_id')
-                    ->join('content_item_submissions as reviewed_version', 'reviewed_version.id', '=', 'published_contents.submission_id')
-                    ->whereNotExists(fn ($q) => $q->selectRaw('1')
-                        ->from('content_item_submissions as newer_version')
-                        ->whereColumn('newer_version.content_item_id', 'reviewed_version.content_item_id')
-                        ->whereColumn('newer_version.id', '>', 'reviewed_version.id')),
-                'published_contents.reviewed_at', $since, $until,
-            ),
-        );
-
-        // Pre-publish revisions only: Marketing sending a submission back while
-        // it is still `available`. Revisions made after SMM collected or
-        // published the work belong to SMM and post-publish review, not here.
-        $marketingUserIds = User::role('Marketing')->pluck('id');
-        $revisionRequested = $this->countByBrand(
-            $this->betweenPeriod(
-                $this->liveItemJoin(DB::table('content_item_revisions'), 'content_item_revisions.content_item_id')
-                    ->where('content_item_revisions.previous_status', ContentItem::STATUS_AVAILABLE)
-                    ->whereIn('content_item_revisions.requested_by', $marketingUserIds),
-                'content_item_revisions.created_at', $since, $until,
-            ),
-        );
-
-        // Current, not period-filtered. The latest version of an item that is
-        // waiting for Marketing with no approval yet. An earlier version that
-        // was sent back is never counted here.
-        $pendingPrePublish = ContentItem::query()
-            ->where('status', ContentItem::STATUS_AVAILABLE)
-            ->whereHas('latestSubmissionRelation', fn ($q) => $q->whereDoesntHave('approval'))
-            ->selectRaw('brand_id, count(*) as total')
-            ->groupBy('brand_id')
-            ->pluck('total', 'brand_id');
-
-        // Uses the same authoritative review state as the Publishing Review
-        // queue (PublishedContent::annotateReviewStates()), so a publication
-        // already sent back for revision is not counted as waiting for
-        // Marketing. Only unreviewed rows are loaded, so this is bounded by the
-        // real backlog, not by all history.
-        $pendingFinalReview = PublishedContent::annotateReviewStates(
-            PublishedContent::query()
-                ->whereNull('reviewed_at')
-                ->whereHas('item')
-                ->get(['id', 'content_item_id', 'brand_id', 'published_at', 'reviewed_at'])
-        )
-            ->filter(fn (PublishedContent $publication) => $publication->review_state === PublishedContent::REVIEW_STATE_AWAITING_REVIEW)
-            ->countBy('brand_id');
-
-        $rows = $brands->map(function (Brand $brand) use (
-            $received, $handedOver, $returned, $completed, $revisionRequested, $pendingPrePublish, $pendingFinalReview
-        ) {
             return [
                 'brand_id' => $brand->id,
                 'brand' => $brand->name,
-                'received' => (int) ($received[$brand->id] ?? 0),
+                'received' => $counts['received'],
                 'pending_pre_publish' => (int) ($pendingPrePublish[$brand->id] ?? 0),
-                'handed_over' => (int) ($handedOver[$brand->id] ?? 0),
-                'returned_for_final_check' => (int) ($returned[$brand->id] ?? 0),
+                'handed_over' => $counts['handed_over'],
+                'returned_for_final_check' => $counts['returned_for_final_check'],
                 'pending_final_review' => (int) ($pendingFinalReview[$brand->id] ?? 0),
-                'completed' => (int) ($completed[$brand->id] ?? 0),
-                'revision_requested' => (int) ($revisionRequested[$brand->id] ?? 0),
+                'completed' => $counts['completed'],
+                'revision_requested' => $counts['revision_requested'],
             ];
         })
             // Brands with current pending work float to the top (weighted far
@@ -279,12 +216,7 @@ class PanelController extends Controller
                 'selected' => $period->selected,
                 'label' => $period->label,
             ],
-            'totals' => [
-                'received' => $rows->sum('received'),
-                'handed_over' => $rows->sum('handed_over'),
-                'returned_for_final_check' => $rows->sum('returned_for_final_check'),
-                'completed' => $rows->sum('completed'),
-                'revision_requested' => $rows->sum('revision_requested'),
+            'totals' => $history['totals'] + [
                 'pending_pre_publish' => $rows->sum('pending_pre_publish'),
                 'pending_final_review' => $rows->sum('pending_final_review'),
             ],
@@ -292,32 +224,34 @@ class PanelController extends Controller
     }
 
     /**
-     * Joins a table to its content item and keeps only live (not soft-deleted)
-     * items, so a deleted item never inflates a count. Every metric above
-     * starts here.
+     * The current, actionable Marketing queues, deliberately unfiltered by any
+     * period. Pending Pre-Publish: the latest version waiting for Marketing
+     * with no approval yet. Pending Final Review: publications that Marketing
+     * has not reviewed and has not sent back, using the same review state as
+     * the Publishing Review queue.
+     *
+     * @return array{0: Collection<int|string, int>, 1: Collection<int|string, int>}
      */
-    private function liveItemJoin(Builder $query, string $itemIdColumn): Builder
+    private function marketingCurrentQueues(): array
     {
-        return $query->join('content_items', 'content_items.id', '=', $itemIdColumn)
-            ->whereNull('content_items.deleted_at');
-    }
-
-    /**
-     * Half-open [since, until). An event at exactly the next period's first
-     * second belongs to that next period, never to both. ReportingPeriod's
-     * own bounds are already [since, until), so this must not be inclusive.
-     */
-    private function betweenPeriod(Builder $query, string $column, CarbonInterface $since, CarbonInterface $until): Builder
-    {
-        return $query->where($column, '>=', $since)->where($column, '<', $until);
-    }
-
-    /** One grouped query: brand_id => count, for every brand with a matching row. */
-    private function countByBrand(Builder $query): Collection
-    {
-        return $query->selectRaw('content_items.brand_id as brand_id, count(*) as total')
-            ->groupBy('content_items.brand_id')
+        $pendingPrePublish = ContentItem::query()
+            ->where('status', ContentItem::STATUS_AVAILABLE)
+            ->whereHas('latestSubmissionRelation', fn ($q) => $q->whereDoesntHave('approval'))
+            ->selectRaw('brand_id, count(*) as total')
+            ->groupBy('brand_id')
             ->pluck('total', 'brand_id');
+
+        // Only unreviewed rows are loaded, so this is bounded by the real backlog.
+        $pendingFinalReview = PublishedContent::annotateReviewStates(
+            PublishedContent::query()
+                ->whereNull('reviewed_at')
+                ->whereHas('item')
+                ->get(['id', 'content_item_id', 'brand_id', 'published_at', 'reviewed_at'])
+        )
+            ->filter(fn (PublishedContent $publication) => $publication->review_state === PublishedContent::REVIEW_STATE_AWAITING_REVIEW)
+            ->countBy('brand_id');
+
+        return [$pendingPrePublish, $pendingFinalReview];
     }
 
     private function itemsJson(Request $request, array $categories): JsonResponse

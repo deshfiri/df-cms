@@ -10,6 +10,8 @@ use App\Models\PendingChange;
 use App\Models\PublishedContent;
 use App\Services\BrandChecklistHoldService;
 use App\Services\BrandChecklistProjectionService;
+use App\Services\Reporting\PanelActivityReport;
+use App\Support\ReportingPeriod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -27,6 +29,7 @@ class ManagerOversightController extends Controller
     public function __construct(
         private readonly BrandChecklistHoldService $holds,
         private readonly BrandChecklistProjectionService $projection,
+        private readonly PanelActivityReport $activity,
     ) {
         $this->middleware(function (Request $request, $next) {
             abort_unless($request->user()->can('view brand-checklist-overview'), 403);
@@ -35,11 +38,17 @@ class ManagerOversightController extends Controller
         });
     }
 
-    public function index(): View
+    public function index(Request $request): View
     {
         // Computed once and shared — the workload tile's count must never
         // disagree with the list it's summarizing.
         $unreviewed = $this->unreviewedPublishedContents();
+
+        // Activity follows the selected period. The current workload and
+        // unreviewed lists above never do, so an old period never hides
+        // today's urgent work.
+        $period = ReportingPeriod::fromRequest($request);
+        $brands = Brand::whereHas('checklist')->orderBy('name')->get(['id', 'name']);
 
         return view('manager.oversight', [
             'budgets' => $this->budgetTable(),
@@ -51,6 +60,9 @@ class ManagerOversightController extends Controller
             'categoryCounts' => $this->projection->categoryCounts(),
             'workload' => $this->departmentWorkload($unreviewed->count()),
             'unreviewed' => $unreviewed,
+            'period' => $period,
+            'activity' => $this->activity->managerOversight($period, $brands),
+            'activityBrands' => $brands,
         ]);
     }
 

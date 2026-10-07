@@ -18,6 +18,30 @@
     <button class="btn btn-sm btn-primary" id="newItemBtn"><i class="bi bi-plus-lg me-1"></i>New Item</button>
 </div>
 
+@php
+    // Definitions match WorkflowActivityReport. "First" and "resubmitted" are
+    // derived from the item's own version history, never guessed.
+    $authorColumns = [
+        ['submitted', 'Submitted', 'Every submission version created in the period.'],
+        ['first_submitted', 'First submissions', 'Items whose first version was submitted in the period.'],
+        ['resubmitted', 'Resubmitted', 'Later versions submitted in the period, after a revision.'],
+        ['revisions_received', 'Revision requests', 'Revision requests raised in the period, from any stage (Marketing, SMM or post-publish).'],
+        ['completed', 'Completed', 'Marketing final reviews in the period of the item\'s current version. Same rule as the Manager completion notice.'],
+    ];
+@endphp
+@include('partials.activity-section', [
+    'title' => 'Raw Content & Advertising',
+    'caption' => 'Work this team produced in the selected period. The queue below is always current.',
+    'period' => $period,
+    'rowHeading' => 'Category',
+    'columns' => $authorColumns,
+    'rows' => [
+        ['label' => 'Raw content', 'values' => $activity['categories']['raw_content']],
+        ['label' => 'Advertising content', 'values' => $activity['categories']['advertising_content']],
+        ['label' => 'Combined (raw + advertising)', 'values' => $activity['combined'], 'strong' => true],
+    ],
+])
+
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
     <select id="filterBrand" class="form-select form-select-sm" style="width:200px">
         <option value="">All brands</option>

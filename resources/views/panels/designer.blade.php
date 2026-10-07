@@ -17,6 +17,27 @@
     <button class="btn btn-sm btn-primary" id="newItemBtn"><i class="bi bi-plus-lg me-1"></i>New Poster</button>
 </div>
 
+@php
+    // Poster work only. Definitions match WorkflowActivityReport.
+    $posterColumns = [
+        ['submitted', 'Submitted', 'Every poster submission version created in the period.'],
+        ['first_submitted', 'First submissions', 'Posters whose first version was submitted in the period.'],
+        ['resubmitted', 'Resubmitted', 'Later poster versions submitted in the period, after a revision.'],
+        ['revisions_received', 'Revision requests', 'Revision requests raised in the period on posters, from any stage.'],
+        ['completed', 'Completed', 'Marketing final reviews in the period of the poster\'s current version.'],
+    ];
+@endphp
+@include('partials.activity-section', [
+    'title' => 'Posters',
+    'caption' => 'Poster work produced in the selected period. The queue below is always current.',
+    'period' => $period,
+    'rowHeading' => 'Category',
+    'columns' => $posterColumns,
+    'rows' => [
+        ['label' => 'Poster', 'values' => $activity['categories']['poster']],
+    ],
+])
+
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
     <select id="filterBrand" class="form-select form-select-sm" style="width:200px">
         <option value="">All brands</option>

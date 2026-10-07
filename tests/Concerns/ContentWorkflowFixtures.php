@@ -13,6 +13,7 @@ use App\Models\PaymentCategory;
 use App\Models\User;
 use App\Services\ContentItemService;
 use App\Services\InvoiceService;
+use Carbon\Carbon;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
@@ -56,12 +57,79 @@ trait ContentWorkflowFixtures
     protected function workflowTeam(): array
     {
         return [
-            'content' => $this->user('Content', ['manage raw-content']),
-            'design' => $this->user('Design', ['manage designer-content']),
+            'content' => $this->user('Content', ['manage raw-content', 'view raw-content-panel']),
+            'design' => $this->user('Design', ['manage designer-content', 'view designer-panel']),
             'marketing' => $this->user('Marketing', ['manage publishing-review']),
-            'smm' => $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']),
+            'smm' => $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content', 'view smm-panel']),
             'manager' => $this->user('Manager', ['view brand-checklist-overview']),
         ];
+    }
+
+    /** Pins "now" to a Dhaka wall-clock time, so every event created next is stamped with it. */
+    protected function atDhaka(string $when): void
+    {
+        $this->travelTo(Carbon::parse($when, 'Asia/Dhaka'));
+    }
+
+    /** Submits one raw/advertising/poster item at the given Dhaka time, leaving it waiting for Marketing. */
+    protected function submittedAt(string $when, Brand $brand, User $content, string $category = ContentItem::CATEGORY_RAW_CONTENT): ContentItem
+    {
+        $this->atDhaka($when);
+        $item = $this->newItem($brand, $content, $category);
+        $this->submitVersion($item, $content);
+
+        return $item->fresh();
+    }
+
+    /** Submits at the given Dhaka time and hands the exact version to SMM at the same instant. */
+    protected function handedOverAt(string $when, Brand $brand, User $content, User $marketing, string $category = ContentItem::CATEGORY_RAW_CONTENT): ContentItem
+    {
+        $this->atDhaka($when);
+        $item = $this->newItem($brand, $content, $category);
+        $submission = $this->submitVersion($item, $content);
+        $this->approve($item, $submission, $marketing);
+
+        return $item->fresh();
+    }
+
+    /** Hands over, collects and publishes one version at the given Dhaka time. @return array{0: ContentItem, 1: \App\Models\PublishedContent} */
+    protected function publishedAt(string $when, Brand $brand, User $content, User $marketing, User $smm, string $category = ContentItem::CATEGORY_RAW_CONTENT): array
+    {
+        $item = $this->handedOverAt($when, $brand, $content, $marketing, $category);
+        $submission = $item->latestSubmission();
+        $this->collect($item, $smm);
+        $published = $this->publish($item, $brand, $submission, $smm);
+
+        return [$item->fresh(), $published->fresh()];
+    }
+
+    /** @return array<string, mixed> */
+    protected function report(User $viewer, array $query = []): array
+    {
+        $response = $this->actingAs($viewer)->getJson(route('panels.marketing.workload', $query));
+        $response->assertOk();
+
+        return $response->json();
+    }
+
+    protected function row(array $report, Brand $brand): array
+    {
+        return collect($report['data'])->firstWhere('brand_id', $brand->id);
+    }
+
+    protected function daily(string $date): array
+    {
+        return ['period' => 'daily', 'date' => $date];
+    }
+
+    protected function monthly(string $month): array
+    {
+        return ['period' => 'monthly', 'month' => $month];
+    }
+
+    protected function yearly(string $year): array
+    {
+        return ['period' => 'yearly', 'year' => $year];
     }
 
     protected function service(): ContentItemService

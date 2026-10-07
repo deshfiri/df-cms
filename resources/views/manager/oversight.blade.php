@@ -47,6 +47,93 @@
     </div>
 </div>
 
+{{-- Historical activity for the selected period. Every number comes from the same definitions the Marketing and panel screens use, so they always agree. --}}
+@php
+    $authorColumns = [
+        ['submitted', 'Submitted', 'Every submission version created in the period.'],
+        ['first_submitted', 'First submissions', 'Items whose first version was submitted in the period.'],
+        ['resubmitted', 'Resubmitted', 'Later versions submitted in the period, after a revision.'],
+        ['revisions_received', 'Revision requests', 'Revision requests raised in the period, from any stage.'],
+        ['completed', 'Completed', 'Marketing final reviews in the period of the current version.'],
+    ];
+    $pipelineColumns = [
+        ['received', 'Received by Marketing', 'Submission versions Marketing received, by submission time.'],
+        ['handed_over', 'Handed to SMM', 'Exact versions Marketing approved and handed to SMM, by approval time.'],
+        ['collected', 'Collected by SMM', 'Collections by SMM in the period.'],
+        ['published', 'Published / returned', 'Publications in the period, returned to Marketing for final check.'],
+        ['completed', 'Completed', 'Marketing final reviews of the current version.'],
+        ['revision_requested', 'Revisions requested', 'Marketing: pre-publish revisions. SMM: revisions of items SMM had collected.'],
+    ];
+    $brandColumns = [
+        ['received', 'Received', 'Submission versions received by Marketing in the period.'],
+        ['handed_over', 'Handed to SMM', 'Exact versions handed to SMM in the period.'],
+        ['returned_for_final_check', 'Returned', 'Publications returned for final check in the period.'],
+        ['completed', 'Completed', 'Marketing final reviews of the current version.'],
+        ['revision_requested', 'Revisions', 'Marketing pre-publish revisions in the period.'],
+    ];
+    $mkt = $activity['departments']['marketing'];
+    $smm = $activity['departments']['smm'];
+    $brandRows = $activityBrands->map(fn ($brand) => [
+        'label' => $brand->name,
+        'values' => $activity['brands']['rows'][$brand->id] ?? [],
+    ])->all();
+@endphp
+<div class="card section-card mb-4">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+            <div>
+                <div class="fw-semibold" style="font-size:.9rem">Activity / performance <span class="small fw-normal" style="color:var(--text3)">· selected period</span></div>
+                <div class="small" style="color:var(--text3)">Historical activity only. Current workload above is never period-filtered.</div>
+            </div>
+            @include('partials.activity-period', ['period' => $period])
+        </div>
+
+        <div class="small fw-semibold mb-1">Departments</div>
+        @include('partials.activity-table', [
+            'rowHeading' => 'Content & design',
+            'columns' => $authorColumns,
+            'rows' => [
+                ['label' => 'Raw content', 'values' => $activity['departments']['content_raw']],
+                ['label' => 'Advertising content', 'values' => $activity['departments']['content_advertising']],
+                ['label' => 'Posters (Design)', 'values' => $activity['departments']['design']],
+            ],
+        ])
+
+        <div class="small fw-semibold mt-3 mb-1">Pipeline: Marketing → SMM</div>
+        @include('partials.activity-table', [
+            'rowHeading' => 'Stage',
+            'columns' => $pipelineColumns,
+            'rows' => [
+                ['label' => 'Marketing', 'values' => [
+                    'received' => $mkt['received'],
+                    'handed_over' => $mkt['handed_over'],
+                    'collected' => '—',
+                    'published' => $mkt['returned_for_final_check'],
+                    'completed' => $mkt['completed'],
+                    'revision_requested' => $mkt['revision_requested'],
+                ]],
+                ['label' => 'SMM', 'values' => [
+                    'received' => '—',
+                    'handed_over' => $smm['received'],
+                    'collected' => $smm['collected'],
+                    'published' => $smm['published'],
+                    'completed' => '—',
+                    'revision_requested' => $smm['revision_requested'],
+                ]],
+            ],
+        ])
+
+        <div class="small fw-semibold mt-3 mb-1">Brands (Marketing view)</div>
+        @include('partials.activity-table', [
+            'rowHeading' => 'Brand',
+            'columns' => $brandColumns,
+            'rows' => array_merge($brandRows, [
+                ['label' => 'All brands', 'values' => $activity['brands']['totals'], 'strong' => true],
+            ]),
+        ])
+    </div>
+</div>
+
 {{-- Brand-wise Budget --}}
 <div class="ov-card mb-4">
     <div class="p-3" style="border-bottom:1px solid var(--border)">

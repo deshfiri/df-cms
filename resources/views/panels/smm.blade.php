@@ -17,6 +17,27 @@
     </div>
 </div>
 
+@php
+    // Every category: SMM receives approved work from all three makers.
+    // "Received" is the Marketing approval time, never the submission time.
+    $smmColumns = [
+        ['received', 'Received from Marketing', 'Submissions Marketing approved and handed over in the period, by approval time.'],
+        ['collected', 'Collected', 'Collections by SMM in the period.'],
+        ['published', 'Published', 'Publications in the period.'],
+        ['revision_requested', 'Revision requested', 'Revisions SMM sent back in the period. Only items SMM had collected; Marketing\'s own revisions are excluded.'],
+    ];
+@endphp
+@include('partials.activity-section', [
+    'title' => 'SMM',
+    'caption' => 'Collection and publishing activity in the selected period. The Available, Collected and Published tabs below are always current.',
+    'period' => $period,
+    'rowHeading' => 'Scope',
+    'columns' => $smmColumns,
+    'rows' => [
+        ['label' => 'All categories', 'values' => $activity, 'strong' => true],
+    ],
+])
+
 <ul class="nav nav-tabs smm-tabs mb-3">
     <li class="nav-item"><a class="nav-link active" data-tab="available">Available</a></li>
     <li class="nav-item"><a class="nav-link" data-tab="collected">Collected</a></li>

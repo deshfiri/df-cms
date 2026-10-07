@@ -6,7 +6,6 @@ use App\Models\Brand;
 use App\Models\ContentItem;
 use App\Models\PublishedContent;
 use App\Models\User;
-use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\Concerns\ContentWorkflowFixtures;
@@ -38,80 +37,11 @@ class MarketingWorkloadReportingTest extends TestCase
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    /** Pins "now" to a Dhaka wall-clock time, so every event created next is stamped with it. */
-    private function atDhaka(string $when): void
-    {
-        $this->travelTo(Carbon::parse($when, 'Asia/Dhaka'));
-    }
-
-    /** @return array<string, mixed> */
-    private function report(User $viewer, array $query = []): array
-    {
-        $response = $this->actingAs($viewer)->getJson(route('panels.marketing.workload', $query));
-        $response->assertOk();
-
-        return $response->json();
-    }
-
-    private function row(array $report, Brand $brand): array
-    {
-        return collect($report['data'])->firstWhere('brand_id', $brand->id);
-    }
-
-    private function daily(string $date): array
-    {
-        return ['period' => 'daily', 'date' => $date];
-    }
-
-    private function monthly(string $month): array
-    {
-        return ['period' => 'monthly', 'month' => $month];
-    }
-
-    private function yearly(string $year): array
-    {
-        return ['period' => 'yearly', 'year' => $year];
-    }
-
-    /** Submits an item at the given Dhaka time and hands it over to SMM at the same instant. */
-    private function handedOverAt(string $dhaka, Brand $brand, User $content, User $marketing): ContentItem
-    {
-        $this->atDhaka($dhaka);
-        $item = $this->newItem($brand, $content);
-        $submission = $this->submitVersion($item, $content);
-        $this->approve($item, $submission, $marketing);
-
-        return $item->fresh();
-    }
-
-    /** Submits at the given time and leaves it waiting for Marketing. */
-    private function submittedAt(string $dhaka, Brand $brand, User $content): ContentItem
-    {
-        $this->atDhaka($dhaka);
-        $item = $this->newItem($brand, $content);
-        $this->submitVersion($item, $content);
-
-        return $item->fresh();
-    }
-
-    /** Hands over, collects and publishes one version at the given time. */
-    private function publishedAt(string $dhaka, Brand $brand, User $content, User $marketing, User $smm): array
-    {
-        $item = $this->handedOverAt($dhaka, $brand, $content, $marketing);
-        $submission = $item->latestSubmission();
-        $this->collect($item, $smm);
-        $published = $this->publish($item, $brand, $submission, $smm);
-
-        return [$item->fresh(), $published->fresh()];
-    }
-
     /** @return array{content: User, design: User, marketing: User, smm: User, manager: User} */
     private function team(): array
     {
         return $this->workflowTeam();
     }
-
-    // ── 1–3. Received, isolation, and current pending ─────────────────────────
 
     public function test_brand_received_count_is_correct_for_the_selected_day(): void
     {
