@@ -1515,6 +1515,17 @@ class PerformanceCalculationService
             ]);
     }
 
+    /**
+     * The official, monthly Performance score. `final_score` is deliberately
+     * NOT a percentage and NOT capped at 100 — it is the weighted KPI
+     * percentage (`kpi_score`, genuinely 0-100) plus Workflow Points'
+     * `score_per_point`-scaled contribution on top, so points keep adding
+     * real value even once the KPI component is already at its ceiling. A
+     * cap would silently discard that value; see `kpi_score`'s own doc
+     * comment below for the UI-display reason this is split out.
+     *
+     * @return array{final_score: ?float, performance_level: ?string, kpi_score: ?float, scores: array, weights_used: array, strongest: ?string, weakest: ?string, components: array}
+     */
     public function finalScore(User $user, string $period): array
     {
         $taskCompletion = $this->taskCompletion($user, $period);
@@ -1558,7 +1569,7 @@ class PerformanceCalculationService
             // built from those points, so their awards are never invisible.
             if ($workflowPoints['points'] === 0) {
                 return [
-                    'final_score' => null, 'performance_level' => null,
+                    'final_score' => null, 'performance_level' => null, 'kpi_score' => null,
                     'scores' => $scores, 'weights_used' => [], 'strongest' => null, 'weakest' => null,
                     'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'outputVolume', 'taskGiving', 'workflowPoints'),
                 ];
@@ -1567,7 +1578,10 @@ class PerformanceCalculationService
             $pointsOnly = round($workflowPoints['score'], 2);
 
             return [
-                'final_score' => $pointsOnly, 'performance_level' => $this->performanceLevel($pointsOnly),
+                // No KPI contributed anything this period — the whole score
+                // is workflow points, so there is no weighted KPI percentage
+                // to show (see kpi_score's docblock below).
+                'final_score' => $pointsOnly, 'performance_level' => $this->performanceLevel($pointsOnly), 'kpi_score' => null,
                 'scores' => $scores, 'weights_used' => [], 'strongest' => null, 'weakest' => null,
                 'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'outputVolume', 'taskGiving', 'workflowPoints'),
             ];
@@ -1595,6 +1609,16 @@ class PerformanceCalculationService
         return [
             'final_score' => $finalScore,
             'performance_level' => $this->performanceLevel($finalScore),
+            // The weighted KPI contribution alone, before workflow points are
+            // added — a genuine 0-100 percentage, unlike final_score, which
+            // is allowed to exceed 100 once points are added on top (see
+            // this method's own docblock). Display-only: it changes no
+            // existing key, no weight, and no point value; it only exposes
+            // an intermediate the formula above already computes, so the UI
+            // can show "KPI Score" and "Performance Score" as the two
+            // genuinely different things they are instead of one number
+            // mislabelled as a single percentage.
+            'kpi_score' => round($weightedTotal, 2),
             'scores' => $scores,
             'weights_used' => $weightsUsed,
             'strongest' => $strongest,

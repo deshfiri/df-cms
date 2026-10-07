@@ -33,7 +33,11 @@
     }
     .sc-ring {
         width: 96px; height: 96px; border-radius: 50%; display: grid; place-items: center;
-        background: conic-gradient(var(--primary) calc(var(--val) * 1%), var(--surface2) 0);
+        /* final_score is not a percentage and is not capped at 100 (workflow
+           points keep adding on top of a maxed-out KPI component) — the ring
+           is a KPI-style visual, so its fill is explicitly clamped to a full
+           circle at 100+. The number inside is the real, uncapped score. */
+        background: conic-gradient(var(--primary) calc(min(var(--val), 100) * 1%), var(--surface2) 0);
         flex-shrink: 0;
     }
     .sc-ring-inner {
@@ -42,6 +46,8 @@
     }
     .sc-ring-val { font-size: 1.5rem; font-weight: 800; color: var(--text); }
     .sc-ring-max { font-size: .62rem; color: var(--text3); }
+    .sc-breakdown { font-size: .78rem; color: var(--text2); margin-top: .5rem; }
+    .sc-breakdown .v { font-weight: 700; color: var(--text); }
     .sc-comp-card { height: 100%; }
     .sc-metric { display: flex; justify-content: space-between; padding: .3rem 0; font-size: .82rem; border-bottom: 1px dashed var(--border); }
     .sc-metric:last-child { border-bottom: 0; }
@@ -99,7 +105,8 @@
         <div class="sc-ring-inner">
             <div class="text-center">
                 <div class="sc-ring-val">{{ $result['final_score'] !== null ? number_format($result['final_score'], 1) : '—' }}</div>
-                <div class="sc-ring-max">/ 100</div>
+                {{-- Not "/ 100": final_score is a score, not a percentage, and workflow points let it exceed 100 (see finalScore()'s docblock). --}}
+                <div class="sc-ring-max">Performance Score</div>
             </div>
         </div>
     </div>
@@ -116,6 +123,18 @@
             @else
                 No tasks, sales targets, ratings or client work recorded for {{ $periods[$period] ?? $period }}.
             @endif
+        </div>
+        {{--
+            Three distinct concepts, never conflated: KPI Score is a genuine
+            0-100 percentage (the weighted KPI blend, before points). Workflow
+            Points is the ledger's own point-scaled addend. Performance Score
+            is their sum and is the only one allowed to exceed 100 — so it is
+            the only one of the three never shown with a "%".
+        --}}
+        <div class="sc-breakdown">
+            KPI Score: <span class="v">{{ $result['kpi_score'] !== null ? number_format($result['kpi_score'], 1).'%' : '—' }}</span>
+            &middot; Workflow Points: <span class="v">+{{ number_format($result['components']['workflowPoints']['score'] ?? 0, 2) }}</span>
+            &middot; Performance Score: <span class="v">{{ $result['final_score'] !== null ? number_format($result['final_score'], 1) : '—' }}</span>
         </div>
     </div>
 </div>

@@ -51,6 +51,10 @@ class PanelController extends Controller
             'period' => $period,
             'brand' => $brand,
             'activity' => $this->activity->rawContent($period, $brand->id),
+            // Who the submit form may optionally hand this version directly
+            // to. The server re-checks eligibility (see
+            // StageOwnershipService::assign()); this is convenience only.
+            'marketingUsers' => $this->eligibleUsers('Marketing'),
         ]);
     }
 
@@ -71,6 +75,8 @@ class PanelController extends Controller
             'period' => $period,
             'brand' => $brand,
             'activity' => $this->activity->designer($period, $brand->id),
+            // Who the submit form may optionally hand this version directly to.
+            'marketingUsers' => $this->eligibleUsers('Marketing'),
         ]);
     }
 
@@ -92,6 +98,14 @@ class PanelController extends Controller
             'activity' => $this->activity->smm($period, $brand->id),
             // Each SMM user sees their own conversations. Ownership is per user, never per panel.
             'conversations' => $this->activity->smmConversations($period, $request->user(), $brand->id),
+            // Who a revision-request may name — the destination maker role
+            // depends on the item's own category (poster -> Design, anything
+            // else -> Content), so both lists are sent and the page picks
+            // the right one per item. Who Publish's "send to Final Review"
+            // may optionally name directly, same as Marketing's own handover.
+            'contentUsers' => $this->eligibleUsers('Content'),
+            'designUsers' => $this->eligibleUsers('Design'),
+            'marketingUsers' => $this->eligibleUsers('Marketing'),
         ]);
     }
 
@@ -191,9 +205,13 @@ class PanelController extends Controller
             'brand' => BrandScope::fromRequest($request, $brands),
             // Who the handover and revision forms may name. The server re-checks eligibility.
             'smmUsers' => $this->eligibleUsers('Social Media Manager'),
-            'makerUsers' => User::where('is_active', true)
-                ->whereHas('roles', fn ($q) => $q->whereIn('name', ['Content', 'Design']))
-                ->orderBy('name')->get(['id', 'name']),
+            // Split by destination role, not one combined list — a revision
+            // on a poster must only ever offer Design users, and a revision
+            // on raw/advertising content must only ever offer Content users
+            // (see StageOwnershipService::RULES). The page picks the right
+            // one per item, from its own category.
+            'contentUsers' => $this->eligibleUsers('Content'),
+            'designUsers' => $this->eligibleUsers('Design'),
         ]);
     }
 
@@ -303,6 +321,37 @@ class PanelController extends Controller
                 'pending_pre_publish' => $rows->sum('pending_pre_publish'),
                 'pending_final_review' => $rows->sum('pending_final_review'),
             ],
+        ]);
+    }
+
+    /**
+     * Marketing's brand-wise SMM Client Conversation summary — the
+     * reporting counterpart to marketingWorkload(), same period+brand
+     * semantics. Submitted/Approved/Rejected follow the selected
+     * Daily/Monthly/Yearly period by their own event timestamp; Pending
+     * Review is current, period-unfiltered work, but still respects the
+     * selected Brand (period and brand are independent filters).
+     */
+    public function marketingConversationsSummary(Request $request): JsonResponse
+    {
+        abort_unless($request->user()->can('manage publishing-review'), 403);
+
+        $period = ReportingPeriod::fromRequest($request);
+        $brands = $this->brandsWithChecklist();
+        $brand = BrandScope::fromRequest($request, $brands);
+        if (! $brand->isAll()) {
+            $brands = $brands->where('id', $brand->id)->values();
+        }
+        $summary = $this->activity->conversationsBrands($period, $brands);
+
+        $rows = $brands->map(fn (Brand $b) => ['brand_id' => $b->id, 'brand' => $b->name] + $summary['rows'][$b->id])
+            ->sortByDesc(fn ($row) => $row['pending_review'] * 1_000_000 + $row['submitted'])
+            ->values();
+
+        return response()->json([
+            'data' => $rows,
+            'period' => ['period' => $period->period, 'selected' => $period->selected, 'label' => $period->label],
+            'totals' => $summary['totals'],
         ]);
     }
 

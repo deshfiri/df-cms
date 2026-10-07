@@ -66,9 +66,22 @@
     </div>
 </div>
 
-{{-- ── SMM client conversations awaiting verification, filtered to the period selected above ── --}}
+{{-- ── SMM client conversations: brand-wise summary + the verification queue, both filtered to the period and Brand selected above ── --}}
 <div class="card section-card d-none" id="paneMktConversations">
-    <div class="card-body p-0">
+    <div class="card-body">
+        <div class="mkt-kpi-grid">
+            <div class="mkt-kpi is-primary"><div class="mkt-kpi-label">Submitted</div><div class="mkt-kpi-value" id="mktConvTotalSubmitted">—</div></div>
+            <div class="mkt-kpi"><div class="mkt-kpi-label">Pending Review</div><div class="mkt-kpi-value" id="mktConvTotalPending">—</div></div>
+            <div class="mkt-kpi is-primary"><div class="mkt-kpi-label">Potential Clients</div><div class="mkt-kpi-value" id="mktConvTotalApproved">—</div></div>
+            <div class="mkt-kpi"><div class="mkt-kpi-label">Rejected</div><div class="mkt-kpi-value" id="mktConvTotalRejected">—</div></div>
+        </div>
+        <div class="table-responsive mb-3">
+            <table class="table table-sm align-middle mb-0" style="font-size:.8rem">
+                <thead><tr><th>Brand</th><th class="text-end">Submitted</th><th class="text-end">Pending Review</th><th class="text-end">Potential Clients</th><th class="text-end">Rejected</th></tr></thead>
+                <tbody id="mktConvBrandRows"><tr><td colspan="5" class="mkt-empty">Loading…</td></tr></tbody>
+            </table>
+        </div>
+        <div class="small fw-semibold mb-1">Pending verification queue</div>
         <div class="table-responsive">
             <table class="table table-sm align-middle mb-0" style="font-size:.82rem">
                 <thead><tr><th>Brand</th><th>Product</th><th>Reference</th><th>Logged by</th><th>Logged</th><th>Screenshot</th><th>Status</th><th class="text-end">Verdict</th></tr></thead>
@@ -115,11 +128,10 @@
                 <label class="form-label small fw-semibold">Reason <span class="text-danger">*</span></label>
                 <textarea id="mktRevisionNote" class="form-control form-control-sm" rows="3" placeholder="What needs to change before this can be approved?"></textarea>
                 <label class="form-label small fw-semibold mt-3">Send it to <span class="fw-normal" style="color:var(--text3)">(optional)</span></label>
+                {{-- Options are filled in by JS from contentUsers/designUsers,
+                     per the item's own category — see populateMktRevisionAssign(). --}}
                 <select id="mktRevisionAssign" class="form-select form-select-sm">
-                    <option value="">Anyone in the Content or Design team (they claim it)</option>
-                    @foreach ($makerUsers as $maker)
-                        <option value="{{ $maker->id }}">{{ $maker->name }}</option>
-                    @endforeach
+                    <option value="">Let team claim / Unassigned</option>
                 </select>
             </div>
             <div class="modal-footer py-2">
@@ -137,6 +149,21 @@ const catLabel = { raw_content: 'Raw content', advertising_content: 'Advertising
 const escMkt = s => $('<div>').text(s == null ? '' : s).html();
 const panes = { pending: '#paneMktPending', workload: '#paneMktWorkload', conversations: '#paneMktConversations' };
 const smmUsers = @json($smmUsers->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values());
+// A revision's destination maker role depends on the item's own category —
+// poster goes to Design, everything else goes to Content (see
+// StageOwnershipService::RULES) — so both eligible lists are embedded once
+// and the revision modal picks the right one per item.
+const makerUsersByCategory = {
+    poster: @json($designUsers->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values()),
+    raw_content: @json($contentUsers->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values()),
+    advertising_content: @json($contentUsers->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values()),
+};
+
+function populateMktRevisionAssign(category) {
+    const users = makerUsersByCategory[category] || [];
+    $('#mktRevisionAssign').html('<option value="">Let team claim / Unassigned</option>'
+        + users.map(u => '<option value="' + u.id + '">' + escMkt(u.name) + '</option>').join(''));
+}
 
 $('.mkt-tabs .nav-link').on('click', function () {
     $('.mkt-tabs .nav-link').removeClass('active');
@@ -147,7 +174,7 @@ $('.mkt-tabs .nav-link').on('click', function () {
     $('#mktPeriodLabel').text(displayPeriodLabel());
     if (tab === 'pending') loadPending();
     if (tab === 'workload') loadWorkload();
-    if (tab === 'conversations') loadConversations();
+    if (tab === 'conversations') { loadConversations(); loadConversationsSummary(); }
 });
 
 function submissionLink(sub, brandId, itemId) {
@@ -180,7 +207,7 @@ function loadPending() {
                 + ownerBadge(it.owner)
                 + (it.owner ? '' : '<button class="btn btn-sm btn-outline-primary mkt-claim-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-submission="' + (sub ? sub.id : '') + '"><i class="bi bi-hand-index"></i> Claim</button>')
                 + (it.owner?.is_me ? '<button class="btn btn-sm btn-success mkt-approve-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-submission="' + (sub ? sub.id : '') + '"><i class="bi bi-check-lg"></i> Approve</button>' : '')
-                + (it.owner?.is_me ? '<button class="btn btn-sm btn-outline-danger mkt-revision-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + escMkt(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>' : '')
+                + (it.owner?.is_me ? '<button class="btn btn-sm btn-outline-danger mkt-revision-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-category="' + it.category + '" data-title="' + escMkt(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>' : '')
                 + '<a class="btn btn-sm btn-outline-secondary" href="/marketing/brands/' + it.brand_id + '/checklist" title="View this brand\'s full content checklist"><i class="bi bi-list-check"></i></a>'
                 + '</td></tr>';
         }).join(''));
@@ -222,6 +249,26 @@ $('#mktPendingRows').on('click', '.mkt-claim-btn', function () {
         .fail(x => Swal.fire('Not claimed', x.responseJSON?.message || Object.values(x.responseJSON?.errors || {}).flat().join(' ') || 'Could not claim this.', 'warning'));
 });
 
+// ── Client conversations: brand-wise summary, filtered to the selected period and brand ──
+function loadConversationsSummary() {
+    $.get('{{ route('panels.marketing.conversations-summary') }}', periodParams()).done(function (r) {
+        const rows = r.data || [];
+        $('#mktConvTotalSubmitted').text(r.totals.submitted);
+        $('#mktConvTotalPending').text(r.totals.pending_review);
+        $('#mktConvTotalApproved').text(r.totals.approved);
+        $('#mktConvTotalRejected').text(r.totals.rejected);
+
+        if (!rows.length) { $('#mktConvBrandRows').html('<tr><td colspan="5" class="mkt-empty">No brands yet.</td></tr>'); return; }
+        $('#mktConvBrandRows').html(rows.map(row => '<tr>'
+            + '<td>' + escMkt(row.brand) + '</td>'
+            + '<td class="text-end">' + row.submitted + '</td>'
+            + '<td class="text-end">' + (row.pending_review ? '<span class="spill spill-warning">' + row.pending_review + '</span>' : row.pending_review) + '</td>'
+            + '<td class="text-end">' + row.approved + '</td>'
+            + '<td class="text-end">' + row.rejected + '</td>'
+            + '</tr>').join(''));
+    });
+}
+
 // ── Client conversations: verify SMM evidence, filtered to the selected period ──
 function loadConversations() {
     $.get('{{ route('smm-conversations.index') }}', Object.assign({ status: 'pending' }, periodParams())).done(function (r) {
@@ -247,7 +294,7 @@ $('#mktConvRows').on('click', '.mkt-conv-btn', function () {
     Swal.fire({ title: decision === 'approved' ? 'Approve as a Potential Client?' : 'Not a Potential Client?', icon: 'question', showCancelButton: true, confirmButtonText: 'Confirm' }).then(r => {
         if (!r.isConfirmed) return;
         $.post('/smm-conversations/' + id + '/decision', { decision: decision, _token: $('meta[name=csrf-token]').attr('content') })
-            .done(function () { Swal.fire({ icon: 'success', title: 'Recorded', timer: 1000, showConfirmButton: false }); loadConversations(); })
+            .done(function () { Swal.fire({ icon: 'success', title: 'Recorded', timer: 1000, showConfirmButton: false }); loadConversations(); loadConversationsSummary(); })
             .fail(x => Swal.fire('Error', x.responseJSON?.message || Object.values(x.responseJSON?.errors || {}).flat().join(' ') || 'Could not record this.', 'error'));
     });
 });
@@ -257,6 +304,7 @@ $('#mktPendingRows').on('click', '.mkt-revision-btn', function () {
     $('#mktRevisionBrand').val($(this).data('brand'));
     $('#mktRevisionTitle').text('Send back — ' + $(this).data('title'));
     $('#mktRevisionNote').val('');
+    populateMktRevisionAssign($(this).data('category'));
     bootstrap.Modal.getOrCreateInstance('#mktRevisionModal').show();
 });
 
@@ -323,7 +371,7 @@ function reloadActiveMktTab() {
     const tab = activeMktTab();
     if (tab === 'pending') loadPending();
     if (tab === 'workload') loadWorkload();
-    if (tab === 'conversations') loadConversations();
+    if (tab === 'conversations') { loadConversations(); loadConversationsSummary(); }
 }
 
 $('#mktPeriodType').on('change', function () { syncPeriodInputs(); reloadActiveMktTab(); });

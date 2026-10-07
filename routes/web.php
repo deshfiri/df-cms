@@ -308,6 +308,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('panels/marketing', [PanelController::class, 'marketing'])->name('panels.marketing');
     Route::get('panels/marketing/pending-check', [PanelController::class, 'marketingPendingCheck'])->name('panels.marketing.pending-check');
     Route::get('panels/marketing/workload', [PanelController::class, 'marketingWorkload'])->name('panels.marketing.workload');
+    Route::get('panels/marketing/conversations-summary', [PanelController::class, 'marketingConversationsSummary'])->name('panels.marketing.conversations-summary');
 
     // Tasks (standalone)
     // Before the resource, or tasks/{task} would capture "nav-count".

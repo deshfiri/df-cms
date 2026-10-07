@@ -134,6 +134,15 @@
                     <label class="form-label small fw-semibold">File</label>
                     <input type="file" id="rcSubmitFile" class="form-control form-control-sm">
                 </div>
+                <div class="mb-2">
+                    <label class="form-label small fw-semibold">Assign to <span class="fw-normal" style="color:var(--text3)">(optional)</span></label>
+                    <select id="rcSubmitAssign" class="form-select form-select-sm">
+                        <option value="">Let team claim / Unassigned</option>
+                        @foreach ($marketingUsers as $u)
+                            <option value="{{ $u->id }}">{{ $u->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
             </div>
             <div class="modal-footer py-2">
                 <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
@@ -246,6 +255,7 @@ $('#rcRows').on('click', '.rc-submit-btn', function () {
     $('#rcSubmitTitle').text('Submit — ' + $(this).data('title'));
     $('#rcSubmitLink').val('');
     $('#rcSubmitFile').val('');
+    $('#rcSubmitAssign').val('');
     bootstrap.Modal.getOrCreateInstance('#rcSubmitModal').show();
 });
 
@@ -257,6 +267,7 @@ $('#rcSubmitSave').on('click', function () {
     const fd = new FormData();
     if (link) fd.append('link_url', link);
     if (file) fd.append('file', file);
+    if ($('#rcSubmitAssign').val()) fd.append('assign_to', $('#rcSubmitAssign').val());
     fd.append('_token', $('meta[name=csrf-token]').attr('content'));
 
     const $btn = $(this).prop('disabled', true);

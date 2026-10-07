@@ -124,6 +124,51 @@ final class PanelActivityReport
     }
 
     /**
+     * SMM client conversations, brand-wise — the Marketing reporting
+     * counterpart to marketingBrands(), same shape. Submitted/Approved/
+     * Rejected are bounded to the selected period by their own event
+     * timestamp; Pending Review is current, period-unfiltered work, grouped
+     * per brand like every other current-but-brand-scoped tile. $brands is
+     * the exact set of rows to build — callers pass just the selected brand
+     * to collapse "totals" to that one brand's own row, same convention as
+     * marketingBrands(). Four grouped queries regardless of brand or
+     * conversation volume — never one query per brand.
+     *
+     * @param  Collection<int, Brand>  $brands
+     * @return array{rows: array<int, array<string, int>>, totals: array<string, int>}
+     */
+    public function conversationsBrands(ReportingPeriod $period, Collection $brands): array
+    {
+        [$since, $until] = $period->bounds();
+
+        $grouped = fn ($query) => $query->selectRaw('brand_id, count(*) as total')->groupBy('brand_id')->pluck('total', 'brand_id');
+
+        $submitted = $grouped(SmmClientConversation::query()->where('submitted_at', '>=', $since)->where('submitted_at', '<', $until));
+        $approved = $grouped(SmmClientConversation::query()->where('review_status', SmmClientConversation::STATUS_APPROVED)
+            ->where('reviewed_at', '>=', $since)->where('reviewed_at', '<', $until));
+        $rejected = $grouped(SmmClientConversation::query()->where('review_status', SmmClientConversation::STATUS_REJECTED)
+            ->where('reviewed_at', '>=', $since)->where('reviewed_at', '<', $until));
+        $pending = $grouped(SmmClientConversation::query()->where('review_status', SmmClientConversation::STATUS_PENDING));
+
+        $rows = [];
+        foreach ($brands as $brand) {
+            $rows[$brand->id] = [
+                'submitted' => (int) ($submitted[$brand->id] ?? 0),
+                'pending_review' => (int) ($pending[$brand->id] ?? 0),
+                'approved' => (int) ($approved[$brand->id] ?? 0),
+                'rejected' => (int) ($rejected[$brand->id] ?? 0),
+            ];
+        }
+
+        return [
+            'rows' => $rows,
+            'totals' => collect(['submitted', 'pending_review', 'approved', 'rejected'])
+                ->mapWithKeys(fn (string $key) => [$key => (int) collect($rows)->sum($key)])
+                ->all(),
+        ];
+    }
+
+    /**
      * Marketing's brand-wise historical activity. Used by the Marketing
      * dashboard and by Manager Oversight, so both always read the same numbers.
      * $brands is the exact set of rows to build — when a single brand is

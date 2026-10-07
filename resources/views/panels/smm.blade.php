@@ -138,6 +138,13 @@
                 <input type="hidden" id="smmPublishBrand"><input type="hidden" id="smmPublishItem"><input type="hidden" id="smmPublishSubmission">
                 <label class="form-label small fw-semibold">Facebook post URL <span class="text-danger">*</span></label>
                 <input type="url" id="smmPublishUrl" class="form-control form-control-sm" placeholder="https://facebook.com/…">
+                <label class="form-label small fw-semibold mt-3">Send final review to <span class="fw-normal" style="color:var(--text3)">(optional)</span></label>
+                <select id="smmPublishAssign" class="form-select form-select-sm">
+                    <option value="">Let team claim / Unassigned</option>
+                    @foreach ($marketingUsers as $u)
+                        <option value="{{ $u->id }}">{{ $u->name }}</option>
+                    @endforeach
+                </select>
             </div>
             <div class="modal-footer py-2">
                 <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
@@ -156,6 +163,11 @@
                 <input type="hidden" id="smmRevisionBrand"><input type="hidden" id="smmRevisionItem">
                 <label class="form-label small fw-semibold">Reason <span class="text-danger">*</span></label>
                 <textarea id="smmRevisionNote" class="form-control form-control-sm" rows="3" placeholder="What needs to change?"></textarea>
+                <label class="form-label small fw-semibold mt-3">Send it to <span class="fw-normal" style="color:var(--text3)">(optional)</span></label>
+                {{-- Options are filled in by JS from contentUsers/designUsers, per the item's own category. --}}
+                <select id="smmRevisionAssign" class="form-select form-select-sm">
+                    <option value="">Let team claim / Unassigned</option>
+                </select>
             </div>
             <div class="modal-footer py-2">
                 <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
@@ -185,6 +197,22 @@ const smmPeriodParams = {
     year: @json($period->period === 'yearly' ? $period->selected : null),
     brand_id: @json($brand->id),
 };
+
+// A revision's destination maker role depends on the item's own category —
+// poster goes to Design, everything else goes to Content (see
+// StageOwnershipService::RULES) — so both eligible lists are embedded once
+// and the revision modal picks the right one per item.
+const makerUsersByCategory = {
+    poster: @json($designUsers->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values()),
+    raw_content: @json($contentUsers->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values()),
+    advertising_content: @json($contentUsers->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values()),
+};
+
+function populateSmmRevisionAssign(category) {
+    const users = makerUsersByCategory[category] || [];
+    $('#smmRevisionAssign').html('<option value="">Let team claim / Unassigned</option>'
+        + users.map(u => '<option value="' + u.id + '">' + escSmm(u.name) + '</option>').join(''));
+}
 
 $('.smm-tabs .nav-link').on('click', function () {
     $('.smm-tabs .nav-link').removeClass('active');
@@ -244,7 +272,7 @@ function loadCollected() {
                 + '<td>' + (c?.collected_at ? escSmm(c.collected_at) : '—') + '</td>'
                 + '<td class="text-end">'
                 + '<button class="btn btn-sm btn-primary smm-publish-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-submission="' + (c?.submission?.id || '') + '" data-title="' + escSmm(it.title) + '"><i class="bi bi-send"></i> Publish</button>'
-                + '<button class="btn btn-sm btn-outline-danger smm-revision-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + escSmm(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>'
+                + '<button class="btn btn-sm btn-outline-danger smm-revision-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-category="' + it.category + '" data-title="' + escSmm(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>'
                 + '<a class="btn btn-sm btn-outline-secondary" href="/marketing/brands/' + it.brand_id + '/checklist" title="View this brand\'s full content checklist"><i class="bi bi-list-check"></i></a>'
                 + '</td></tr>';
         }).join(''));
@@ -296,6 +324,7 @@ $(document).on('click', '.smm-revision-btn', function () {
     $('#smmRevisionBrand').val($(this).data('brand'));
     $('#smmRevisionTitle').text('Send back — ' + $(this).data('title'));
     $('#smmRevisionNote').val('');
+    populateSmmRevisionAssign($(this).data('category'));
     bootstrap.Modal.getOrCreateInstance('#smmRevisionModal').show();
 });
 
@@ -305,7 +334,7 @@ $('#smmRevisionSave').on('click', function () {
 
     const $btn = $(this).prop('disabled', true);
     $.post('/marketing/brands/' + $('#smmRevisionBrand').val() + '/content-items/' + $('#smmRevisionItem').val() + '/request-revision', {
-        note: note, _token: $('meta[name=csrf-token]').attr('content'),
+        note: note, assign_to: $('#smmRevisionAssign').val() || null, _token: $('meta[name=csrf-token]').attr('content'),
     }).done(function () {
         bootstrap.Modal.getInstance('#smmRevisionModal').hide();
         Swal.fire({ icon: 'success', title: 'Sent back', timer: 1200, showConfirmButton: false });
@@ -327,6 +356,7 @@ $('#collRows').on('click', '.smm-publish-btn', function () {
     $('#smmPublishSubmission').val($(this).data('submission'));
     $('#smmPublishTitle').text('Publish — ' + $(this).data('title'));
     $('#smmPublishUrl').val('');
+    $('#smmPublishAssign').val('');
     bootstrap.Modal.getOrCreateInstance('#smmPublishModal').show();
 });
 
@@ -336,7 +366,8 @@ $('#smmPublishSave').on('click', function () {
 
     const $btn = $(this).prop('disabled', true);
     $.post('/marketing/brands/' + $('#smmPublishBrand').val() + '/content-items/' + $('#smmPublishItem').val() + '/publish', {
-        submission_id: $('#smmPublishSubmission').val(), facebook_post_url: url, _token: $('meta[name=csrf-token]').attr('content'),
+        submission_id: $('#smmPublishSubmission').val(), facebook_post_url: url,
+        assign_review_to: $('#smmPublishAssign').val() || null, _token: $('meta[name=csrf-token]').attr('content'),
     }).done(function () {
         bootstrap.Modal.getInstance('#smmPublishModal').hide();
         Swal.fire({ icon: 'success', title: 'Published', timer: 1200, showConfirmButton: false });

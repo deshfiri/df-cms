@@ -115,6 +115,15 @@
                     <label class="form-label small fw-semibold">File</label>
                     <input type="file" id="dsSubmitFile" class="form-control form-control-sm">
                 </div>
+                <div class="mb-2">
+                    <label class="form-label small fw-semibold">Assign to <span class="fw-normal" style="color:var(--text3)">(optional)</span></label>
+                    <select id="dsSubmitAssign" class="form-select form-select-sm">
+                        <option value="">Let team claim / Unassigned</option>
+                        @foreach ($marketingUsers as $u)
+                            <option value="{{ $u->id }}">{{ $u->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
             </div>
             <div class="modal-footer py-2">
                 <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
@@ -221,6 +230,7 @@ $('#dsRows').on('click', '.ds-submit-btn', function () {
     $('#dsSubmitTitle').text('Submit — ' + $(this).data('title'));
     $('#dsSubmitLink').val('');
     $('#dsSubmitFile').val('');
+    $('#dsSubmitAssign').val('');
     bootstrap.Modal.getOrCreateInstance('#dsSubmitModal').show();
 });
 
@@ -232,6 +242,7 @@ $('#dsSubmitSave').on('click', function () {
     const fd = new FormData();
     if (link) fd.append('link_url', link);
     if (file) fd.append('file', file);
+    if ($('#dsSubmitAssign').val()) fd.append('assign_to', $('#dsSubmitAssign').val());
     fd.append('_token', $('meta[name=csrf-token]').attr('content'));
 
     const $btn = $(this).prop('disabled', true);
