@@ -6,6 +6,7 @@ use App\Models\Brand;
 use App\Models\SmmClientConversation;
 use App\Services\SmmConversationService;
 use App\Services\Storage\StoredFileResponse;
+use App\Support\BrandScope;
 use App\Support\ReportingPeriod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,23 +25,25 @@ class SmmConversationController extends Controller
 
     /**
      * SMM sees its own records. Marketing sees every record, filtered by
-     * brand and status. Both are filtered to the selected Daily/Monthly/
-     * Yearly period by submitted_at — the moment the conversation itself
-     * was logged, not when it was later reviewed.
+     * status. Both are filtered to the selected Daily/Monthly/Yearly period
+     * by submitted_at — the moment the conversation itself was logged, not
+     * when it was later reviewed — AND to the selected Brand (All Brands
+     * when none is chosen), independently of the period.
      */
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
         [$since, $until] = ReportingPeriod::fromRequest($request)->bounds();
+        $brand = BrandScope::fromRequest($request, Brand::inWorkflow()->get(['id', 'name']));
 
         $query = SmmClientConversation::query()
             ->with(['brand:id,name', 'product:id,name', 'submitter:id,name', 'reviewer:id,name'])
+            ->tap(fn ($q) => $brand->apply($q))
             ->where('submitted_at', '>=', $since)
             ->where('submitted_at', '<', $until);
 
         if ($user->can('manage publishing-review')) {
-            $query->when($request->filled('brand_id'), fn ($q) => $q->where('brand_id', $request->integer('brand_id')))
-                ->when($request->filled('status'), fn ($q) => $q->where('review_status', $request->string('status')));
+            $query->when($request->filled('status'), fn ($q) => $q->where('review_status', $request->string('status')));
         } elseif ($user->can('manage smm-collection')) {
             $query->where('submitted_by', $user->id);
         } else {

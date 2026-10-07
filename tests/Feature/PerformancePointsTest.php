@@ -9,6 +9,7 @@ use App\Services\Performance\PerformanceCalculationService;
 use App\Services\Performance\PerformancePointService;
 use App\Support\ReportingPeriod;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Spatie\Permission\Models\Permission;
 use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
@@ -317,6 +318,67 @@ class PerformancePointsTest extends TestCase
 
         $this->assertSame($ledgerPoints, $result['components']['workflowPoints']['points']);
         $this->assertEqualsWithDelta($ledgerPoints * $this->perPoint(), $result['components']['workflowPoints']['score'], 0.001);
+    }
+
+    // ── Brand filter: ledger breakdown only, never the official score ─────────
+
+    /** Sections 12, 23–25: the breakdown uses the ledger event's own brand_id, and the official score never changes. */
+    public function test_the_workflow_points_breakdown_respects_brand_but_the_official_score_does_not(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $itemA = $this->newItem($brandA, $t['content']);
+        $subA = $this->submitVersion($itemA, $t['content']);
+        $this->approve($itemA, $subA, $t['marketing']);
+        $itemB = $this->newItem($brandB, $t['content'], ContentItem::CATEGORY_ADVERTISING_CONTENT);
+        $subB = $this->submitVersion($itemB, $t['content']);
+        $this->approve($itemB, $subB, $t['marketing']);
+
+        $service = app(PerformancePointService::class);
+        $period = ReportingPeriod::monthly(self::PERIOD);
+
+        $breakdownA = $service->breakdownForUser($t['content'], $period, $brandA->id);
+        $breakdownB = $service->breakdownForUser($t['content'], $period, $brandB->id);
+        $breakdownAll = $service->breakdownForUser($t['content'], $period);
+
+        // Brand B's points are excluded when Brand A is selected (and vice versa).
+        $this->assertSame(2, $breakdownA[PerformancePointEvent::EVENT_RAW_CONTENT_APPROVAL]['points']);
+        $this->assertArrayNotHasKey(PerformancePointEvent::EVENT_ADVERTISING_CONTENT_APPROVAL, $breakdownA);
+        $this->assertSame(2, $breakdownB[PerformancePointEvent::EVENT_ADVERTISING_CONTENT_APPROVAL]['points']);
+        $this->assertArrayNotHasKey(PerformancePointEvent::EVENT_RAW_CONTENT_APPROVAL, $breakdownB);
+        $this->assertSame(4, $breakdownAll[PerformancePointEvent::EVENT_RAW_CONTENT_APPROVAL]['points'] + $breakdownAll[PerformancePointEvent::EVENT_ADVERTISING_CONTENT_APPROVAL]['points']);
+
+        // The official final score is computed exactly as before — brand filtering never touches it.
+        $this->assertEqualsWithDelta(4 * $this->perPoint(), $this->score($t['content']), 0.001);
+    }
+
+    /** The scorecard page itself: a brand_id in the URL narrows the rendered breakdown table, never the hero score. */
+    public function test_the_scorecard_page_narrows_the_points_breakdown_by_brand_in_the_url(): void
+    {
+        $t = $this->workflowTeam();
+        Permission::firstOrCreate(['name' => 'view performance', 'guard_name' => 'web']);
+        $viewer = $this->user('Manager', ['view performance']);
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $itemA = $this->newItem($brandA, $t['content']);
+        $this->approve($itemA, $this->submitVersion($itemA, $t['content']), $t['marketing']);
+        $itemB = $this->newItem($brandB, $t['content'], ContentItem::CATEGORY_ADVERTISING_CONTENT);
+        $this->approve($itemB, $this->submitVersion($itemB, $t['content']), $t['marketing']);
+
+        $all = $this->actingAs($viewer)->get(route('performance.show', $t['content']).'?period='.self::PERIOD);
+        $all->assertOk();
+        $allBreakdown = $all->viewData('pointsBreakdown');
+        $this->assertArrayHasKey(PerformancePointEvent::EVENT_RAW_CONTENT_APPROVAL, $allBreakdown);
+        $this->assertArrayHasKey(PerformancePointEvent::EVENT_ADVERTISING_CONTENT_APPROVAL, $allBreakdown);
+
+        $filtered = $this->actingAs($viewer)->get(route('performance.show', $t['content']).'?period='.self::PERIOD.'&brand_id='.$brandA->id);
+        $filtered->assertOk();
+        $filteredBreakdown = $filtered->viewData('pointsBreakdown');
+        $this->assertArrayHasKey(PerformancePointEvent::EVENT_RAW_CONTENT_APPROVAL, $filteredBreakdown);
+        $this->assertArrayNotHasKey(PerformancePointEvent::EVENT_ADVERTISING_CONTENT_APPROVAL, $filteredBreakdown);
+        // The hero score (result['final_score']) is identical regardless of the brand filter.
+        $this->assertSame($all->viewData('result')['final_score'], $filtered->viewData('result')['final_score']);
     }
 
     // ── 16. Ranking follows the score ─────────────────────────────────────────

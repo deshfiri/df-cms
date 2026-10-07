@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\Reporting\PanelActivityReport;
 use App\Services\Storage\StoredFileResponse;
 use App\Services\Workflow\StageOwnershipService;
+use App\Support\BrandScope;
 use App\Support\ReportingPeriod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,9 +29,10 @@ class PanelController extends Controller
     public function __construct(private readonly PanelActivityReport $activity) {}
 
     /**
-     * The queue follows the selected Daily/Monthly/Yearly period, same as the
-     * Activity section beside it — see itemsJson() for which timestamp a row
-     * is filtered by.
+     * The queue follows the selected Daily/Monthly/Yearly period AND the
+     * selected Brand (All Brands when none is chosen) — same as the Activity
+     * section beside it. See itemsJson() for which timestamp a row is
+     * filtered by, and BrandScope for how the brand is authorized.
      */
     public function rawContent(Request $request): View|JsonResponse
     {
@@ -40,12 +42,15 @@ class PanelController extends Controller
             return $this->itemsJson($request, ContentItem::contentPanelCategories());
         }
 
+        $brands = $this->brandsWithChecklist();
         $period = ReportingPeriod::fromRequest($request);
+        $brand = BrandScope::fromRequest($request, $brands);
 
         return view('panels.raw-content', [
-            'brands' => $this->brandsWithChecklist(),
+            'brands' => $brands,
             'period' => $period,
-            'activity' => $this->activity->rawContent($period),
+            'brand' => $brand,
+            'activity' => $this->activity->rawContent($period, $brand->id),
         ]);
     }
 
@@ -57,12 +62,15 @@ class PanelController extends Controller
             return $this->itemsJson($request, [ContentItem::CATEGORY_POSTER]);
         }
 
+        $brands = $this->brandsWithChecklist();
         $period = ReportingPeriod::fromRequest($request);
+        $brand = BrandScope::fromRequest($request, $brands);
 
         return view('panels.designer', [
-            'brands' => $this->brandsWithChecklist(),
+            'brands' => $brands,
             'period' => $period,
-            'activity' => $this->activity->designer($period),
+            'brand' => $brand,
+            'activity' => $this->activity->designer($period, $brand->id),
         ]);
     }
 
@@ -70,17 +78,20 @@ class PanelController extends Controller
     {
         abort_unless($request->user()->can('view smm-panel'), 403);
 
+        $brands = Brand::inWorkflow()
+            ->with(['products' => fn ($q) => $q->select('id', 'brand_id', 'name')->orderBy('name')])
+            ->orderBy('name')
+            ->get(['id', 'name']);
         $period = ReportingPeriod::fromRequest($request);
+        $brand = BrandScope::fromRequest($request, $brands);
 
         return view('panels.smm', [
             'period' => $period,
-            'brands' => Brand::whereHas('checklist')
-                ->with(['products' => fn ($q) => $q->select('id', 'brand_id', 'name')->orderBy('name')])
-                ->orderBy('name')
-                ->get(['id', 'name']),
-            'activity' => $this->activity->smm($period),
+            'brand' => $brand,
+            'brands' => $brands,
+            'activity' => $this->activity->smm($period, $brand->id),
             // Each SMM user sees their own conversations. Ownership is per user, never per panel.
-            'conversations' => $this->activity->smmConversations($period, $request->user()),
+            'conversations' => $this->activity->smmConversations($period, $request->user(), $brand->id),
         ]);
     }
 
@@ -89,6 +100,7 @@ class PanelController extends Controller
         abort_unless($request->user()->can('manage smm-collection'), 403);
 
         [$since, $until] = ReportingPeriod::fromRequest($request)->bounds();
+        $brand = BrandScope::fromRequest($request, Brand::inWorkflow()->get(['id', 'name']));
 
         // The server-side SMM-eligibility gate, read-side: a submission
         // Marketing hasn't approved simply never appears here — the same
@@ -99,6 +111,7 @@ class PanelController extends Controller
         // which it became available to SMM, not the period it was first made.
         $items = ContentItem::where('status', ContentItem::STATUS_AVAILABLE)
             ->whereHas('latestSubmissionRelation.approval', fn ($q) => $q->where('approved_at', '>=', $since)->where('approved_at', '<', $until))
+            ->tap(fn ($q) => $brand->apply($q))
             ->with(['brand:id,name', 'product:id,name', 'latestSubmissionRelation'])
             ->latest()
             ->get()
@@ -112,11 +125,13 @@ class PanelController extends Controller
         abort_unless($request->user()->can('manage smm-collection'), 403);
 
         [$since, $until] = ReportingPeriod::fromRequest($request)->bounds();
+        $brand = BrandScope::fromRequest($request, Brand::inWorkflow()->get(['id', 'name']));
 
         // Filtered by collected_at — the moment SMM claimed this exact
         // submission, not when it was originally submitted.
         $items = ContentItem::where('status', ContentItem::STATUS_COLLECTED)
             ->whereHas('latestCollectionRelation', fn ($q) => $q->where('collected_at', '>=', $since)->where('collected_at', '<', $until))
+            ->tap(fn ($q) => $brand->apply($q))
             ->with(['brand:id,name', 'product:id,name', 'latestCollectionRelation.submission', 'latestCollectionRelation.collectedBy:id,name'])
             ->latest()
             ->get()
@@ -130,9 +145,10 @@ class PanelController extends Controller
         abort_unless($request->user()->can('manage published-content'), 403);
 
         [$since, $until] = ReportingPeriod::fromRequest($request)->bounds();
+        $brand = BrandScope::fromRequest($request, Brand::inWorkflow()->get(['id', 'name']));
 
         $published = PublishedContent::with(['item:id,title,category,brand_id', 'item.brand:id,name', 'submission', 'publishedBy:id,name', 'reviewedBy:id,name'])
-            ->when($request->filled('brand_id'), fn ($q) => $q->where('brand_id', $request->brand_id))
+            ->tap(fn ($q) => $brand->apply($q))
             ->where('published_at', '>=', $since)
             ->where('published_at', '<', $until)
             ->orderByDesc('published_at')
@@ -165,8 +181,14 @@ class PanelController extends Controller
     {
         abort_unless($request->user()->can('manage publishing-review'), 403);
 
+        $brands = $this->brandsWithChecklist();
+
         return view('panels.marketing', [
-            'brands' => $this->brandsWithChecklist(),
+            'brands' => $brands,
+            // The Brand filter select needs its own validated current
+            // selection too, so a reload preserves it (see Marketing's own
+            // JS periodParams()/syncPeriodInputs()).
+            'brand' => BrandScope::fromRequest($request, $brands),
             // Who the handover and revision forms may name. The server re-checks eligibility.
             'smmUsers' => $this->eligibleUsers('Social Media Manager'),
             'makerUsers' => User::where('is_active', true)
@@ -189,11 +211,12 @@ class PanelController extends Controller
         abort_unless($request->user()->can('manage publishing-review'), 403);
 
         [$since, $until] = ReportingPeriod::fromRequest($request)->bounds();
+        $brand = BrandScope::fromRequest($request, $this->brandsWithChecklist());
 
         $items = ContentItem::where('status', ContentItem::STATUS_AVAILABLE)
             ->whereHas('latestSubmissionRelation', fn ($q) => $q->whereDoesntHave('approval')
                 ->where('created_at', '>=', $since)->where('created_at', '<', $until))
-            ->when($request->filled('brand_id'), fn ($q) => $q->where('brand_id', $request->brand_id))
+            ->tap(fn ($q) => $brand->apply($q))
             ->withCount('submissions')
             ->with(['brand:id,name', 'product:id,name', 'latestSubmissionRelation.submittedBy:id,name'])
             ->latest()
@@ -228,7 +251,9 @@ class PanelController extends Controller
      * bounded to the selected Daily/Monthly/Yearly period and comes from the
      * shared PanelActivityReport, so Manager Oversight reads the same numbers.
      * The current queues (Pending Pre-Publish, Pending Final Review) are never
-     * period-filtered, so a historical filter never hides urgent work.
+     * period-filtered, so a historical filter never hides urgent work — but a
+     * selected Brand still narrows every row shown here, current tiles
+     * included (period and brand are independent filters; see BrandScope).
      */
     public function marketingWorkload(Request $request): JsonResponse
     {
@@ -236,7 +261,14 @@ class PanelController extends Controller
 
         $period = ReportingPeriod::fromRequest($request);
         $brands = $this->brandsWithChecklist();
-        $history = $this->activity->marketingBrands($period, $brands);
+        $brand = BrandScope::fromRequest($request, $brands);
+        // A specific brand narrows which rows are built at all (not just
+        // their values) — "totals" then naturally collapses to that one
+        // brand's own row instead of the whole company's.
+        if (! $brand->isAll()) {
+            $brands = $brands->where('id', $brand->id)->values();
+        }
+        $history = $this->activity->marketingBrands($period, $brands, $brand->id);
         [$pendingPrePublish, $pendingFinalReview] = $this->marketingCurrentQueues();
 
         $rows = $brands->map(function (Brand $brand) use ($history, $pendingPrePublish, $pendingFinalReview) {
@@ -316,9 +348,10 @@ class PanelController extends Controller
     private function itemsJson(Request $request, array $categories): JsonResponse
     {
         [$since, $until] = ReportingPeriod::fromRequest($request)->bounds();
+        $brand = BrandScope::fromRequest($request, $this->brandsWithChecklist());
 
         $items = ContentItem::whereIn('category', $categories)
-            ->when($request->filled('brand_id'), fn ($q) => $q->where('brand_id', $request->brand_id))
+            ->tap(fn ($q) => $brand->apply($q))
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->status))
             ->where(function ($q) use ($since, $until) {
                 $q->whereHas('latestSubmissionRelation', fn ($q2) => $q2->where('created_at', '>=', $since)->where('created_at', '<', $until))
@@ -369,6 +402,6 @@ class PanelController extends Controller
 
     private function brandsWithChecklist()
     {
-        return Brand::whereHas('checklist')->orderBy('name')->get(['id', 'name']);
+        return Brand::inWorkflow()->orderBy('name')->get(['id', 'name']);
     }
 }

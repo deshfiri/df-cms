@@ -138,6 +138,12 @@ trait ContentWorkflowFixtures
         return ['period' => 'yearly', 'year' => $year];
     }
 
+    /** Merges a brand_id onto an existing daily()/monthly()/yearly() query array. */
+    protected function withBrand(array $query, Brand $brand): array
+    {
+        return $query + ['brand_id' => $brand->id];
+    }
+
     protected function service(): ContentItemService
     {
         return app(ContentItemService::class);

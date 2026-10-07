@@ -56,10 +56,10 @@ final class PanelActivityReport
      *
      * @return array{categories: array<string, array<string, int>>, combined: array<string, int>}
      */
-    public function rawContent(ReportingPeriod $period): array
+    public function rawContent(ReportingPeriod $period, ?int $brandId = null): array
     {
         $categories = [ContentItem::CATEGORY_RAW_CONTENT, ContentItem::CATEGORY_ADVERTISING_CONTENT];
-        $rows = $this->perCategory(self::AUTHOR_METRICS, $period, $categories);
+        $rows = $this->perCategory(self::AUTHOR_METRICS, $period, $categories, $brandId);
 
         return [
             'categories' => $rows,
@@ -72,9 +72,9 @@ final class PanelActivityReport
      *
      * @return array{categories: array<string, array<string, int>>}
      */
-    public function designer(ReportingPeriod $period): array
+    public function designer(ReportingPeriod $period, ?int $brandId = null): array
     {
-        return ['categories' => $this->perCategory(self::AUTHOR_METRICS, $period, [ContentItem::CATEGORY_POSTER])];
+        return ['categories' => $this->perCategory(self::AUTHOR_METRICS, $period, [ContentItem::CATEGORY_POSTER], $brandId)];
     }
 
     /**
@@ -82,29 +82,32 @@ final class PanelActivityReport
      *
      * @return array<string, int>
      */
-    public function smm(ReportingPeriod $period): array
+    public function smm(ReportingPeriod $period, ?int $brandId = null): array
     {
-        return $this->totals(self::SMM_METRICS, $period);
+        return $this->totals(self::SMM_METRICS, $period, $brandId);
     }
 
     /**
      * SMM client conversations for a period. Submitted, approved and rejected
      * are timestamped by the event (submitted_at, reviewed_at). Potential Client
-     * points are the ledger awards by awarded_at. Pending review is current work,
-     * so it is never period-filtered.
+     * points are the ledger awards by awarded_at. Pending review is current work
+     * (never period-filtered), but a selected brand still narrows it — period
+     * and brand are independent filters (see BrandScope).
      *
      * @return array{submitted: int, approved: int, rejected: int, pending_review: int, potential_client_points: int}
      */
-    public function smmConversations(ReportingPeriod $period, ?User $smm = null): array
+    public function smmConversations(ReportingPeriod $period, ?User $smm = null, ?int $brandId = null): array
     {
         [$since, $until] = $period->bounds();
 
         $owned = fn () => SmmClientConversation::query()
-            ->when($smm !== null, fn ($q) => $q->where('submitted_by', $smm->id));
+            ->when($smm !== null, fn ($q) => $q->where('submitted_by', $smm->id))
+            ->when($brandId !== null, fn ($q) => $q->where('brand_id', $brandId));
 
         $points = PerformancePointEvent::query()
             ->where('event_type', PerformancePointEvent::EVENT_POTENTIAL_CLIENT)
             ->when($smm !== null, fn ($q) => $q->where('user_id', $smm->id))
+            ->when($brandId !== null, fn ($q) => $q->where('brand_id', $brandId))
             ->where('awarded_at', '>=', $since)
             ->where('awarded_at', '<', $until)
             ->sum('points');
@@ -123,14 +126,17 @@ final class PanelActivityReport
     /**
      * Marketing's brand-wise historical activity. Used by the Marketing
      * dashboard and by Manager Oversight, so both always read the same numbers.
+     * $brands is the exact set of rows to build — when a single brand is
+     * selected, callers pass a collection of just that one brand, so "totals"
+     * collapses to that brand's own row instead of the whole company's.
      *
      * @param  Collection<int, Brand>  $brands
      * @return array{rows: array<int, array<string, int>>, totals: array<string, int>}
      */
-    public function marketingBrands(ReportingPeriod $period, Collection $brands): array
+    public function marketingBrands(ReportingPeriod $period, Collection $brands, ?int $brandId = null): array
     {
         $byBrand = collect(self::MARKETING_METRICS)->map(
-            fn (string $metric) => $this->report->count($metric, $period, WorkflowActivityReport::BY_BRAND)
+            fn (string $metric) => $this->report->count($metric, $period, WorkflowActivityReport::BY_BRAND, null, $brandId)
         );
 
         $rows = [];
@@ -150,23 +156,24 @@ final class PanelActivityReport
     /**
      * Manager Oversight: cross-department totals, using the same panel
      * definitions above. Marketing's department row is the same
-     * marketingBrands() total the Marketing dashboard shows.
+     * marketingBrands() total the Marketing dashboard shows. $brands is
+     * already the caller's brand-filtered set (see marketingBrands()).
      *
      * @param  Collection<int, Brand>  $brands
      * @return array{departments: array<string, array<string, int>>, brands: array{rows: array<int, array<string, int>>, totals: array<string, int>}}
      */
-    public function managerOversight(ReportingPeriod $period, Collection $brands): array
+    public function managerOversight(ReportingPeriod $period, Collection $brands, ?int $brandId = null): array
     {
-        $content = $this->rawContent($period)['categories'];
-        $design = $this->designer($period)['categories'];
-        $marketing = $this->marketingBrands($period, $brands);
+        $content = $this->rawContent($period, $brandId)['categories'];
+        $design = $this->designer($period, $brandId)['categories'];
+        $marketing = $this->marketingBrands($period, $brands, $brandId);
 
         return [
             'departments' => [
                 'content_raw' => $content[ContentItem::CATEGORY_RAW_CONTENT],
                 'content_advertising' => $content[ContentItem::CATEGORY_ADVERTISING_CONTENT],
                 'design' => $design[ContentItem::CATEGORY_POSTER],
-                'smm' => $this->smm($period),
+                'smm' => $this->smm($period, $brandId),
                 'marketing' => $marketing['totals'],
             ],
             'brands' => $marketing,
@@ -178,10 +185,10 @@ final class PanelActivityReport
      * @param  array<int, string>  $categories
      * @return array<string, array<string, int>> category => key => count
      */
-    private function perCategory(array $metrics, ReportingPeriod $period, array $categories): array
+    private function perCategory(array $metrics, ReportingPeriod $period, array $categories, ?int $brandId = null): array
     {
         $byCategory = collect($metrics)->map(
-            fn (string $metric) => $this->report->count($metric, $period, WorkflowActivityReport::BY_CATEGORY, $categories)
+            fn (string $metric) => $this->report->count($metric, $period, WorkflowActivityReport::BY_CATEGORY, $categories, $brandId)
         );
 
         $rows = [];
@@ -196,10 +203,10 @@ final class PanelActivityReport
     }
 
     /** @param  array<string, string>  $metrics  @return array<string, int> */
-    private function totals(array $metrics, ReportingPeriod $period): array
+    private function totals(array $metrics, ReportingPeriod $period, ?int $brandId = null): array
     {
         return collect($metrics)
-            ->map(fn (string $metric) => (int) $this->report->count($metric, $period, WorkflowActivityReport::BY_CATEGORY)->sum())
+            ->map(fn (string $metric) => (int) $this->report->count($metric, $period, WorkflowActivityReport::BY_CATEGORY, null, $brandId)->sum())
             ->all();
     }
 

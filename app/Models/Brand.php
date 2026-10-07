@@ -180,6 +180,22 @@ class Brand extends Model
         return $query->where('is_active', true);
     }
 
+    /**
+     * Brands eligible for the content workflow panels (Raw Content, Designer,
+     * SMM, Marketing, Manager Oversight) and their Brand filter dropdowns —
+     * a brand becomes reachable here the moment it has a checklist, exactly
+     * the rule those panels already used for their "New Item" brand pickers
+     * before Brand filtering existed. There is no finer per-user brand
+     * authorization layer in this part of the app: the panel's own permission
+     * check (`view raw-content-panel`, `manage smm-collection`, etc.) is the
+     * access boundary, same as before. Centralised here so every panel reads
+     * one definition instead of five copies of `whereHas('checklist')`.
+     */
+    public function scopeInWorkflow($query)
+    {
+        return $query->whereHas('checklist');
+    }
+
     /** Opted into the public landing page by a Manager/Marketing user — see LandingController. */
     public function scopePublic($query)
     {

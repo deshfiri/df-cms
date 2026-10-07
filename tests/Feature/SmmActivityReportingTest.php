@@ -272,6 +272,116 @@ class SmmActivityReportingTest extends TestCase
         $this->assertNotContains($y2025->id, $year2026);
     }
 
+    // ── Brand filter: Available / Collected / Published / activity metrics ────
+
+    public function test_available_respects_brand(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $itemA = $this->handedOverAt('2026-10-06 10:00', $brandA, $t['content'], $t['marketing']);
+        $itemB = $this->handedOverAt('2026-10-06 10:05', $brandB, $t['content'], $t['marketing']);
+
+        $ids = $this->queueIds($t['smm'], 'panels.smm.available', $this->withBrand($this->monthly('2026-10'), $brandA));
+
+        $this->assertContains($itemA->id, $ids);
+        $this->assertNotContains($itemB->id, $ids);
+    }
+
+    public function test_collected_respects_brand(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $itemA = $this->handedOverAt('2026-10-06 10:00', $brandA, $t['content'], $t['marketing']);
+        $itemB = $this->handedOverAt('2026-10-06 10:05', $brandB, $t['content'], $t['marketing']);
+        $this->collect($itemA, $t['smm']);
+        $this->collect($itemB, $t['smm']);
+
+        $ids = $this->queueIds($t['smm'], 'panels.smm.collected', $this->withBrand($this->monthly('2026-10'), $brandB));
+
+        $this->assertContains($itemB->id, $ids);
+        $this->assertNotContains($itemA->id, $ids);
+    }
+
+    public function test_published_respects_brand(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        [, $pubA] = $this->publishedAt('2026-10-06 10:00', $brandA, $t['content'], $t['marketing'], $t['smm']);
+        [, $pubB] = $this->publishedAt('2026-10-06 10:05', $brandB, $t['content'], $t['marketing'], $t['smm']);
+
+        $ids = $this->queueIds($t['smm'], 'panels.smm.published', $this->withBrand($this->monthly('2026-10'), $brandA));
+
+        $this->assertContains($pubA->id, $ids);
+        $this->assertNotContains($pubB->id, $ids);
+    }
+
+    public function test_activity_metrics_respect_brand(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $this->handedOverAt('2026-10-06 10:00', $brandA, $t['content'], $t['marketing']);
+        $this->handedOverAt('2026-10-06 10:05', $brandB, $t['content'], $t['marketing']);
+        $this->handedOverAt('2026-10-06 10:10', $brandB, $t['content'], $t['marketing']);
+
+        $this->assertSame(1, $this->activity($t['smm'], $this->withBrand($this->monthly('2026-10'), $brandA))['received']);
+        $this->assertSame(2, $this->activity($t['smm'], $this->withBrand($this->monthly('2026-10'), $brandB))['received']);
+        $this->assertSame(3, $this->activity($t['smm'], $this->monthly('2026-10'))['received'], 'All Brands.');
+    }
+
+    public function test_period_and_brand_combine_correctly_for_available(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $febA = $this->handedOverAt('2026-02-06 10:00', $brandA, $t['content'], $t['marketing']);
+        $octA = $this->handedOverAt('2026-10-06 10:00', $brandA, $t['content'], $t['marketing']);
+        $octB = $this->handedOverAt('2026-10-06 10:05', $brandB, $t['content'], $t['marketing']);
+
+        $febBrandA = $this->queueIds($t['smm'], 'panels.smm.available', $this->withBrand($this->monthly('2026-02'), $brandA));
+        $octBrandA = $this->queueIds($t['smm'], 'panels.smm.available', $this->withBrand($this->monthly('2026-10'), $brandA));
+
+        $this->assertContains($febA->id, $febBrandA);
+        $this->assertNotContains($octA->id, $febBrandA);
+        $this->assertContains($octA->id, $octBrandA);
+        $this->assertNotContains($octB->id, $octBrandA);
+    }
+
+    /**
+     * Section 24's exact regression scenario: an October Brand A item and an
+     * October Brand B item in Available. Brand A shows only A, Brand B shows
+     * only B, and February + Brand A shows neither — hitting the real
+     * endpoint's rendered JSON, not just ids.
+     */
+    public function test_october_brand_a_and_brand_b_available_items_are_mutually_exclusive(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandA->update(['name' => 'Brand Alpha']);
+        $brandB = $this->readyBrand($t['manager']);
+        $brandB->update(['name' => 'Brand Beta']);
+        $this->handedOverAt('2026-10-06 10:00', $brandA, $t['content'], $t['marketing']);
+        $this->handedOverAt('2026-10-06 10:05', $brandB, $t['content'], $t['marketing']);
+
+        $octA = $this->actingAs($t['smm'])->getJson(route('panels.smm.available', $this->withBrand($this->monthly('2026-10'), $brandA)));
+        $octA->assertOk();
+        $this->assertStringContainsString('Brand Alpha', $octA->getContent());
+        $this->assertStringNotContainsString('Brand Beta', $octA->getContent());
+
+        $octB = $this->actingAs($t['smm'])->getJson(route('panels.smm.available', $this->withBrand($this->monthly('2026-10'), $brandB)));
+        $octB->assertOk();
+        $this->assertStringContainsString('Brand Beta', $octB->getContent());
+        $this->assertStringNotContainsString('Brand Alpha', $octB->getContent());
+
+        $febA = $this->actingAs($t['smm'])->getJson(route('panels.smm.available', $this->withBrand($this->monthly('2026-02'), $brandA)));
+        $febA->assertOk();
+        $this->assertStringNotContainsString('Brand Alpha', $febA->getContent());
+        $this->assertStringNotContainsString('Brand Beta', $febA->getContent());
+    }
+
     // ── 23. Asia/Dhaka boundary ───────────────────────────────────────────────
 
     public function test_the_daily_boundary_follows_asia_dhaka(): void

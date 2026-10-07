@@ -15,7 +15,11 @@
     <div style="font-size:.7rem;color:var(--text3);margin-top:2px">Per-brand advertising budget, checklist holds, and current department workload</div>
 </div>
 
-{{-- Department Workload --}}
+{{-- Department Workload — a current, unfiltered-by-period backlog, but it
+     does follow the selected Brand (see activity-period's Brand select below). --}}
+@if (! $brand->isAll())
+    <div class="small mb-2" style="color:var(--text3)">Department workload below is for <strong>{{ $brand->name }}</strong> only.</div>
+@endif
 <div class="row g-3 mb-4">
     <div class="col-6 col-md-3">
         <div class="ov-card p-3">
@@ -82,10 +86,10 @@
     <div class="card-body">
         <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
             <div>
-                <div class="fw-semibold" style="font-size:.9rem">Activity / performance <span class="small fw-normal" style="color:var(--text3)">· selected period</span></div>
-                <div class="small" style="color:var(--text3)">Historical activity only. Current workload above is never period-filtered.</div>
+                <div class="fw-semibold" style="font-size:.9rem">Activity / performance <span class="small fw-normal" style="color:var(--text3)">· selected period and brand</span></div>
+                <div class="small" style="color:var(--text3)">Historical activity only — never period-filtered above, but the current workload tiles above still follow the selected Brand.</div>
             </div>
-            @include('partials.activity-period', ['period' => $period])
+            @include('partials.activity-period', ['period' => $period, 'brands' => $brands, 'brand' => $brand])
         </div>
 
         <div class="small fw-semibold mb-1">Departments</div>
@@ -228,16 +232,16 @@
     </div>
 </div>
 
-{{-- Unreviewed Published Content — read-only, across every brand; the actual
-     review/revision actions reuse the existing Marketing routes directly.
-     Filtered to the Activity section's selected period above, by
-     published_at — the Marketing tile's count above stays a current,
-     unfiltered backlog and may disagree with this table when a past
-     period is selected. --}}
+{{-- Unreviewed Published Content — read-only; the actual review/revision
+     actions reuse the existing Marketing routes directly. Filtered to the
+     Activity section's selected period above, by published_at, AND to the
+     selected Brand — the Marketing tile's count above stays a current,
+     period-unfiltered backlog (though it does follow the same Brand) and
+     may disagree with this table's count when a past period is selected. --}}
 <div class="ov-card mt-4">
     <div class="p-3" style="border-bottom:1px solid var(--border)">
         <strong><i class="bi bi-eye me-1"></i>Unreviewed Published Content</strong>
-        <span class="small fw-normal" style="color:var(--text3)">· {{ $period->label }}</span>
+        <span class="small fw-normal" style="color:var(--text3)">· {{ $period->label }}{{ $brand->isAll() ? '' : ' · '.$brand->name }}</span>
     </div>
     <div class="table-responsive">
         <table class="table mb-0 align-middle">

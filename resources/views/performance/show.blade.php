@@ -74,10 +74,19 @@
         <a href="{{ route('performance.index', ['period' => $period]) }}" class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-arrow-left me-1"></i>Scoreboard
         </a>
-        <form method="GET">
+        <form method="GET" class="d-flex gap-2">
             <select name="period" class="form-select form-select-sm" onchange="this.form.submit()" style="min-width:150px">
                 @foreach ($periods as $value => $label)
                     <option value="{{ $value }}" @selected($period === $value)>{{ $label }}</option>
+                @endforeach
+            </select>
+            {{-- Brand context for the Workflow points ledger below only — it
+                 never changes the official final score above (see
+                 PerformancePointService::breakdownForUser()). --}}
+            <select name="brand_id" class="form-select form-select-sm" onchange="this.form.submit()" style="min-width:160px" aria-label="Brand (workflow points breakdown)">
+                <option value="">All Brands</option>
+                @foreach ($brands as $b)
+                    <option value="{{ $b->id }}" @selected($brand->id === $b->id)>{{ $b->name }}</option>
                 @endforeach
             </select>
         </form>
@@ -133,12 +142,15 @@
 @endphp
 <div class="card section-card mb-3">
     <div class="card-header py-2 d-flex justify-content-between align-items-center">
-        <h6 class="fw-bold mb-0"><i class="bi bi-stars me-1"></i>Workflow points</h6>
+        <h6 class="fw-bold mb-0"><i class="bi bi-stars me-1"></i>Workflow points{{ $brand->isAll() ? '' : ' · '.$brand->name }}</h6>
         <span class="sc-weight">{{ $pointsTotal }} pts &middot; +{{ number_format($pointsScore, 2) }} to score</span>
     </div>
     <div class="card-body">
         <div class="small mb-2" style="color:var(--text3)">
             Each point earned this month adds {{ config('performance.score_per_point') }} to this score. Points are awarded only to the person who did the work, when it was accepted.
+            @if (! $brand->isAll())
+                The breakdown below is narrowed to <strong>{{ $brand->name }}</strong> — the score above (and its point total) still counts every brand.
+            @endif
         </div>
         @if (empty($pointsBreakdown))
             <div class="small" style="color:var(--text3)">No workflow points this month.</div>

@@ -32,6 +32,9 @@ use Illuminate\Support\Facades\DB;
  * Each call is one grouped query, so the query count does not grow with the
  * number of brands or categories. Soft-deleted items are never counted, and
  * every period is the half-open [since, until) window from ReportingPeriod.
+ * An optional brand id (see count()) narrows every metric to one brand at
+ * the database level — time and brand are two independent AND-ed filters on
+ * the same underlying event, never two different implementations.
  */
 final class WorkflowActivityReport
 {
@@ -61,12 +64,14 @@ final class WorkflowActivityReport
 
     /**
      * @param  array<int, string>|null  $categories  Restrict to these content categories; null means every category.
+     * @param  int|null  $brandId  Restrict to this one brand; null means every brand ("All Brands").
      * @return Collection<int|string, int> group value (brand_id or category) => count, only for groups with a match
      */
-    public function count(string $metric, ReportingPeriod $period, string $groupBy, ?array $categories = null): Collection
+    public function count(string $metric, ReportingPeriod $period, string $groupBy, ?array $categories = null, ?int $brandId = null): Collection
     {
         return $this->query($metric, $period)
             ->when($categories !== null, fn (Builder $q) => $q->whereIn('content_items.category', $categories))
+            ->when($brandId !== null, fn (Builder $q) => $q->where('content_items.brand_id', $brandId))
             ->selectRaw($groupBy.' as group_key, count(*) as total')
             ->groupBy($groupBy)
             ->pluck('total', 'group_key');

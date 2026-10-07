@@ -10,11 +10,11 @@ use Tests\TestCase;
 
 /**
  * Raw Content panel activity. The Activity section AND the item queue below
- * it both follow the selected Daily/Monthly/Yearly period — a row belongs to
- * the period its latest submission (or, pre-submission, its own created_at)
- * falls in. Category isolation is explicit: raw_content and
- * advertising_content are separate rows, and the combined row is labelled as
- * combined.
+ * it both follow the selected Daily/Monthly/Yearly period AND the selected
+ * Brand — a row belongs to the period its latest submission (or,
+ * pre-submission, its own created_at) falls in, and to whichever brand it is
+ * for. Category isolation is explicit: raw_content and advertising_content
+ * are separate rows, and the combined row is labelled as combined.
  */
 class RawContentActivityReportingTest extends TestCase
 {
@@ -152,6 +152,85 @@ class RawContentActivityReportingTest extends TestCase
 
         $this->assertSame(1, $this->activity($t['content'], $this->daily('2026-10-06'))['categories']['raw_content']['submitted']);
         $this->assertSame(1, $this->activity($t['content'], $this->daily('2026-10-07'))['categories']['raw_content']['submitted']);
+    }
+
+    // ── Brand filter: metrics, rows, and period+brand combined ────────────────
+
+    public function test_all_brands_period_count_is_correct(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $this->submittedAt('2026-10-06 10:00', $brandA, $t['content']);
+        $this->submittedAt('2026-10-06 10:05', $brandB, $t['content']);
+        $this->submittedAt('2026-10-06 10:10', $brandB, $t['content']);
+
+        $this->assertSame(3, $this->activity($t['content'], $this->monthly('2026-10'))['categories']['raw_content']['submitted']);
+    }
+
+    public function test_brand_a_metrics_exclude_brand_b(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $this->submittedAt('2026-10-06 10:00', $brandA, $t['content']);
+        $this->submittedAt('2026-10-06 10:05', $brandB, $t['content']);
+        $this->submittedAt('2026-10-06 10:10', $brandB, $t['content']);
+
+        $query = $this->withBrand($this->monthly('2026-10'), $brandA);
+        $this->assertSame(1, $this->activity($t['content'], $query)['categories']['raw_content']['submitted']);
+    }
+
+    public function test_brand_a_rows_exclude_brand_b(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $itemA = $this->submittedAt('2026-10-06 10:00', $brandA, $t['content']);
+        $itemB = $this->submittedAt('2026-10-06 10:05', $brandB, $t['content']);
+
+        $ids = $this->queueIds($t['content'], $this->withBrand($this->monthly('2026-10'), $brandA));
+
+        $this->assertContains($itemA->id, $ids);
+        $this->assertNotContains($itemB->id, $ids);
+    }
+
+    /** Section 22's cross-brand/cross-period scenario, for Raw Content. */
+    public function test_period_and_brand_combine_correctly(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $this->submittedAt('2026-02-01 10:00', $brandA, $t['content']);
+        $this->submittedAt('2026-02-01 10:05', $brandB, $t['content']);
+        $this->submittedAt('2026-02-01 10:10', $brandB, $t['content']);
+        $this->submittedAt('2026-10-01 10:00', $brandA, $t['content']);
+        $this->submittedAt('2026-10-01 10:05', $brandB, $t['content']);
+        $this->submittedAt('2026-10-01 10:10', $brandB, $t['content']);
+        $this->submittedAt('2026-10-01 10:15', $brandB, $t['content']);
+        $this->submittedAt('2026-10-01 10:20', $brandB, $t['content']);
+
+        $raw = fn (array $q) => $this->activity($t['content'], $q)['categories']['raw_content']['submitted'];
+
+        $this->assertSame(1, $raw($this->withBrand($this->monthly('2026-02'), $brandA)));
+        $this->assertSame(2, $raw($this->withBrand($this->monthly('2026-02'), $brandB)));
+        $this->assertSame(1, $raw($this->withBrand($this->monthly('2026-10'), $brandA)));
+        $this->assertSame(5, $raw($this->monthly('2026-10')), 'All Brands, October.');
+    }
+
+    /** An unauthorized/invalid/tampered brand_id silently falls back to All Brands, never an error or a leak. */
+    public function test_invalid_brand_id_falls_back_to_all_brands(): void
+    {
+        $t = $this->workflowTeam();
+        $brand = $this->readyBrand($t['manager']);
+        $this->submittedAt('2026-10-06 10:00', $brand, $t['content']);
+
+        $query = $this->withBrand($this->monthly('2026-10'), $brand);
+        $query['brand_id'] = 999999; // does not exist
+        $this->assertSame(1, $this->activity($t['content'], $query)['categories']['raw_content']['submitted']);
+
+        $query['brand_id'] = 'not-a-number';
+        $this->assertSame(1, $this->activity($t['content'], $query)['categories']['raw_content']['submitted']);
     }
 
     // ── Completed uses Marketing's final review of the current version ────────

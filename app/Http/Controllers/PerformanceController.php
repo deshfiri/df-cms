@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Brand;
 use App\Models\MonthlyPerformanceSnapshot;
 use App\Models\PerformanceSetting;
 use App\Models\User;
 use App\Services\Performance\PerformanceCalculationService;
 use App\Services\Performance\PerformancePointService;
 use App\Services\WorkloadService;
+use App\Support\BrandScope;
 use App\Support\PerformanceBoardCache;
 use App\Support\ReportingPeriod;
 use Illuminate\Http\Request;
@@ -107,6 +109,12 @@ class PerformanceController extends Controller
         abort_unless(Auth::user()->can('view performance'), 403);
 
         $period = $this->resolvePeriod($request);
+        // Brand context for the workflow-points ledger breakdown only (see
+        // PerformancePointService::breakdownForUser) — filtering/breakdown,
+        // never a brand-specific score. The official final_score below is
+        // computed exactly as before, brand or no brand selected.
+        $brands = Brand::inWorkflow()->orderBy('name')->get(['id', 'name']);
+        $brand = BrandScope::fromRequest($request, $brands);
 
         // Snapshot history (persisted by performance:snapshot) drives the trend line.
         $snapshots = MonthlyPerformanceSnapshot::where('user_id', $user->id)
@@ -117,10 +125,12 @@ class PerformanceController extends Controller
             'employee' => $user,
             'period' => $period,
             'periods' => $this->periodOptions(),
+            'brands' => $brands,
+            'brand' => $brand,
             'result' => $this->performance->finalScore($user, $period),
             // Why the workflow points moved this score: the ledger, by event, for this month.
             'pointsBreakdown' => app(PerformancePointService::class)
-                ->breakdownForUser($user, ReportingPeriod::monthly($period)),
+                ->breakdownForUser($user, ReportingPeriod::monthly($period), $brand->id),
             // The per-task audit trail behind the task KPIs.
             'credit' => $this->performance->taskCredit($user, $period),
             'trend' => [

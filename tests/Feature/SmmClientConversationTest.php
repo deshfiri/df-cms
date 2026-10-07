@@ -475,6 +475,39 @@ class SmmClientConversationTest extends TestCase
         $this->assertSame([$octConversation->id], collect($mktOct)->pluck('id')->all());
     }
 
+    /** Section 11/13: Client Conversations respect Brand, for both SMM and Marketing. */
+    public function test_client_conversations_respect_brand(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $brandA = $this->readyBrand($manager);
+        $brandB = $this->readyBrand($manager);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $smm = $this->smm();
+        $convA = $this->conversationFor($smm, $brandA);
+        $convB = $this->conversationFor($smm, $brandB);
+
+        $smmBrandA = $this->actingAs($smm)->getJson(route('smm-conversations.index', ['brand_id' => $brandA->id]))->json('data');
+        $this->assertSame([$convA->id], collect($smmBrandA)->pluck('id')->all());
+
+        $mktBrandB = $this->actingAs($marketing)->getJson(route('smm-conversations.index', ['status' => 'pending', 'brand_id' => $brandB->id]))->json('data');
+        $this->assertSame([$convB->id], collect($mktBrandB)->pluck('id')->all());
+
+        $all = $this->actingAs($marketing)->getJson(route('smm-conversations.index', ['status' => 'pending']))->json('data');
+        $this->assertCount(2, $all);
+    }
+
+    /** An unauthorized/invalid brand_id (never created, so not in anyone's eligible set) is ignored, not trusted. */
+    public function test_an_invalid_brand_id_on_conversations_falls_back_to_all_brands(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $brand = $this->readyBrand($manager);
+        $smm = $this->smm();
+        $c = $this->conversationFor($smm, $brand);
+
+        $response = $this->actingAs($smm)->getJson(route('smm-conversations.index', ['brand_id' => 999999]))->json('data');
+        $this->assertSame([$c->id], collect($response)->pluck('id')->all());
+    }
+
     public function test_conversation_review_stays_available_while_the_brand_checklist_is_on_hold(): void
     {
         $manager = $this->user('Manager', ['manage payments']);

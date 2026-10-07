@@ -29,8 +29,10 @@
 @endphp
 @include('partials.activity-section', [
     'title' => 'SMM',
-    'caption' => 'Collection and publishing activity in the selected period. The Available, Collected, Published and Client Conversations tabs below follow the same period.',
+    'caption' => 'Collection and publishing activity in the selected period and brand. The Available, Collected, Published and Client Conversations tabs below follow the same filters.',
     'period' => $period,
+    'brands' => $brands,
+    'brand' => $brand,
     'rowHeading' => 'Scope',
     'columns' => $smmColumns,
     'rows' => [
@@ -82,7 +84,7 @@
 <div class="card section-card d-none" id="paneConversations">
     <div class="card-body">
         <div class="small mb-2" style="color:var(--text3)">
-            <span class="fw-semibold">{{ $period->label }}</span>:
+            <span class="fw-semibold">{{ $period->label }}{{ $brand->isAll() ? '' : ' · '.$brand->name }}</span>:
             {{ $conversations['submitted'] }} logged · {{ $conversations['approved'] }} potential client · {{ $conversations['rejected'] }} not potential ·
             {{ $conversations['potential_client_points'] }} points earned.
             <span class="fw-semibold">Awaiting verification now: {{ $conversations['pending_review'] }}</span>
@@ -170,14 +172,18 @@ const catLabel = { raw_content: 'Raw content', advertising_content: 'Advertising
 const escSmm = s => $('<div>').text(s == null ? '' : s).html();
 const panes = { available: '#paneAvailable', collected: '#paneCollected', published: '#panePublished', conversations: '#paneConversations' };
 
-// Same selected period the Activity section above is rendered with — every
-// tab's row list follows it too, so switching tabs never shows a different
-// period than the one chosen above.
+// Same selected period AND brand the Activity section above is rendered
+// with — every tab's row list follows both, so switching tabs never shows a
+// different period or brand than the one chosen above. The Brand select
+// itself lives in that section's own period form, so changing it reloads
+// the whole page (same as changing the period) — a tab switch alone can
+// never silently revert to a different brand.
 const smmPeriodParams = {
     period: @json($period->period),
     date: @json($period->period === 'daily' ? $period->selected : null),
     month: @json($period->period === 'monthly' ? $period->selected : null),
     year: @json($period->period === 'yearly' ? $period->selected : null),
+    brand_id: @json($brand->id),
 };
 
 $('.smm-tabs .nav-link').on('click', function () {

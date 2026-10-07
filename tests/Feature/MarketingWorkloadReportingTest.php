@@ -462,6 +462,99 @@ class MarketingWorkloadReportingTest extends TestCase
         $this->assertSame(0, $row['completed'], 'Reviewing a superseded V1 does not complete the current cycle.');
     }
 
+    // ── Brand filter: historical metrics, current tiles, and Pre-Publish rows ──
+
+    public function test_historical_metrics_respect_brand(): void
+    {
+        $t = $this->team();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $this->submittedAt('2026-10-06 10:00', $brandA, $t['content']);
+        $this->submittedAt('2026-10-06 10:05', $brandB, $t['content']);
+        $this->submittedAt('2026-10-06 10:10', $brandB, $t['content']);
+
+        $filtered = $this->report($t['marketing'], $this->withBrand($this->daily('2026-10-06'), $brandB));
+
+        $this->assertCount(1, $filtered['data'], 'Only the selected brand appears once a specific brand is chosen.');
+        $this->assertSame(2, $this->row($filtered, $brandB)['received']);
+        $this->assertSame(2, $filtered['totals']['received'], 'Totals collapse to the one selected brand.');
+    }
+
+    public function test_current_pending_pre_publish_tile_respects_brand_even_though_it_ignores_period(): void
+    {
+        $t = $this->team();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $this->submittedAt('2026-10-06 10:00', $brandA, $t['content']);
+        $this->submittedAt('2026-10-06 10:05', $brandB, $t['content']);
+        $this->submittedAt('2026-10-06 10:10', $brandB, $t['content']);
+
+        // A historical period (September) still doesn't hide the current
+        // tile — but the selected Brand still narrows it (section 9).
+        $filtered = $this->report($t['marketing'], $this->withBrand($this->monthly('2026-09'), $brandB));
+
+        $this->assertSame(2, $filtered['totals']['pending_pre_publish']);
+        $this->assertSame(1, $this->report($t['marketing'], $this->withBrand($this->monthly('2026-09'), $brandA))['totals']['pending_pre_publish']);
+    }
+
+    public function test_pre_publish_check_rows_respect_brand(): void
+    {
+        $t = $this->team();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $itemA = $this->submittedAt('2026-10-06 10:00', $brandA, $t['content']);
+        $itemB = $this->submittedAt('2026-10-06 10:05', $brandB, $t['content']);
+
+        $ids = collect($this->actingAs($t['marketing'])
+            ->getJson(route('panels.marketing.pending-check', $this->withBrand($this->monthly('2026-10'), $brandA)))
+            ->json('data'))->pluck('id')->all();
+
+        $this->assertContains($itemA->id, $ids);
+        $this->assertNotContains($itemB->id, $ids);
+    }
+
+    public function test_final_review_pending_tile_respects_brand(): void
+    {
+        $t = $this->team();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $this->publishedAt('2026-10-06 10:00', $brandA, $t['content'], $t['marketing'], $t['smm']);
+        $this->publishedAt('2026-10-06 10:05', $brandB, $t['content'], $t['marketing'], $t['smm']);
+        $this->publishedAt('2026-10-06 10:10', $brandB, $t['content'], $t['marketing'], $t['smm']);
+
+        $filteredB = $this->report($t['marketing'], $this->withBrand($this->daily('2026-10-06'), $brandB));
+        $this->assertSame(2, $filteredB['totals']['pending_final_review']);
+
+        $filteredA = $this->report($t['marketing'], $this->withBrand($this->daily('2026-10-06'), $brandA));
+        $this->assertSame(1, $filteredA['totals']['pending_final_review']);
+    }
+
+    public function test_period_and_brand_combine_correctly_for_marketing(): void
+    {
+        $t = $this->team();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $this->handedOverAt('2026-02-06 10:00', $brandA, $t['content'], $t['marketing']);
+        $this->handedOverAt('2026-10-06 10:00', $brandA, $t['content'], $t['marketing']);
+        $this->handedOverAt('2026-10-06 10:05', $brandB, $t['content'], $t['marketing']);
+
+        $this->assertSame(1, $this->row($this->report($t['marketing'], $this->withBrand($this->monthly('2026-02'), $brandA)), $brandA)['handed_over']);
+        $this->assertSame(2, $this->report($t['marketing'], $this->monthly('2026-10'))['totals']['handed_over'], 'All Brands, October.');
+        $this->assertSame(1, $this->row($this->report($t['marketing'], $this->withBrand($this->monthly('2026-10'), $brandA)), $brandA)['handed_over']);
+    }
+
+    /** An unauthorized/invalid brand_id silently falls back to All Brands. */
+    public function test_invalid_brand_id_falls_back_to_all_brands_for_marketing(): void
+    {
+        $t = $this->team();
+        $brand = $this->readyBrand($t['manager']);
+        $this->submittedAt('2026-10-06 10:00', $brand, $t['content']);
+
+        $query = $this->withBrand($this->monthly('2026-10'), $brand);
+        $query['brand_id'] = 999999;
+        $this->assertSame(1, $this->report($t['marketing'], $query)['totals']['received']);
+    }
+
     public function test_historical_completed_content_without_an_approval_stays_reportable(): void
     {
         $t = $this->team();

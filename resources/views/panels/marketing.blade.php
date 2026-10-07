@@ -29,9 +29,11 @@
 </ul>
 
 {{--
-    Daily | Monthly | Yearly — governs every tab below, not just the Workload
-    Dashboard. Pre-Publish Check and Client Conversations now follow the
-    selected period too, same as every other panel's row lists.
+    Daily | Monthly | Yearly, plus Brand — governs every tab below, not just
+    the Workload Dashboard. Pre-Publish Check and Client Conversations follow
+    both the selected period and the selected brand, same as every other
+    panel's row lists. Period and Brand are independent filters (AND, never
+    either/or) — see BrandScope.
 --}}
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
     <select id="mktPeriodType" class="form-select form-select-sm" style="width:130px">
@@ -43,6 +45,12 @@
     <input type="date" id="mktPeriodDate" value="{{ now('Asia/Dhaka')->format('Y-m-d') }}" class="form-control form-control-sm d-none" style="width:160px">
     <input type="month" id="mktPeriodMonth" value="{{ now('Asia/Dhaka')->format('Y-m') }}" class="form-control form-control-sm" style="width:160px">
     <input type="number" id="mktPeriodYear" value="{{ now('Asia/Dhaka')->format('Y') }}" class="form-control form-control-sm d-none" style="width:110px" min="2000" max="2100">
+    <select id="mktPeriodBrand" class="form-select form-select-sm" style="width:180px" aria-label="Brand">
+        <option value="">All Brands</option>
+        @foreach ($brands as $b)
+            <option value="{{ $b->id }}" @selected($brand->id === $b->id)>{{ $b->name }}</option>
+        @endforeach
+    </select>
     <span id="mktPeriodLabel" class="small" style="color:var(--text3)"></span>
 </div>
 
@@ -279,7 +287,7 @@ function syncPeriodInputs() {
 
 function periodParams() {
     const type = $('#mktPeriodType').val();
-    const params = { period: type };
+    const params = { period: type, brand_id: $('#mktPeriodBrand').val() };
     if (type === 'daily') params.date = $('#mktPeriodDate').val();
     if (type === 'monthly') params.month = $('#mktPeriodMonth').val();
     if (type === 'yearly') params.year = $('#mktPeriodYear').val();
@@ -319,7 +327,7 @@ function reloadActiveMktTab() {
 }
 
 $('#mktPeriodType').on('change', function () { syncPeriodInputs(); reloadActiveMktTab(); });
-$('#mktPeriodDate,#mktPeriodMonth,#mktPeriodYear').on('change', reloadActiveMktTab);
+$('#mktPeriodDate,#mktPeriodMonth,#mktPeriodYear,#mktPeriodBrand').on('change', reloadActiveMktTab);
 
 function loadWorkload() {
     $.get('{{ route('panels.marketing.workload') }}', periodParams()).done(function (r) {

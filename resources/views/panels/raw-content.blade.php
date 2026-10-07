@@ -31,8 +31,10 @@
 @endphp
 @include('partials.activity-section', [
     'title' => 'Raw Content & Advertising',
-    'caption' => 'Work this team produced in the selected period. The queue below follows the same period.',
+    'caption' => 'Work this team produced in the selected period and brand. The queue below follows the same filters.',
     'period' => $period,
+    'brands' => $brands,
+    'brand' => $brand,
     'rowHeading' => 'Category',
     'columns' => $authorColumns,
     'rows' => [
@@ -43,12 +45,6 @@
 ])
 
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-    <select id="filterBrand" class="form-select form-select-sm" style="width:200px">
-        <option value="">All brands</option>
-        @foreach($brands as $b)
-            <option value="{{ $b->id }}">{{ $b->name }}</option>
-        @endforeach
-    </select>
     <select id="filterCategory" class="form-select form-select-sm" style="width:180px">
         <option value="">Raw content + advertising</option>
         <option value="raw_content">Raw content only</option>
@@ -161,19 +157,22 @@ const statusLabel = {
 const catLabel = { raw_content: 'Raw content', advertising_content: 'Advertising content' };
 const escRawContent = s => $('<div>').text(s == null ? '' : s).html();
 
-// Same selected period the Activity section above is rendered with — the
-// row list below follows it too, so the queue and the Activity numbers
-// never disagree about which period is showing.
+// Same selected period AND brand the Activity section above is rendered
+// with — the row list below follows both, so the queue and the Activity
+// numbers never disagree about which period or brand is showing. The Brand
+// select itself lives in that Activity section's own period form now (a
+// change there reloads the whole page, same as changing the period).
 const rcPeriodParams = {
     period: @json($period->period),
     date: @json($period->period === 'daily' ? $period->selected : null),
     month: @json($period->period === 'monthly' ? $period->selected : null),
     year: @json($period->period === 'yearly' ? $period->selected : null),
+    brand_id: @json($brand->id),
 };
 
 function loadItems() {
     $.get('{{ route('panels.raw-content') }}', Object.assign({}, rcPeriodParams, {
-        brand_id: $('#filterBrand').val(), category: $('#filterCategory').val(), status: $('#filterStatus').val(),
+        category: $('#filterCategory').val(), status: $('#filterStatus').val(),
     })).done(function (r) {
         const rows = r.data || [];
         if (!rows.length) { $('#rcRows').html('<tr><td colspan="7" class="rc-empty">No content items match these filters.</td></tr>'); return; }
@@ -215,7 +214,7 @@ function loadProducts(brandId, $select) {
     });
 }
 
-$('#filterBrand,#filterCategory,#filterStatus').on('change', loadItems);
+$('#filterCategory,#filterStatus').on('change', loadItems);
 
 $('#newItemBtn').on('click', function () {
     $('#rcNewBrand,#rcNewTitle').val('');

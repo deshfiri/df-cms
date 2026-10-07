@@ -133,6 +133,52 @@ class DesignerActivityReportingTest extends TestCase
         $this->assertContains($octoberPoster->id, $this->queueIds($t['design'], $this->monthly('2026-10')));
     }
 
+    // ── Brand filter: metrics, rows, and period+brand combined ────────────────
+
+    public function test_brand_filter_metrics_are_correct(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $this->submittedAt('2026-10-06 10:00', $brandA, $t['design'], ContentItem::CATEGORY_POSTER);
+        $this->submittedAt('2026-10-06 10:05', $brandB, $t['design'], ContentItem::CATEGORY_POSTER);
+        $this->submittedAt('2026-10-06 10:10', $brandB, $t['design'], ContentItem::CATEGORY_POSTER);
+
+        $query = $this->withBrand($this->monthly('2026-10'), $brandB);
+        $this->assertSame(2, $this->poster($this->activity($t['design'], $query))['submitted']);
+    }
+
+    public function test_brand_filter_rows_are_correct(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $posterA = $this->submittedAt('2026-10-06 10:00', $brandA, $t['design'], ContentItem::CATEGORY_POSTER);
+        $posterB = $this->submittedAt('2026-10-06 10:05', $brandB, $t['design'], ContentItem::CATEGORY_POSTER);
+
+        $ids = $this->queueIds($t['design'], $this->withBrand($this->monthly('2026-10'), $brandB));
+
+        $this->assertContains($posterB->id, $ids);
+        $this->assertNotContains($posterA->id, $ids);
+    }
+
+    public function test_period_and_brand_combine_correctly(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $this->submittedAt('2026-02-01 10:00', $brandA, $t['design'], ContentItem::CATEGORY_POSTER);
+        $this->submittedAt('2026-10-01 10:00', $brandA, $t['design'], ContentItem::CATEGORY_POSTER);
+        $this->submittedAt('2026-10-01 10:05', $brandB, $t['design'], ContentItem::CATEGORY_POSTER);
+
+        $poster = fn (array $q) => $this->poster($this->activity($t['design'], $q))['submitted'];
+
+        $this->assertSame(1, $poster($this->withBrand($this->monthly('2026-02'), $brandA)));
+        $this->assertSame(0, $poster($this->withBrand($this->monthly('2026-02'), $brandB)));
+        $this->assertSame(2, $poster($this->monthly('2026-10')), 'All Brands, October.');
+        $this->assertSame(1, $poster($this->withBrand($this->monthly('2026-10'), $brandA)));
+    }
+
     // ── 14. Asia/Dhaka boundary ───────────────────────────────────────────────
 
     public function test_the_daily_boundary_follows_asia_dhaka(): void

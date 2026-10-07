@@ -144,12 +144,20 @@ final class PerformancePointService
      *
      * @return array<string, array{count: int, points: int}>
      */
-    public function breakdownForUser(User $user, ReportingPeriod $period): array
+    /**
+     * $brandId narrows the ledger to one brand's events, using the brand
+     * already recorded on each event at award time (see award()) — a
+     * filtering/breakdown concern only. It never changes which events exist
+     * or how many points they're worth, so the official final score (which
+     * sums every event, brand or no brand) is completely unaffected.
+     */
+    public function breakdownForUser(User $user, ReportingPeriod $period, ?int $brandId = null): array
     {
         [$since, $until] = $period->bounds();
 
         $rows = DB::table('performance_point_events')
             ->where('user_id', $user->id)
+            ->when($brandId !== null, fn ($q) => $q->where('brand_id', $brandId))
             ->where('awarded_at', '>=', $since)
             ->where('awarded_at', '<', $until)
             ->groupBy('event_type')

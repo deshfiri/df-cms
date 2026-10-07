@@ -29,8 +29,10 @@
 @endphp
 @include('partials.activity-section', [
     'title' => 'Posters',
-    'caption' => 'Poster work produced in the selected period. The queue below follows the same period.',
+    'caption' => 'Poster work produced in the selected period and brand. The queue below follows the same filters.',
     'period' => $period,
+    'brands' => $brands,
+    'brand' => $brand,
     'rowHeading' => 'Category',
     'columns' => $posterColumns,
     'rows' => [
@@ -39,12 +41,6 @@
 ])
 
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-    <select id="filterBrand" class="form-select form-select-sm" style="width:200px">
-        <option value="">All brands</option>
-        @foreach($brands as $b)
-            <option value="{{ $b->id }}">{{ $b->name }}</option>
-        @endforeach
-    </select>
     <select id="filterStatus" class="form-select form-select-sm" style="width:160px">
         <option value="">All statuses</option>
         <option value="pending">Pending</option>
@@ -141,17 +137,19 @@ const statusLabel = {
 };
 const escDesigner = s => $('<div>').text(s == null ? '' : s).html();
 
-// Same selected period the Activity section above is rendered with.
+// Same selected period AND brand the Activity section above is rendered
+// with. The Brand select itself lives in that section's own period form.
 const dsPeriodParams = {
     period: @json($period->period),
     date: @json($period->period === 'daily' ? $period->selected : null),
     month: @json($period->period === 'monthly' ? $period->selected : null),
     year: @json($period->period === 'yearly' ? $period->selected : null),
+    brand_id: @json($brand->id),
 };
 
 function loadItems() {
     $.get('{{ route('panels.designer') }}', Object.assign({}, dsPeriodParams, {
-        brand_id: $('#filterBrand').val(), status: $('#filterStatus').val(),
+        status: $('#filterStatus').val(),
     })).done(function (r) {
         const rows = r.data || [];
         if (!rows.length) { $('#dsRows').html('<tr><td colspan="6" class="ds-empty">No posters match these filters.</td></tr>'); return; }
@@ -192,7 +190,7 @@ function loadProducts(brandId, $select) {
     });
 }
 
-$('#filterBrand,#filterStatus').on('change', loadItems);
+$('#filterStatus').on('change', loadItems);
 
 $('#newItemBtn').on('click', function () {
     $('#dsNewBrand,#dsNewTitle').val('');

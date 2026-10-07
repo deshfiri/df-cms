@@ -178,6 +178,82 @@ class ManagerOversightActivityTest extends TestCase
         $this->assertTrue($october['response']->viewData('unreviewed')->contains(fn (PublishedContent $p) => $p->id === $published->id));
     }
 
+    // ── Brand filter: Manager metrics, rows, and Manager/Marketing agreement ──
+
+    public function test_manager_metrics_respect_brand(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $this->submittedAt('2026-10-06 10:00', $brandA, $t['content']);
+        $this->submittedAt('2026-10-06 10:05', $brandB, $t['content']);
+        $this->submittedAt('2026-10-06 10:10', $brandB, $t['content']);
+
+        $activity = $this->oversight($t['manager'], $this->withBrand($this->daily('2026-10-06'), $brandB))['activity'];
+
+        $this->assertSame(2, $activity['departments']['content_raw']['submitted']);
+        $this->assertSame(2, $activity['departments']['marketing']['received']);
+    }
+
+    public function test_manager_rows_respect_brand(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        [, $publishedA] = $this->publishedAt('2026-10-06 10:00', $brandA, $t['content'], $t['marketing'], $t['smm']);
+        [, $publishedB] = $this->publishedAt('2026-10-06 10:05', $brandB, $t['content'], $t['marketing'], $t['smm']);
+
+        $result = $this->oversight($t['manager'], $this->withBrand($this->monthly('2026-10'), $brandB));
+
+        $this->assertTrue($result['response']->viewData('unreviewed')->contains(fn (PublishedContent $p) => $p->id === $publishedB->id));
+        $this->assertFalse($result['response']->viewData('unreviewed')->contains(fn (PublishedContent $p) => $p->id === $publishedA->id));
+    }
+
+    public function test_manager_workload_tile_respects_brand(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $this->publishedAt('2026-10-06 10:00', $brandA, $t['content'], $t['marketing'], $t['smm']);
+        $this->publishedAt('2026-10-06 10:05', $brandB, $t['content'], $t['marketing'], $t['smm']);
+        $this->publishedAt('2026-10-06 10:10', $brandB, $t['content'], $t['marketing'], $t['smm']);
+
+        $resultB = $this->oversight($t['manager'], ['brand_id' => $brandB->id]);
+        $this->assertSame(2, $resultB['response']->viewData('workload')['marketing']['unreviewed_publishes']);
+
+        $resultA = $this->oversight($t['manager'], ['brand_id' => $brandA->id]);
+        $this->assertSame(1, $resultA['response']->viewData('workload')['marketing']['unreviewed_publishes']);
+    }
+
+    public function test_manager_and_marketing_definitions_stay_consistent_for_the_same_brand_and_period(): void
+    {
+        $t = $this->workflowTeam();
+        $brandA = $this->readyBrand($t['manager']);
+        $brandB = $this->readyBrand($t['manager']);
+        $this->handedOverAt('2026-10-06 09:00', $brandA, $t['content'], $t['marketing']);
+        $this->handedOverAt('2026-10-06 09:05', $brandB, $t['content'], $t['marketing']);
+        $this->handedOverAt('2026-10-06 09:10', $brandB, $t['content'], $t['marketing']);
+
+        $query = $this->withBrand($this->daily('2026-10-06'), $brandB);
+        $marketing = $this->report($t['marketing'], $query);
+        $manager = $this->oversight($t['manager'], $query)['activity'];
+
+        $this->assertSame(2, $marketing['totals']['handed_over']);
+        $this->assertSame($marketing['totals']['handed_over'], $manager['departments']['marketing']['handed_over']);
+    }
+
+    /** An unauthorized/invalid brand_id silently falls back to All Brands. */
+    public function test_invalid_brand_id_falls_back_to_all_brands_for_manager_oversight(): void
+    {
+        $t = $this->workflowTeam();
+        $brand = $this->readyBrand($t['manager']);
+        $this->submittedAt('2026-10-06 10:00', $brand, $t['content']);
+
+        $query = $this->withBrand($this->monthly('2026-10'), $brand);
+        $query['brand_id'] = 999999;
+        $this->assertSame(1, $this->oversight($t['manager'], $query)['activity']['departments']['marketing']['received']);
+    }
+
     // ── 31. Asia/Dhaka boundary ───────────────────────────────────────────────
 
     public function test_the_daily_boundary_follows_asia_dhaka(): void
