@@ -98,12 +98,14 @@ class PublishingReviewRevisionStateTest extends TestCase
         return $brand->fresh();
     }
 
-    /** Create -> submit -> collect -> publish, returning everything a test might need next. */
+    /** Create -> submit -> Marketing approve -> collect -> publish, returning everything a test might need next. */
     private function publishedItem(Brand $brand, User $content, User $smm, string $category = 'raw_content'): array
     {
         $service = app(ContentItemService::class);
         $item = $service->create($brand, ['category' => $category, 'title' => 'Item '.uniqid()], $content);
         $submission = $service->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $service->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
         $collection = $service->collect($item->fresh(), $smm);
         $published = $service->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
 
@@ -266,6 +268,13 @@ class PublishingReviewRevisionStateTest extends TestCase
 
         $this->travel(1)->seconds();
 
+        // Marketing approves V2 before SMM may collect it.
+        $this->actingAs($marketing)->postJson(
+            route('marketing.content-items.submissions.approve', [$brand, $item, $submission2Id])
+        )->assertOk();
+
+        $this->travel(1)->seconds();
+
         // Collect V2.
         $this->actingAs($smm)->postJson(route('marketing.content-items.collect', [$brand, $item]))->assertOk();
 
@@ -322,6 +331,10 @@ class PublishingReviewRevisionStateTest extends TestCase
             'link_url' => 'https://example.com/v2.jpg',
         ])->assertOk();
         $submission2Id = ContentItemSubmission::where('content_item_id', $item->id)->where('id', '!=', $submission1->id)->value('id');
+        $this->travel(1)->seconds();
+        $this->actingAs($marketing)->postJson(
+            route('marketing.content-items.submissions.approve', [$brand, $item, $submission2Id])
+        )->assertOk();
         $this->travel(1)->seconds();
         $this->actingAs($smm)->postJson(route('marketing.content-items.collect', [$brand, $item]))->assertOk();
         $this->travel(1)->seconds();

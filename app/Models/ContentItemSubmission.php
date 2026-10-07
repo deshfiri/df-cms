@@ -34,6 +34,18 @@ class ContentItemSubmission extends Model
         return $this->hasMany(PublishedContent::class, 'submission_id');
     }
 
+    /**
+     * Marketing's pre-publish handover for this EXACT version, if it has
+     * one — never a different submission's. Its mere existence is the
+     * server-side SMM-eligibility signal (see ContentItemService::collect()/
+     * publish()); a resubmission's own row always starts with none of its
+     * own, by construction.
+     */
+    public function approval()
+    {
+        return $this->hasOne(ContentItemSubmissionApproval::class, 'submission_id');
+    }
+
     /** Whether a newer submission exists for the same item — see Fix G. */
     public function isSuperseded(): bool
     {

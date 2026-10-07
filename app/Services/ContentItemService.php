@@ -7,11 +7,13 @@ use App\Models\ContentItem;
 use App\Models\ContentItemCollection;
 use App\Models\ContentItemRevision;
 use App\Models\ContentItemSubmission;
+use App\Models\ContentItemSubmissionApproval;
 use App\Models\PublishedContent;
 use App\Models\User;
 use App\Notifications\ChecklistRevisionRequested;
+use App\Notifications\ContentApprovedForPublishing;
+use App\Notifications\ContentReadyForPrePublishCheck;
 use App\Notifications\ContentReadyForPublishingReview;
-use App\Notifications\ContentSubmissionReadyForCollection;
 use App\Services\Concerns\NotifiesStaff;
 use App\Services\Storage\UploadStaging;
 use Illuminate\Http\UploadedFile;
@@ -110,19 +112,97 @@ class ContentItemService
 
         // After commit, never before — a rollback (e.g. the lock in
         // collect()/publish() detecting a conflict elsewhere) must never
-        // leave a "ready for collection" notification for a submission that
-        // doesn't durably exist. Fires for a first submission exactly the
-        // same as a resubmission after revision — each is its own new
+        // leave a "ready for pre-publish check" notification for a
+        // submission that doesn't durably exist. Fires for a first
+        // submission exactly the same as a resubmission after either
+        // Marketing's or SMM's revision request — each is its own new
         // ContentItemSubmission row, so each gets its own new notification;
-        // nothing here ever mutates an earlier one.
+        // nothing here ever mutates an earlier one. Every submission goes to
+        // Marketing first now — never straight to SMM, see
+        // approveForHandover() below for the only path that gets it there.
         $this->notifySafely(fn () => $this->notifyStaff(
-            ['Social Media Manager'],
-            new ContentSubmissionReadyForCollection($item, $submission, $item->submissions()->count(), $actor),
-            permission: 'manage smm-collection',
+            ['Marketing'],
+            new ContentReadyForPrePublishCheck($item, $submission, $item->submissions()->count(), $actor),
+            permission: 'manage publishing-review',
             except: $actor,
         ));
 
         return $submission;
+    }
+
+    /**
+     * Marketing's pre-publish check, passed: this exact submission — never
+     * an item in the abstract, and never a later resubmission that happens
+     * to share the item — may now be collected by SMM. The approval row's
+     * mere existence is the server-side eligibility signal collect() and
+     * publish() both check; nothing about content_items.status changes
+     * here, so a direct endpoint attempt against collect()/publish() still
+     * has to pass through this real gate rather than inferring it from the
+     * item's own state.
+     *
+     * Idempotent under the same lock collect()/publish() already use: a
+     * double-click (or two Marketing users) both resolve against the first
+     * one's already-committed approval, never a second row — the unique
+     * index on submission_id is the backstop if the lock is ever bypassed.
+     */
+    public function approveForHandover(ContentItem $item, ContentItemSubmission $submission, User $actor): ContentItemSubmissionApproval
+    {
+        $this->refuseIfOnHold($item);
+
+        if ((int) $submission->content_item_id !== (int) $item->id) {
+            throw ValidationException::withMessages(['submission' => 'That submission does not belong to this item.']);
+        }
+
+        [$approval, $alreadyApproved] = DB::transaction(function () use ($item, $submission, $actor) {
+            // Same per-item lock collect()/publish() already use — two
+            // concurrent "Approve" clicks on the same item can't both reach
+            // the create() below believing nothing exists yet.
+            $item = ContentItem::whereKey($item->id)->lockForUpdate()->firstOrFail();
+
+            $existing = ContentItemSubmissionApproval::where('submission_id', $submission->id)->first();
+            if ($existing) {
+                return [$existing, true];
+            }
+
+            if ($item->submissions()->where('id', '>', $submission->id)->exists()) {
+                throw ValidationException::withMessages([
+                    'submission' => 'This version has been replaced by a newer submission — there is nothing to approve here anymore.',
+                ]);
+            }
+
+            if ($item->status !== ContentItem::STATUS_AVAILABLE) {
+                throw ValidationException::withMessages([
+                    'item' => 'This item is not awaiting Marketing pre-publish check right now.',
+                ]);
+            }
+
+            $approval = ContentItemSubmissionApproval::create([
+                'content_item_id' => $item->id,
+                'submission_id' => $submission->id,
+                'approved_by' => $actor->id,
+                'approved_at' => now(),
+            ]);
+
+            $this->activityLog->log('Content Item', 'Marketing Approved', $item->brand->client_id, null, [
+                'content_item_id' => $item->id, 'submission_id' => $submission->id,
+            ]);
+
+            return [$approval, false];
+        });
+
+        // After commit, and only for an approval that just happened here —
+        // a retried/duplicate request above never reaches this line a
+        // second time, so SMM is never told twice about the same handover.
+        if (! $alreadyApproved) {
+            $this->notifySafely(fn () => $this->notifyStaff(
+                ['Social Media Manager'],
+                new ContentApprovedForPublishing($item, $submission, $item->submissions()->count(), $actor),
+                permission: 'manage smm-collection',
+                except: $actor,
+            ));
+        }
+
+        return $approval;
     }
 
     /**
@@ -197,6 +277,18 @@ class ContentItemService
                 ]);
             }
 
+            // The server-side SMM-eligibility gate: a submission Marketing
+            // hasn't approved cannot be collected, full stop — checked here,
+            // inside the same lock, never trusted from the UI. A direct
+            // endpoint call against an unapproved (or not-yet-approved,
+            // same-request-race) submission fails exactly the same way a
+            // superseded one already does below.
+            if (! ContentItemSubmissionApproval::where('submission_id', $submission->id)->exists()) {
+                throw ValidationException::withMessages([
+                    'item' => 'This submission has not passed Marketing\'s pre-publish check yet — it cannot be collected.',
+                ]);
+            }
+
             $collection = ContentItemCollection::create([
                 'content_item_id' => $item->id,
                 'submission_id' => $submission->id,
@@ -265,6 +357,16 @@ class ContentItemService
             if ($item->status !== ContentItem::STATUS_COLLECTED) {
                 throw ValidationException::withMessages([
                     'submission' => 'This item is no longer collected and ready to publish — it may have been sent back for revision, or already published.',
+                ]);
+            }
+
+            // Defense in depth: collect() already refuses an unapproved
+            // submission, so this can only trip if something reached
+            // `collected` status without going through it — never relying
+            // on collect() having already checked this once.
+            if (! ContentItemSubmissionApproval::where('submission_id', $submission->id)->exists()) {
+                throw ValidationException::withMessages([
+                    'submission' => 'This submission has not passed Marketing\'s pre-publish check yet.',
                 ]);
             }
 

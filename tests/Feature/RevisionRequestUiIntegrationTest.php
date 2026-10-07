@@ -89,12 +89,14 @@ class RevisionRequestUiIntegrationTest extends TestCase
         return $brand->fresh();
     }
 
-    /** Create -> submit -> collect -> publish, returning everything a test might need next. */
+    /** Create -> submit -> Marketing approve -> collect -> publish, returning everything a test might need next. */
     private function publishedItem(Brand $brand, User $content, User $smm, string $category = 'raw_content'): array
     {
         $service = app(ContentItemService::class);
         $item = $service->create($brand, ['category' => $category, 'title' => 'Item '.uniqid()], $content);
         $submission = $service->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $service->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
         $collection = $service->collect($item->fresh(), $smm);
         $published = $service->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
 
@@ -244,7 +246,11 @@ class RevisionRequestUiIntegrationTest extends TestCase
         );
         $this->assertSame($submission1->id, $collection1->fresh()->submission_id, "The old collection row must still point at round 1's submission.");
 
-        // G: it needs its own fresh collect + publish cycle, and that succeeds.
+        // G: it needs its own fresh Marketing approval + collect + publish
+        // cycle, and that succeeds.
+        $this->actingAs($marketing)->postJson(
+            route('marketing.content-items.submissions.approve', [$brand, $item, $submission2Id])
+        )->assertOk();
         $collectResponse = $this->actingAs($smm)->postJson(route('marketing.content-items.collect', [$brand, $item]));
         $collectResponse->assertOk();
         $this->assertSame(ContentItem::STATUS_COLLECTED, $item->fresh()->status);
@@ -291,6 +297,9 @@ class RevisionRequestUiIntegrationTest extends TestCase
             'link_url' => 'https://example.com/v2.jpg',
         ])->assertOk();
         $submission2Id = ContentItemSubmission::where('content_item_id', $item->id)->where('id', '!=', $submission1->id)->value('id');
+        $this->actingAs($marketing)->postJson(
+            route('marketing.content-items.submissions.approve', [$brand, $item, $submission2Id])
+        )->assertOk();
         $this->actingAs($smm)->postJson(route('marketing.content-items.collect', [$brand, $item]))->assertOk();
         $publish2 = $this->actingAs($smm)->postJson(route('marketing.content-items.publish', [$brand, $item]), [
             'submission_id' => $submission2Id, 'facebook_post_url' => 'https://facebook.com/v2-final',

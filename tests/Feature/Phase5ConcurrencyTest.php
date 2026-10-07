@@ -2,11 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\ActivityLog;
 use App\Models\Brand;
 use App\Models\BrandChecklist;
 use App\Models\Category;
 use App\Models\Client;
-use App\Models\ContentItem;
+use App\Models\ContentItemCollection;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentCategory;
@@ -43,7 +44,7 @@ class Phase5ConcurrencyTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        foreach (['manage payments', 'manage raw-content', 'manage smm-collection', 'view brand-checklist-overview'] as $perm) {
+        foreach (['manage payments', 'manage raw-content', 'manage smm-collection', 'manage publishing-review', 'view brand-checklist-overview'] as $perm) {
             Permission::firstOrCreate(['name' => $perm, 'guard_name' => 'web']);
         }
         PaymentCategory::firstOrCreate(['name' => 'Social Media Ads'], ['is_active' => true, 'sort_order' => 10]);
@@ -64,17 +65,17 @@ class Phase5ConcurrencyTest extends TestCase
 
     private function readyBrand(User $manager): Brand
     {
-        $category = Category::create(['name' => 'Cat ' . uniqid(), 'slug' => 'cat-' . uniqid(), 'status' => true]);
+        $category = Category::create(['name' => 'Cat '.uniqid(), 'slug' => 'cat-'.uniqid(), 'status' => true]);
         $client = Client::create([
-            'dfid_number' => 'DF' . uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
+            'dfid_number' => 'DF'.uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
             'category_id' => $category->id,
         ]);
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
 
         $budget = Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Social Media Ads')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 1000, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 1000, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
         Payment::create([
@@ -86,7 +87,7 @@ class Phase5ConcurrencyTest extends TestCase
         Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Content Production')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 300, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 300, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
 
@@ -109,6 +110,7 @@ class Phase5ConcurrencyTest extends TestCase
         $staleForA = $item->fresh();
         $staleForB = $item->fresh();
 
+        $service->approveForHandover($staleForA, $staleForA->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
         $service->collect($staleForA, $smmA); // wins the race, commits
 
         try {
@@ -118,8 +120,8 @@ class Phase5ConcurrencyTest extends TestCase
             $this->assertArrayHasKey('item', $e->errors());
         }
 
-        $this->assertSame(1, \App\Models\ContentItemCollection::where('content_item_id', $item->id)->count());
-        $this->assertSame($smmA->id, \App\Models\ContentItemCollection::where('content_item_id', $item->id)->value('collected_by'));
+        $this->assertSame(1, ContentItemCollection::where('content_item_id', $item->id)->count());
+        $this->assertSame($smmA->id, ContentItemCollection::where('content_item_id', $item->id)->value('collected_by'));
     }
 
     public function test_a_second_concurrent_clear_hold_is_refused_once_the_first_has_already_cleared_it(): void
@@ -145,7 +147,7 @@ class Phase5ConcurrencyTest extends TestCase
 
         $this->assertSame(
             1,
-            \App\Models\ActivityLog::where('module', 'Brand Checklist Hold')
+            ActivityLog::where('module', 'Brand Checklist Hold')
                 ->whereIn('action', ['Resolved', 'Manually cleared'])
                 ->count()
         );

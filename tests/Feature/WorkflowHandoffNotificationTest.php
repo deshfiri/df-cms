@@ -6,14 +6,16 @@ use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Client;
 use App\Models\ContentItemSubmission;
+use App\Models\ContentItemSubmissionApproval;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentCategory;
 use App\Models\User;
 use App\Notifications\ChecklistRevisionRequested;
+use App\Notifications\ContentApprovedForPublishing;
 use App\Notifications\ContentPublishedAndReviewed;
+use App\Notifications\ContentReadyForPrePublishCheck;
 use App\Notifications\ContentReadyForPublishingReview;
-use App\Notifications\ContentSubmissionReadyForCollection;
 use App\Services\ContentItemService;
 use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -24,13 +26,12 @@ use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 /**
- * Workflow handoff notifications for the Brand Content & Advertising
- * checklist — submission ready for collection, publish ready for review, and
- * the one "cycle complete" notification to Manager once Marketing has
- * actually reviewed the still-current version. Revision-requested
- * notifications already existed (ChecklistRevisionRequested, dispatched from
- * ContentItemService::requestRevision() to the submitter) — covered here as
- * regression, not new behavior.
+ * Workflow handoff notifications for the canonical Brand Content &
+ * Advertising flow: Content/Design -> Marketing Pre-Publish Check -> SMM ->
+ * Marketing Post-Publish Review -> Complete. Revision-requested
+ * notifications (ChecklistRevisionRequested) are shared by both Marketing's
+ * pre-publish revision and SMM's post-approval revision — same method, same
+ * notification class, covered here as regression.
  */
 class WorkflowHandoffNotificationTest extends TestCase
 {
@@ -115,64 +116,71 @@ class WorkflowHandoffNotificationTest extends TestCase
         return $brand->fresh();
     }
 
-    /** Submit -> collect -> publish -> (optionally) review a brand-new item, end to end. */
-    private function carryToPublished(Brand $brand, User $content, User $smm, string $category = 'raw_content'): array
+    /** Submit -> Marketing approve -> SMM collect -> publish -> (optionally) review a brand-new item, end to end. */
+    private function carryToPublished(Brand $brand, User $content, User $marketing, User $smm, string $category = 'raw_content'): array
     {
         $item = $this->service()->create($brand, ['category' => $category, 'title' => 'Item '.uniqid()], $content);
         $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->service()->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
         $this->service()->collect($item->fresh(), $smm);
         $published = $this->service()->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
 
         return ['item' => $item->fresh(), 'submission' => $submission->fresh(), 'published' => $published];
     }
 
-    // ── 1/2: fresh submission notifies SMM ──────────────────────────────────
+    // ── 1/2: fresh submission notifies Marketing, never SMM directly ────────
 
-    public function test_raw_content_submission_notifies_smm(): void
+    public function test_raw_content_submission_notifies_marketing_not_smm(): void
     {
         Notification::fake();
         $manager = $this->user('Manager', ['manage payments']);
         $content = $this->user('Content', ['manage raw-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
         $smm = $this->user('Social Media Manager', ['manage smm-collection']);
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
         $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
-        Notification::assertSentTo($smm, ContentSubmissionReadyForCollection::class);
-        Notification::assertNotSentTo($manager, ContentSubmissionReadyForCollection::class);
+        Notification::assertSentTo($marketing, ContentReadyForPrePublishCheck::class);
+        Notification::assertNotSentTo($smm, ContentReadyForPrePublishCheck::class);
+        Notification::assertNotSentTo($manager, ContentReadyForPrePublishCheck::class);
     }
 
-    public function test_advertising_content_submission_notifies_smm(): void
+    public function test_advertising_content_submission_notifies_marketing_not_smm(): void
     {
         Notification::fake();
         $manager = $this->user('Manager', ['manage payments']);
         $content = $this->user('Content', ['manage raw-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
         $smm = $this->user('Social Media Manager', ['manage smm-collection']);
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'advertising_content', 'title' => 'Ad'], $content);
         $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
-        Notification::assertSentTo($smm, ContentSubmissionReadyForCollection::class);
+        Notification::assertSentTo($marketing, ContentReadyForPrePublishCheck::class);
+        Notification::assertNotSentTo($smm, ContentReadyForPrePublishCheck::class);
     }
 
-    public function test_poster_submission_notifies_smm(): void
+    public function test_poster_submission_notifies_marketing_not_smm(): void
     {
         Notification::fake();
         $manager = $this->user('Manager', ['manage payments']);
         $design = $this->user('Design', ['manage designer-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
         $smm = $this->user('Social Media Manager', ['manage smm-collection']);
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'poster', 'title' => 'Poster'], $design);
         $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $design);
 
-        Notification::assertSentTo($smm, ContentSubmissionReadyForCollection::class, function ($notification) {
+        Notification::assertSentTo($marketing, ContentReadyForPrePublishCheck::class, function ($notification) {
             $data = $notification->toDatabase($notification);
 
-            return $data['title'] === 'New Poster Ready';
+            return $data['title'] === 'Poster Ready for Pre-Publish Check';
         });
+        Notification::assertNotSentTo($smm, ContentReadyForPrePublishCheck::class);
     }
 
     // ── 3/4: revision-requested (pre-existing behavior, regression only) ───
@@ -205,13 +213,14 @@ class WorkflowHandoffNotificationTest extends TestCase
         Notification::assertSentTo($design, ChecklistRevisionRequested::class);
     }
 
-    // ── 5: resubmission after revision creates a brand-new SMM notification ─
+    // ── 5: resubmission after revision creates a brand-new Marketing notification, never SMM ─
 
-    public function test_v2_resubmission_creates_a_new_smm_notification_distinct_from_v1s(): void
+    public function test_v2_resubmission_creates_a_new_marketing_notification_and_never_reaches_smm(): void
     {
         Notification::fake();
         $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
         $content = $this->user('Content', ['manage raw-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
         $smm = $this->user('Social Media Manager', ['manage smm-collection']);
         $brand = $this->readyBrand($manager);
 
@@ -220,40 +229,114 @@ class WorkflowHandoffNotificationTest extends TestCase
         $this->service()->requestRevision($item->fresh(), ['note' => 'Redo.'], $manager);
         $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
 
-        Notification::assertSentToTimes($smm, ContentSubmissionReadyForCollection::class, 2);
-        Notification::assertSentTo($smm, ContentSubmissionReadyForCollection::class, function ($notification) {
+        Notification::assertSentToTimes($marketing, ContentReadyForPrePublishCheck::class, 2);
+        Notification::assertSentTo($marketing, ContentReadyForPrePublishCheck::class, function ($notification) {
+            return str_contains($notification->toDatabase($notification)['message'], 'V2 of');
+        });
+        Notification::assertNotSentTo($smm, ContentReadyForPrePublishCheck::class);
+        Notification::assertNotSentTo($smm, ContentApprovedForPublishing::class);
+    }
+
+    // ── 5b/6/15: Marketing approves exactly one version, notifies SMM, independently per version ─
+
+    public function test_marketing_approval_notifies_smm_with_the_exact_version(): void
+    {
+        Notification::fake();
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
+        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->service()->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
+
+        Notification::assertSentTo($smm, ContentApprovedForPublishing::class, function ($notification) {
+            $data = $notification->toDatabase($notification);
+
+            return $data['title'] === 'Content Approved for Publishing' && str_contains($data['message'], 'V1 of');
+        });
+        Notification::assertNotSentTo($content, ContentApprovedForPublishing::class);
+        Notification::assertNotSentTo($marketing, ContentApprovedForPublishing::class);
+    }
+
+    public function test_v1_approval_does_not_approve_v2_and_v2_gets_its_own_approval_notification(): void
+    {
+        Notification::fake();
+        $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
+        $v1 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->service()->approveForHandover($item->fresh(), $v1->fresh(), $marketing);
+        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo.'], $marketing);
+        $v2 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
+
+        // V1's own approval does not carry over — V2 is not yet eligible.
+        $this->assertFalse($v2->fresh()->approval()->exists());
+
+        $this->service()->approveForHandover($item->fresh(), $v2->fresh(), $marketing);
+
+        Notification::assertSentToTimes($smm, ContentApprovedForPublishing::class, 2);
+        Notification::assertSentTo($smm, ContentApprovedForPublishing::class, function ($notification) {
             return str_contains($notification->toDatabase($notification)['message'], 'V2 of');
         });
     }
 
-    // ── 6/7: publish notifies Marketing, never Manager ──────────────────────
+    // ── 7: duplicate approval is idempotent and never double-notifies ──────
+
+    public function test_duplicate_approval_does_not_duplicate_the_smm_notification(): void
+    {
+        Notification::fake();
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $this->user('Social Media Manager', ['manage smm-collection']);
+        $brand = $this->readyBrand($manager);
+
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
+        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+
+        $first = $this->service()->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
+        $second = $this->service()->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
+
+        $this->assertSame($first->id, $second->id);
+        $this->assertSame(1, ContentItemSubmissionApproval::where('submission_id', $submission->id)->count());
+        Notification::assertSentTimes(ContentApprovedForPublishing::class, 1);
+    }
+
+    // ── 8/9: publish notifies Marketing, never Manager ──────────────────────
 
     public function test_publish_notifies_marketing_but_not_manager(): void
     {
         Notification::fake();
         $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
         $content = $this->user('Content', ['manage raw-content']);
-        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
         $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
         $brand = $this->readyBrand($manager);
 
-        $this->carryToPublished($brand, $content, $smm);
+        $this->carryToPublished($brand, $content, $marketing, $smm);
 
         Notification::assertSentTo($marketing, ContentReadyForPublishingReview::class);
         Notification::assertNotSentTo($manager, ContentPublishedAndReviewed::class);
     }
 
-    // ── 8/9: Marketing review notifies Manager, with the exact version ──────
+    // ── 10/11: Marketing final review notifies Manager, with the exact version ──
 
     public function test_marketing_review_notifies_manager_with_the_exact_version(): void
     {
         $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
         $content = $this->user('Content', ['manage raw-content']);
-        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
         $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
         $brand = $this->readyBrand($manager);
 
-        ['published' => $published] = $this->carryToPublished($brand, $content, $smm);
+        ['published' => $published] = $this->carryToPublished($brand, $content, $marketing, $smm);
 
         $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published]))->assertOk();
 
@@ -263,17 +346,17 @@ class WorkflowHandoffNotificationTest extends TestCase
         $this->assertStringContainsString('V1 of', $notification->data['message']);
     }
 
-    // ── 10: a stale V1 review can never falsely complete V2 ─────────────────
+    // ── 12: a stale V1 review can never falsely complete V2 ─────────────────
 
     public function test_reviewing_a_superseded_v1_publication_never_notifies_manager_about_v2(): void
     {
         $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
         $content = $this->user('Content', ['manage raw-content']);
-        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
         $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
         $brand = $this->readyBrand($manager);
 
-        ['item' => $item, 'published' => $v1Published] = $this->carryToPublished($brand, $content, $smm);
+        ['item' => $item, 'published' => $v1Published] = $this->carryToPublished($brand, $content, $marketing, $smm);
 
         // V2 submitted directly (no revision request against V1 — this is
         // the one path that leaves V1 still formally reviewable: nothing
@@ -290,18 +373,18 @@ class WorkflowHandoffNotificationTest extends TestCase
         $this->assertSame(0, $manager->notifications()->where('type', ContentPublishedAndReviewed::class)->count());
     }
 
-    // ── 11: V2's own review creates its own, independent completion notification ─
+    // ── 13: V2's own review creates its own, independent completion notification ─
 
     public function test_v2_review_creates_its_own_manager_completion_notification(): void
     {
         $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
         $content = $this->user('Content', ['manage raw-content']);
-        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
         $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
         $brand = $this->readyBrand($manager);
 
         ['item' => $item, 'submission' => $submission1, 'published' => $published1] =
-            $this->carryToPublished($brand, $content, $smm);
+            $this->carryToPublished($brand, $content, $marketing, $smm);
 
         $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published1]))->assertOk();
         $this->assertSame(1, $manager->notifications()->where('type', ContentPublishedAndReviewed::class)->count());
@@ -315,8 +398,9 @@ class WorkflowHandoffNotificationTest extends TestCase
         // second and the tie-break would wrongly pull this revision into
         // V2's own review window.
         $this->travel(1)->seconds();
-        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
+        $v2 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
         $submission2 = ContentItemSubmission::where('content_item_id', $item->id)->where('id', '!=', $submission1->id)->first();
+        $this->service()->approveForHandover($item->fresh(), $submission2->fresh(), $marketing);
         $this->service()->collect($item->fresh(), $smm);
         $published2 = $this->service()->publish($item->fresh(), $brand, $submission2->fresh(), ['facebook_post_url' => 'https://facebook.com/v2'], $smm);
 
@@ -327,17 +411,17 @@ class WorkflowHandoffNotificationTest extends TestCase
         $this->assertStringContainsString('V2 of', $latest->data['message']);
     }
 
-    // ── 12: a duplicate/retried review never duplicates the notification ────
+    // ── 14: a duplicate/retried review never duplicates the notification ────
 
     public function test_a_duplicate_review_request_does_not_duplicate_the_manager_notification(): void
     {
         $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
         $content = $this->user('Content', ['manage raw-content']);
-        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
         $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
         $brand = $this->readyBrand($manager);
 
-        ['published' => $published] = $this->carryToPublished($brand, $content, $smm);
+        ['published' => $published] = $this->carryToPublished($brand, $content, $marketing, $smm);
 
         $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published]))->assertOk();
         // Retried/double-submitted request against the same, now-reviewed row.
@@ -346,7 +430,7 @@ class WorkflowHandoffNotificationTest extends TestCase
         $this->assertSame(1, $manager->notifications()->where('type', ContentPublishedAndReviewed::class)->count());
     }
 
-    // ── 13: a hold-blocked operation creates no handoff notification ────────
+    // ── a hold-blocked operation creates no handoff notification ────────────
 
     public function test_a_submission_blocked_by_hold_creates_no_handoff_notification(): void
     {
@@ -367,38 +451,66 @@ class WorkflowHandoffNotificationTest extends TestCase
         }
     }
 
-    // ── 14: unrelated roles are never notified ──────────────────────────────
+    public function test_a_hold_blocked_approval_creates_no_handoff_notification(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $content = $this->user('Content', ['manage raw-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $brand = $this->readyBrand($manager);
+        $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
+        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
-    public function test_unrelated_roles_are_not_notified_by_submission_or_publish(): void
+        $brand->checklist->update(['on_hold_at' => now(), 'on_hold_reason' => 'Overdue invoice']);
+
+        Notification::fake();
+        $this->expectException(ValidationException::class);
+
+        try {
+            $this->service()->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
+        } finally {
+            Notification::assertNothingSent();
+            $this->assertNull($submission->fresh()->approval);
+        }
+    }
+
+    // ── unrelated roles are never notified ──────────────────────────────────
+
+    public function test_unrelated_roles_are_not_notified_by_submission_approval_or_publish(): void
     {
         Notification::fake();
         $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
         $content = $this->user('Content', ['manage raw-content']);
-        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
         $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
         $design = $this->user('Design', ['manage designer-content']);
         $brand = $this->readyBrand($manager);
 
-        $this->carryToPublished($brand, $content, $smm);
+        $this->carryToPublished($brand, $content, $marketing, $smm);
 
-        Notification::assertNotSentTo($manager, ContentSubmissionReadyForCollection::class);
-        Notification::assertNotSentTo($design, ContentSubmissionReadyForCollection::class);
-        Notification::assertNotSentTo($marketing, ContentSubmissionReadyForCollection::class);
+        Notification::assertNotSentTo($manager, ContentReadyForPrePublishCheck::class);
+        Notification::assertNotSentTo($design, ContentReadyForPrePublishCheck::class);
+        Notification::assertNotSentTo($smm, ContentReadyForPrePublishCheck::class);
+        Notification::assertNotSentTo($content, ContentApprovedForPublishing::class);
+        Notification::assertNotSentTo($marketing, ContentApprovedForPublishing::class);
         Notification::assertNotSentTo($content, ContentReadyForPublishingReview::class);
         Notification::assertNotSentTo($smm, ContentReadyForPublishingReview::class);
     }
 
-    // ── 15: persists to the database even with Reverb disabled ─────────────
+    // ── persists to the database even with Reverb disabled ──────────────────
 
     public function test_notification_persists_to_the_database_with_reverb_disabled(): void
     {
         // No Notification::fake() here — this proves the real 'database'
         // channel write, not just that a Notification object was built.
-        $this->assertFalse((bool) config('broadcasting.connections.reverb.key'));
+        // Forced off explicitly rather than assumed from the environment —
+        // this project's local .env now has real Reverb credentials (see
+        // the Reverb setup work), so the disabled path has to be simulated
+        // to keep this test deterministic regardless of that.
+        config(['broadcasting.connections.reverb.key' => '', 'broadcasting.connections.reverb.options.host' => '']);
 
         $manager = $this->user('Manager', ['manage payments']);
         $content = $this->user('Content', ['manage raw-content']);
-        $smm = $this->user('Social Media Manager', ['manage smm-collection']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
@@ -406,54 +518,53 @@ class WorkflowHandoffNotificationTest extends TestCase
 
         $this->assertSame(
             1,
-            $smm->notifications()->where('type', ContentSubmissionReadyForCollection::class)->count()
+            $marketing->notifications()->where('type', ContentReadyForPrePublishCheck::class)->count()
         );
     }
 
-    // ── 16: notification links stay behind their own existing authorization ─
+    // ── notification links stay behind their own existing authorization ─────
 
     public function test_notification_links_remain_authorization_protected(): void
     {
         $manager = $this->user('Manager', ['manage payments', 'view brand-checklist-overview']);
         $content = $this->user('Content', ['manage raw-content']);
-        $smm = $this->user('Social Media Manager', ['manage smm-collection', 'manage published-content']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
         $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
-        $smmNotification = $smm->notifications()->where('type', ContentSubmissionReadyForCollection::class)->first();
-        $this->assertSame(route('panels.smm'), $smmNotification->data['url']);
+        $notification = $marketing->notifications()->where('type', ContentReadyForPrePublishCheck::class)->first();
+        $this->assertSame(route('panels.marketing'), $notification->data['url']);
         // The link itself is unaffected by this feature — still just the
         // existing panel route, still gated by its own existing middleware.
-        $this->get($smmNotification->data['url'])->assertRedirect(route('login'));
+        $this->get($notification->data['url'])->assertRedirect(route('login'));
     }
 
-    // ── Realtime integration gap: same channel contract as Task, delivered instantly ──
+    // ── Realtime integration: same channel contract as Task, delivered instantly ──
 
     public function test_new_workflow_notifications_use_the_same_channel_contract_as_task_plus_instant_delivery(): void
     {
         $manager = $this->user('Manager', ['manage payments']);
         $content = $this->user('Content', ['manage raw-content']);
-        $smm = $this->user('Social Media Manager', ['manage smm-collection']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
         $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
-        $notification = new ContentSubmissionReadyForCollection($item->fresh(), $submission, 1, $content);
+        $notification = new ContentReadyForPrePublishCheck($item->fresh(), $submission, 1, $content);
 
         // Exactly the channel set every already-working dashboard notification
         // (e.g. TaskAssigned) uses — 'database' as the source of truth,
         // 'broadcast' for the live bell/sound/desktop alert.
-        $this->assertSame(['database', 'broadcast'], $notification->via($smm));
+        $this->assertSame(['database', 'broadcast'], $notification->via($marketing));
 
-        $broadcast = $notification->toBroadcast($smm);
+        $broadcast = $notification->toBroadcast($marketing);
         // Same payload shape the database row stores — no separate contract.
-        $this->assertSame($notification->toDatabase($smm), $broadcast->data);
+        $this->assertSame($notification->toDatabase($marketing), $broadcast->data);
         // The one deliberate difference from a plain BroadcastsToDashboard
-        // notification: this is the fix — delivery no longer waits on a
-        // queue worker to pick up the broadcast job.
+        // notification: delivery doesn't wait on a queue worker.
         $this->assertSame('sync', $broadcast->connection);
     }
 
@@ -474,7 +585,7 @@ class WorkflowHandoffNotificationTest extends TestCase
     {
         $manager = $this->user('Manager', ['manage payments']);
         $content = $this->user('Content', ['manage raw-content']);
-        $this->user('Social Media Manager', ['manage smm-collection']); // must exist to be resolved as a recipient
+        $this->user('Marketing', ['manage publishing-review']); // must exist to be resolved as a recipient
         $brand = $this->readyBrand($manager);
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
 

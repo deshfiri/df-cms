@@ -17,7 +17,9 @@ class ContentItem extends Model
     use SoftDeletes;
 
     public const CATEGORY_RAW_CONTENT = 'raw_content';
+
     public const CATEGORY_POSTER = 'poster';
+
     public const CATEGORY_ADVERTISING_CONTENT = 'advertising_content';
 
     public static array $categories = [
@@ -25,10 +27,15 @@ class ContentItem extends Model
     ];
 
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_IN_PROGRESS = 'in_progress';
+
     public const STATUS_AVAILABLE = 'available';
+
     public const STATUS_COLLECTED = 'collected';
+
     public const STATUS_PUBLISHED = 'published';
+
     public const STATUS_NEEDS_REVISION = 'needs_revision';
 
     public static array $statuses = [
@@ -103,6 +110,12 @@ class ContentItem extends Model
     public function publishedContents()
     {
         return $this->hasMany(PublishedContent::class);
+    }
+
+    /** Marketing's pre-publish approvals across every version ever submitted — see latestSubmission()->approval for the one that matters right now. */
+    public function submissionApprovals()
+    {
+        return $this->hasMany(ContentItemSubmissionApproval::class);
     }
 
     public function latestPublished(): ?PublishedContent

@@ -52,17 +52,17 @@ class Phase5ContentIntegrityTest extends TestCase
 
     private function readyBrand(User $manager): Brand
     {
-        $category = Category::create(['name' => 'Cat ' . uniqid(), 'slug' => 'cat-' . uniqid(), 'status' => true]);
+        $category = Category::create(['name' => 'Cat '.uniqid(), 'slug' => 'cat-'.uniqid(), 'status' => true]);
         $client = Client::create([
-            'dfid_number' => 'DF' . uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
+            'dfid_number' => 'DF'.uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
             'category_id' => $category->id,
         ]);
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
 
         $budget = Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Social Media Ads')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 1000, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 1000, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
         Payment::create([
@@ -74,7 +74,7 @@ class Phase5ContentIntegrityTest extends TestCase
         Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Content Production')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 300, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 300, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
 
@@ -93,6 +93,7 @@ class Phase5ContentIntegrityTest extends TestCase
         // Round 1.
         $item = $service->create($brand, ['category' => 'raw_content', 'title' => 'Versioned item'], $content);
         $submission1 = $service->submit($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $service->approveForHandover($item->fresh(), $item->fresh()->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
         $collection1 = $service->collect($item->fresh(), $smm);
         $published1 = $service->publish($item->fresh(), $brand, $submission1->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
 
@@ -112,6 +113,7 @@ class Phase5ContentIntegrityTest extends TestCase
         $submission2 = $service->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
         $this->assertNotEquals($submission1->id, $submission2->id);
 
+        $service->approveForHandover($item->fresh(), $item->fresh()->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
         $collection2 = $service->collect($item->fresh(), $smm);
         $this->assertNotEquals($collection1->id, $collection2->id);
         $this->assertSame($submission2->id, $collection2->submission_id);

@@ -21,6 +21,19 @@
     $reviewSpill = [
         'reviewed' => 'spill-completed', 'revision_requested' => 'spill-cancelled', 'awaiting_review' => 'spill-hold',
     ];
+    // The precise, submission-scoped lifecycle label — see
+    // BrandChecklistProjectionService::stageLabel()'s own docblock for why
+    // this replaces the coarse content_items.status badge wherever a
+    // submission exists: "Submitted" alone can't tell "waiting on Marketing"
+    // apart from "approved, waiting on SMM", and this can.
+    $stageSpill = [
+        'Pending Marketing Check' => 'spill-warning',
+        'Marketing Approved — Ready for SMM' => 'spill-warning',
+        'Collected' => 'spill-warning',
+        'Awaiting Final Marketing Review' => 'spill-warning',
+        'Reviewed / Complete' => 'spill-completed',
+        'Revision Requested' => 'spill-cancelled',
+    ];
     // Stored/computed in UTC (config('app.timezone') is 'UTC', unchanged
     // here) — this page's audience is Bangladesh-local, so every
     // user-facing timestamp on it converts explicitly to Asia/Dhaka via
@@ -122,6 +135,12 @@
                              straight from $latest['publication'], the exact same
                              submission-scoped lookup History itself uses — never
                              the item's newest publication across versions. --}}
+                        @if($latest && $row['history']->count() <= 1 && $latest['approval'])
+                            <div class="cl-item-meta">
+                                Approved for SMM by {{ $latest['approval']->approvedBy?->name ?? '—' }}
+                                on {{ $dhaka($latest['approval']->approved_at) }}
+                            </div>
+                        @endif
                         @if($latest && $row['history']->count() <= 1 && $latest['publication'])
                             <div class="cl-item-meta">
                                 Published by {{ $latest['publication']->publishedBy?->name ?? '—' }}
@@ -133,7 +152,11 @@
                         @endif
                     </div>
                     <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <span class="spill {{ $statusSpill[$item->status] ?? 'spill-hold' }}">{{ $statusLabel[$item->status] ?? $item->status }}</span>
+                        @if($latest)
+                            <span class="spill {{ $stageSpill[$latest['stage_label']] ?? 'spill-hold' }}">{{ $latest['stage_label'] }}</span>
+                        @else
+                            <span class="spill {{ $statusSpill[$item->status] ?? 'spill-hold' }}">{{ $statusLabel[$item->status] ?? $item->status }}</span>
+                        @endif
                         @if($latest && $latest['review_state'])
                             <span class="spill {{ $reviewSpill[$latest['review_state']] }}">{{ $reviewLabel[$latest['review_state']] }}</span>
                         @endif
@@ -169,6 +192,10 @@
                                         <span class="cl-item-meta">
                                             — submitted by {{ $version['submission']->submittedBy?->name ?? '—' }}
                                             on {{ $dhaka($version['submission']->created_at) }}
+                                            @if($version['approval'])
+                                                · approved for SMM by {{ $version['approval']->approvedBy?->name ?? '—' }}
+                                                on {{ $dhaka($version['approval']->approved_at) }}
+                                            @endif
                                             @if($version['collection'])
                                                 · collected by {{ $version['collection']->collectedBy?->name ?? '—' }} on {{ $dhaka($version['collection']->collected_at) }}
                                             @endif
@@ -182,6 +209,7 @@
                                         </span>
                                     </div>
                                     <div class="d-flex align-items-center gap-2">
+                                        <span class="spill {{ $stageSpill[$version['stage_label']] ?? 'spill-hold' }}">{{ $version['stage_label'] }}</span>
                                         @if($version['review_state'])
                                             <span class="spill {{ $reviewSpill[$version['review_state']] }}">{{ $reviewLabel[$version['review_state']] }}</span>
                                         @endif

@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentCategory;
 use App\Models\User;
+use App\Services\AdvertisingExpenditureService;
 use App\Services\ContentItemService;
 use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -33,6 +34,7 @@ class Phase5AuthorizationMatrixTest extends TestCase
         foreach ([
             'manage payments', 'manage ads', 'manage raw-content', 'manage designer-content',
             'manage smm-collection', 'manage published-content', 'manage advertising-expenditure',
+            'manage publishing-review',
         ] as $perm) {
             Permission::firstOrCreate(['name' => $perm, 'guard_name' => 'web']);
         }
@@ -60,17 +62,17 @@ class Phase5AuthorizationMatrixTest extends TestCase
 
     private function readyBrand(User $manager): Brand
     {
-        $category = Category::create(['name' => 'Cat ' . uniqid(), 'slug' => 'cat-' . uniqid(), 'status' => true]);
+        $category = Category::create(['name' => 'Cat '.uniqid(), 'slug' => 'cat-'.uniqid(), 'status' => true]);
         $client = Client::create([
-            'dfid_number' => 'DF' . uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
+            'dfid_number' => 'DF'.uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
             'category_id' => $category->id,
         ]);
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
 
         $budget = Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Social Media Ads')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 1000, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 1000, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
         Payment::create([
@@ -82,7 +84,7 @@ class Phase5AuthorizationMatrixTest extends TestCase
         Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Content Production')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 300, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 300, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
 
@@ -127,6 +129,7 @@ class Phase5AuthorizationMatrixTest extends TestCase
         $service = app(ContentItemService::class);
         $item = $service->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
         $submission = $service->submit($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $service->approveForHandover($item->fresh(), $item->fresh()->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
         $service->collect($item->fresh(), $smm);
 
         $response = $this->actingAs($smm)->postJson(route('marketing.content-items.publish', [$brand, $item]), [
@@ -154,7 +157,7 @@ class Phase5AuthorizationMatrixTest extends TestCase
         $manager = $this->user('Manager', ['manage payments']);
         $marketing = $this->user('Marketing', ['manage advertising-expenditure']);
         $brand = $this->readyBrand($manager);
-        $expenditure = app(\App\Services\AdvertisingExpenditureService::class)->create($brand->fresh(), [
+        $expenditure = app(AdvertisingExpenditureService::class)->create($brand->fresh(), [
             'amount' => 100, 'reporting_date' => now()->toDateString(),
         ], $marketing);
 
@@ -171,7 +174,7 @@ class Phase5AuthorizationMatrixTest extends TestCase
         $manager = $this->user('Manager', ['manage payments']);
         $marketing = $this->user('Marketing', ['manage advertising-expenditure']);
         $brand = $this->readyBrand($manager);
-        $expenditure = app(\App\Services\AdvertisingExpenditureService::class)->create($brand->fresh(), [
+        $expenditure = app(AdvertisingExpenditureService::class)->create($brand->fresh(), [
             'amount' => 100, 'reporting_date' => now()->toDateString(),
         ], $marketing);
 
@@ -186,12 +189,12 @@ class Phase5AuthorizationMatrixTest extends TestCase
     public function test_a_content_role_user_cannot_toggle_a_brands_public_visibility(): void
     {
         $content = $this->user('Content', ['manage raw-content']); // real role, no 'manage ads'
-        $category = Category::create(['name' => 'Cat ' . uniqid(), 'slug' => 'cat-' . uniqid(), 'status' => true]);
+        $category = Category::create(['name' => 'Cat '.uniqid(), 'slug' => 'cat-'.uniqid(), 'status' => true]);
         $client = Client::create([
-            'dfid_number' => 'DF' . uniqid(), 'client_name' => 'Client', 'brand_name' => 'Brand',
+            'dfid_number' => 'DF'.uniqid(), 'client_name' => 'Client', 'brand_name' => 'Brand',
             'category_id' => $category->id,
         ]);
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
 
         $response = $this->actingAs($content)->putJson(route('clients.brands.update', [$client, $brand]), [
             'name' => $brand->name, 'is_public' => true,

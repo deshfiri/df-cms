@@ -38,6 +38,7 @@ class BrandChecklistProjectionService
             'checklist.items.createdBy:id,name',
             'checklist.items.submissions' => fn ($q) => $q->orderBy('id'),
             'checklist.items.submissions.submittedBy:id,name',
+            'checklist.items.submissions.approval.approvedBy:id,name',
             'checklist.items.submissions.collection.collectedBy:id,name',
             'checklist.items.submissions.publishedContents.publishedBy:id,name',
             'checklist.items.submissions.publishedContents.reviewedBy:id,name',
@@ -95,18 +96,23 @@ class BrandChecklistProjectionService
      */
     private function presentItem(ContentItem $item): array
     {
-        $history = $item->submissions->values()->map(function ($submission, int $index) {
+        $lastIndex = $item->submissions->count() - 1;
+
+        $history = $item->submissions->values()->map(function ($submission, int $index) use ($item, $lastIndex) {
             // A submission can in principle be (re)published more than
             // once; the most recent publish of THIS submission is what's
             // current for THIS version — never a different submission's.
             $publication = $submission->publishedContents->sortByDesc('id')->first();
+            $reviewState = $publication?->review_state;
 
             return [
                 'submission' => $submission,
                 'version_label' => 'V'.($index + 1),
+                'approval' => $submission->approval,
                 'collection' => $submission->collection,
                 'publication' => $publication,
-                'review_state' => $publication?->review_state,
+                'review_state' => $reviewState,
+                'stage_label' => $this->stageLabel($item, $submission, $index === $lastIndex, $reviewState),
             ];
         });
 
@@ -115,5 +121,41 @@ class BrandChecklistProjectionService
             'latest' => $history->last(),
             'history' => $history,
         ];
+    }
+
+    /**
+     * The precise, submission-scoped lifecycle label the Shared Checklist
+     * shows — distinct from content_items.status (one coarse value for the
+     * whole item) and distinct from "Reviewed" meaning two different things
+     * at two different stages. Reads only facts tied to THIS exact
+     * submission (its own approval/collection/publication rows), except for
+     * "Revision Requested", which is necessarily item-level (a revision
+     * request moves the item, not a specific submission) and so only ever
+     * applies to the item's current latest version — an older version's
+     * history entry keeps whatever state it last reached.
+     */
+    private function stageLabel(ContentItem $item, $submission, bool $isLatest, ?string $reviewState): string
+    {
+        if ($isLatest && $item->status === ContentItem::STATUS_NEEDS_REVISION) {
+            return 'Revision Requested';
+        }
+
+        if ($submission->publishedContents->isNotEmpty()) {
+            return match ($reviewState) {
+                'reviewed' => 'Reviewed / Complete',
+                'revision_requested' => 'Revision Requested',
+                default => 'Awaiting Final Marketing Review',
+            };
+        }
+
+        if ($submission->collection) {
+            return 'Collected';
+        }
+
+        if ($submission->approval) {
+            return 'Marketing Approved — Ready for SMM';
+        }
+
+        return 'Pending Marketing Check';
     }
 }

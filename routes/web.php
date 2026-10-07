@@ -298,6 +298,9 @@ Route::middleware(['auth'])->group(function () {
     Route::get('panels/smm/available', [PanelController::class, 'smmAvailable'])->name('panels.smm.available');
     Route::get('panels/smm/collected', [PanelController::class, 'smmCollected'])->name('panels.smm.collected');
     Route::get('panels/smm/published', [PanelController::class, 'smmPublished'])->name('panels.smm.published');
+    Route::get('panels/marketing', [PanelController::class, 'marketing'])->name('panels.marketing');
+    Route::get('panels/marketing/pending-check', [PanelController::class, 'marketingPendingCheck'])->name('panels.marketing.pending-check');
+    Route::get('panels/marketing/workload', [PanelController::class, 'marketingWorkload'])->name('panels.marketing.workload');
 
     // Tasks (standalone)
     // Before the resource, or tasks/{task} would capture "nav-count".
@@ -389,6 +392,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('brands/{brand}/content-items', [ContentItemController::class, 'store'])->name('content-items.store');
         Route::post('brands/{brand}/content-items/{contentItem}/submit', [ContentItemController::class, 'submit'])->name('content-items.submit');
         Route::post('brands/{brand}/content-items/{contentItem}/request-revision', [ContentItemController::class, 'requestRevision'])->name('content-items.request-revision');
+        Route::post('brands/{brand}/content-items/{contentItem}/submissions/{submission}/approve', [ContentItemController::class, 'approveSubmission'])->name('content-items.submissions.approve');
         Route::post('brands/{brand}/content-items/{contentItem}/collect', [ContentItemController::class, 'collect'])->name('content-items.collect');
         Route::post('brands/{brand}/content-items/{contentItem}/publish', [ContentItemController::class, 'publish'])->name('content-items.publish');
         Route::get('brands/{brand}/content-items/{contentItem}/submissions/{submission}/download', [ContentItemController::class, 'downloadSubmission'])->name('content-items.submissions.download');

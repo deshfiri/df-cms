@@ -88,6 +88,26 @@ class ContentItemController extends Controller
         return response()->json(['success' => true, 'data' => $revision]);
     }
 
+    /**
+     * Marketing's pre-publish check, passed: hands this exact submission
+     * over to SMM. `manage publishing-review` only — the same permission
+     * already gates Marketing's post-publish review, and reusing it here
+     * avoids a second, narrowly-scoped permission for what is still one
+     * role's single area of responsibility (see ContentItemService::
+     * approveForHandover()'s own docblock for why this never touches
+     * content_items.status).
+     */
+    public function approveSubmission(Request $request, Brand $brand, ContentItem $contentItem, ContentItemSubmission $submission): JsonResponse
+    {
+        abort_if($contentItem->brand_id !== $brand->id, 404);
+        abort_if($submission->content_item_id !== $contentItem->id, 404);
+        abort_unless($request->user()->can('manage publishing-review'), 403);
+
+        $approval = $this->service->approveForHandover($contentItem, $submission, $request->user());
+
+        return response()->json(['success' => true, 'data' => $approval->load('approvedBy:id,name')]);
+    }
+
     /** SMM explicitly claims the item's current submission as theirs to publish — see Fix B. */
     public function collect(Request $request, Brand $brand, ContentItem $contentItem): JsonResponse
     {

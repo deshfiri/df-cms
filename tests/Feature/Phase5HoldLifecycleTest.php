@@ -3,15 +3,16 @@
 namespace Tests\Feature;
 
 use App\Models\Brand;
-use App\Models\BrandChecklist;
 use App\Models\Category;
 use App\Models\Client;
 use App\Models\ContentItem;
+use App\Models\ContentItemCollection;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentCategory;
 use App\Models\Refund;
 use App\Models\User;
+use App\Services\AdvertisingExpenditureService;
 use App\Services\ContentItemService;
 use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -58,17 +59,17 @@ class Phase5HoldLifecycleTest extends TestCase
 
     private function readyBrand(User $manager): Brand
     {
-        $category = Category::create(['name' => 'Cat ' . uniqid(), 'slug' => 'cat-' . uniqid(), 'status' => true]);
+        $category = Category::create(['name' => 'Cat '.uniqid(), 'slug' => 'cat-'.uniqid(), 'status' => true]);
         $client = Client::create([
-            'dfid_number' => 'DF' . uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
+            'dfid_number' => 'DF'.uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
             'category_id' => $category->id,
         ]);
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
 
         $budget = Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Social Media Ads')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 1000, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 1000, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
         Payment::create([
@@ -80,7 +81,7 @@ class Phase5HoldLifecycleTest extends TestCase
         Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Content Production')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 300, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 300, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
 
@@ -100,7 +101,7 @@ class Phase5HoldLifecycleTest extends TestCase
 
         Refund::create([
             'payment_id' => $payment->id, 'invoice_id' => $budget->id, 'client_id' => $brand->client_id,
-            'refund_number' => 'RF-' . uniqid(), 'amount' => $payment->amount, 'status' => Refund::STATUS_COMPLETED,
+            'refund_number' => 'RF-'.uniqid(), 'amount' => $payment->amount, 'status' => Refund::STATUS_COMPLETED,
             'reason' => 'Hold-lifecycle test', 'requested_by' => $manager->id,
         ]);
         app(InvoiceService::class)->recalculateStatus($budget->fresh());
@@ -126,6 +127,7 @@ class Phase5HoldLifecycleTest extends TestCase
         $service = app(ContentItemService::class);
         $prehold = $service->create($brand, ['category' => 'raw_content', 'title' => 'Pre-hold item'], $content);
         $preholdSubmission = $service->submit($prehold, ['link_url' => 'https://example.com/pre.jpg'], $content);
+        $service->approveForHandover($prehold->fresh(), $preholdSubmission->fresh(), $marketing);
         $service->collect($prehold->fresh(), $smm);
         $prePublished = $service->publish($prehold->fresh(), $brand, $preholdSubmission->fresh(), ['facebook_post_url' => 'https://facebook.com/pre'], $smm);
 
@@ -134,6 +136,7 @@ class Phase5HoldLifecycleTest extends TestCase
         $heldItem = $service->create($brand, ['category' => 'raw_content', 'title' => 'Held-item'], $content);
         $heldSubmission = $service->submit($heldItem, ['link_url' => 'https://example.com/held.jpg'], $content);
 
+        $service->approveForHandover($heldItem->fresh(), $heldSubmission->fresh(), $marketing);
         $checklist = $brand->checklist->fresh();
         $checklist->update(['on_hold_at' => now(), 'on_hold_reason' => 'Sweep test hold']);
 
@@ -151,7 +154,7 @@ class Phase5HoldLifecycleTest extends TestCase
 
         // Manually collect (bypassing the service's own hold guard) so we can prove
         // publish's OWN hold guard also refuses it, independent of collect's.
-        \App\Models\ContentItemCollection::create([
+        ContentItemCollection::create([
             'content_item_id' => $heldItem->id, 'submission_id' => $heldSubmission->id,
             'collected_by' => $smm->id, 'collected_at' => now(),
         ]);
@@ -159,7 +162,7 @@ class Phase5HoldLifecycleTest extends TestCase
         $this->expectExceptionViaService(fn () => $service->publish($heldItem->fresh(), $brand, $heldSubmission->fresh(), ['facebook_post_url' => 'https://facebook.com/held'], $smm));
 
         // Advertising expenditure — Option 2: NOT blocked by the hold.
-        $expenditure = app(\App\Services\AdvertisingExpenditureService::class)->create($brand->fresh(), [
+        $expenditure = app(AdvertisingExpenditureService::class)->create($brand->fresh(), [
             'amount' => 50, 'reporting_date' => now()->toDateString(),
         ], $marketing);
         $this->assertNotNull($expenditure->id);

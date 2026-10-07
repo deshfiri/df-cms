@@ -12,6 +12,7 @@ use App\Models\Payment;
 use App\Models\PaymentCategory;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\AdvertisingExpenditureService;
 use App\Services\ContentItemService;
 use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -60,10 +61,10 @@ class Phase5IntegrationTest extends TestCase
 
     private function client(): Client
     {
-        $category = Category::create(['name' => 'Cat ' . uniqid(), 'slug' => 'cat-' . uniqid(), 'status' => true]);
+        $category = Category::create(['name' => 'Cat '.uniqid(), 'slug' => 'cat-'.uniqid(), 'status' => true]);
 
         return Client::create([
-            'dfid_number' => 'DF' . uniqid(), 'client_name' => 'Shared Client', 'brand_name' => 'Brand',
+            'dfid_number' => 'DF'.uniqid(), 'client_name' => 'Shared Client', 'brand_name' => 'Brand',
             'category_id' => $category->id,
         ]);
     }
@@ -74,7 +75,7 @@ class Phase5IntegrationTest extends TestCase
         $ad = Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Social Media Ads')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => $adBudget, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => $adBudget, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
         Payment::create([
@@ -86,7 +87,7 @@ class Phase5IntegrationTest extends TestCase
         Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Content Production')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => $contentCharge, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => $contentCharge, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
     }
@@ -94,22 +95,23 @@ class Phase5IntegrationTest extends TestCase
     /** Walks one brand all the way from an empty checklist to a reviewed publish + recorded expenditure. */
     private function runFullLifecycle(Brand $brand, User $content, User $smm, User $marketing): array
     {
-        $product = Product::create(['brand_id' => $brand->id, 'name' => 'Product ' . uniqid(), 'created_by' => $content->id]);
+        $product = Product::create(['brand_id' => $brand->id, 'name' => 'Product '.uniqid(), 'created_by' => $content->id]);
 
         $item = app(ContentItemService::class)->create($brand, [
-            'category' => 'raw_content', 'title' => 'Item ' . uniqid(), 'product_id' => $product->id,
+            'category' => 'raw_content', 'title' => 'Item '.uniqid(), 'product_id' => $product->id,
         ], $content);
 
         $submission = app(ContentItemService::class)->submit($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
 
+        app(ContentItemService::class)->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
         $collection = app(ContentItemService::class)->collect($item->fresh(), $smm);
 
         $published = app(ContentItemService::class)->publish(
             $item->fresh(), $brand, $submission->fresh(),
-            ['facebook_post_url' => 'https://facebook.com/post/' . uniqid()], $smm
+            ['facebook_post_url' => 'https://facebook.com/post/'.uniqid()], $smm
         );
 
-        $expenditure = app(\App\Services\AdvertisingExpenditureService::class)->create($brand, [
+        $expenditure = app(AdvertisingExpenditureService::class)->create($brand, [
             'amount' => 150, 'reporting_date' => now()->toDateString(),
         ], $marketing);
 
@@ -257,7 +259,7 @@ class Phase5IntegrationTest extends TestCase
         $this->fundBrand($client, $brandA, $manager, 1000, 300);
         $this->fundBrand($client, $brandB, $manager, 1000, 300);
 
-        app(\App\Services\AdvertisingExpenditureService::class)->create($brandA->fresh(), [
+        app(AdvertisingExpenditureService::class)->create($brandA->fresh(), [
             'amount' => 900, 'reporting_date' => now()->toDateString(),
         ], $marketing);
 

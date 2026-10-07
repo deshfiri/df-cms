@@ -10,8 +10,10 @@ use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentCategory;
 use App\Models\PendingChange;
+use App\Models\PublishedContent;
 use App\Models\Refund;
 use App\Models\User;
+use App\Services\ContentItemService;
 use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
@@ -57,10 +59,10 @@ class BrandContentAdvertisingPhase3Test extends TestCase
 
     private function client(): Client
     {
-        $category = Category::create(['name' => 'Cat ' . uniqid(), 'slug' => 'cat-' . uniqid(), 'status' => true]);
+        $category = Category::create(['name' => 'Cat '.uniqid(), 'slug' => 'cat-'.uniqid(), 'status' => true]);
 
         return Client::create([
-            'dfid_number' => 'DF' . uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
+            'dfid_number' => 'DF'.uniqid(), 'client_name' => 'Test Client', 'brand_name' => 'Brand',
             'category_id' => $category->id,
         ]);
     }
@@ -69,12 +71,12 @@ class BrandContentAdvertisingPhase3Test extends TestCase
     private function fundedBrand(User $manager, float $amount = 1000): Brand
     {
         $client = $this->client();
-        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand ' . uniqid()]);
+        $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
 
         $budget = Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Social Media Ads')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => $amount, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => $amount, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
         $payment = Payment::create([
@@ -93,7 +95,7 @@ class BrandContentAdvertisingPhase3Test extends TestCase
         Invoice::create([
             'client_id' => $brand->client_id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', 'Content Production')->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 500, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 500, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $manager->id, 'issued_date' => now(),
         ]);
 
@@ -109,7 +111,7 @@ class BrandContentAdvertisingPhase3Test extends TestCase
 
         Refund::create([
             'payment_id' => $payment->id, 'invoice_id' => $budget->id, 'client_id' => $brand->client_id,
-            'refund_number' => 'RF-' . uniqid(), 'amount' => $payment->amount, 'status' => Refund::STATUS_COMPLETED,
+            'refund_number' => 'RF-'.uniqid(), 'amount' => $payment->amount, 'status' => Refund::STATUS_COMPLETED,
             'reason' => 'Test refund', 'requested_by' => $manager->id,
         ]);
         app(InvoiceService::class)->recalculateStatus($budget->fresh());
@@ -337,15 +339,16 @@ class BrandContentAdvertisingPhase3Test extends TestCase
 
     // ── Publishing review ─────────────────────────────────────────────────
 
-    private function publishedContentFor(Brand $brand, User $content, User $smm): \App\Models\PublishedContent
+    private function publishedContentFor(Brand $brand, User $content, User $smm): PublishedContent
     {
-        $item = app(\App\Services\ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
-        app(\App\Services\ContentItemService::class)->submit($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
+        app(ContentItemService::class)->submit($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
         $item = $item->fresh();
-        app(\App\Services\ContentItemService::class)->collect($item, $smm);
+        app(ContentItemService::class)->approveForHandover($item, $item->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
+        app(ContentItemService::class)->collect($item, $smm);
         $item = $item->fresh();
 
-        return app(\App\Services\ContentItemService::class)->publish(
+        return app(ContentItemService::class)->publish(
             $item, $brand, $item->latestSubmission(), ['facebook_post_url' => 'https://facebook.com/post/1'], $smm,
         );
     }

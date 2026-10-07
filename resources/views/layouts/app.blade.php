@@ -376,6 +376,13 @@
                     <i class="bi bi-share"></i><span class="sb-lbl">SMM</span>
                 </a>
             @endcan
+            @can('manage publishing-review')
+                <a href="{{ route('panels.marketing') }}"
+                    class="sb-link {{ request()->routeIs('panels.marketing') ? 'active' : '' }}"
+                    title="Marketing Panel" data-bs-toggle="tooltip" data-bs-placement="right">
+                    <i class="bi bi-patch-check"></i><span class="sb-lbl">Marketing Panel</span>
+                </a>
+            @endcan
 
             {{-- The all-meetings list exposes client names, so it follows client visibility. --}}
             @can('viewAny', App\Models\Client::class)

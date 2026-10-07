@@ -237,6 +237,7 @@ class MarketingBrandPageIntegrationTest extends TestCase
         $service = app(ContentItemService::class);
         $item = $service->create($brand, ['category' => 'raw_content', 'title' => 'Item '.uniqid()], $content);
         $submission = $service->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $service->approveForHandover($item->fresh(), $item->fresh()->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
         $service->collect($item->fresh(), $smm);
 
         return $service->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/post/'.uniqid()], $smm);

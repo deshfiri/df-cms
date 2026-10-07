@@ -98,6 +98,18 @@ class BrandChecklistProjectionTest extends TestCase
         return app(ContentItemService::class);
     }
 
+    /**
+     * Marketing's pre-publish gate, satisfied for whatever this item's
+     * current latest submission is — a throwaway Marketing user each time
+     * is fine here: these tests predate the gate and aren't about who
+     * approves, only that SMM can't collect without someone having.
+     */
+    private function approveLatest(ContentItem $item): void
+    {
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $this->service()->approveForHandover($item->fresh(), $item->fresh()->latestSubmission(), $marketing);
+    }
+
     // ── TEST 1 — Manager can access the Brand shared checklist ─────────────
 
     public function test_1_manager_can_access_brand_shared_checklist(): void
@@ -199,10 +211,15 @@ class BrandChecklistProjectionTest extends TestCase
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Collect Me'], $content);
         $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
 
         $page = $this->actingAs($manager)->get(route('marketing.checklist', $brand));
-        $page->assertSee('Collected by SMM');
+        // "Collected" — the precise, submission-scoped stage label (see
+        // BrandChecklistProjectionService::stageLabel()) replaces the old
+        // coarse "Collected by SMM" status badge, which could never tell
+        // "waiting on Marketing" apart from "approved, waiting on SMM".
+        $page->assertSee('Collected');
 
         $this->service()->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/x'], $smm);
 
@@ -223,6 +240,7 @@ class BrandChecklistProjectionTest extends TestCase
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Review Me'], $content);
         $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
         $published = $this->service()->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/x'], $smm);
 
@@ -232,6 +250,7 @@ class BrandChecklistProjectionTest extends TestCase
         // A second item, sent back for revision instead.
         $item2 = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Revise Me'], $content);
         $submission2 = $this->service()->submit($item2->fresh(), ['link_url' => 'https://example.com/y.jpg'], $content);
+        $this->approveLatest($item2);
         $this->service()->collect($item2->fresh(), $smm);
         $this->service()->publish($item2->fresh(), $brand, $submission2->fresh(), ['facebook_post_url' => 'https://facebook.com/y'], $smm);
         $this->actingAs($marketing)->postJson(
@@ -253,6 +272,7 @@ class BrandChecklistProjectionTest extends TestCase
 
         $item = $this->service()->create($brand, ['category' => 'poster', 'title' => 'Versioned Poster'], $content);
         $submission1 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
         $published1 = $this->service()->publish($item->fresh(), $brand, $submission1->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
 
@@ -264,6 +284,7 @@ class BrandChecklistProjectionTest extends TestCase
         $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
         $submission2 = ContentItemSubmission::where('content_item_id', $item->id)->where('id', '!=', $submission1->id)->first();
         $this->travel(1)->seconds();
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
         $this->travel(1)->seconds();
         $this->service()->publish($item->fresh(), $brand, $submission2->fresh(), ['facebook_post_url' => 'https://facebook.com/v2'], $smm);
@@ -300,6 +321,7 @@ class BrandChecklistProjectionTest extends TestCase
 
         $item = $this->service()->create($brand, ['category' => 'poster', 'title' => 'Two Publishers'], $content);
         $submission1 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smmOne);
         $this->service()->publish($item->fresh(), $brand, $submission1->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smmOne);
 
@@ -311,6 +333,7 @@ class BrandChecklistProjectionTest extends TestCase
         $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
         $submission2 = ContentItemSubmission::where('content_item_id', $item->id)->where('id', '!=', $submission1->id)->first();
         $this->travel(1)->seconds();
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smmTwo);
         $this->travel(1)->seconds();
         $this->service()->publish($item->fresh(), $brand, $submission2->fresh(), ['facebook_post_url' => 'https://facebook.com/v2'], $smmTwo);
@@ -364,6 +387,7 @@ class BrandChecklistProjectionTest extends TestCase
         // untouched by this fix) is actually reached.
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Orphaned Publisher'], $content);
         $submission1 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
         $this->service()->publish($item->fresh(), $brand, $submission1->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
         $this->actingAs($marketing)->postJson(
@@ -416,6 +440,7 @@ class BrandChecklistProjectionTest extends TestCase
         // publisher" test above for the same lesson).
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Collect Publish TZ'], $content);
         $submission1 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
         $this->service()->publish($item->fresh(), $brand, $submission1->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
         $this->actingAs($marketing)->postJson(
@@ -425,6 +450,7 @@ class BrandChecklistProjectionTest extends TestCase
         $submission2 = ContentItemSubmission::where('content_item_id', $item->id)->where('id', '!=', $submission1->id)->first();
 
         $this->travelTo(Carbon::parse('2026-10-06 04:15:00', 'UTC'));
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
 
         $this->travelTo(Carbon::parse('2026-10-06 05:30:00', 'UTC'));
@@ -450,6 +476,7 @@ class BrandChecklistProjectionTest extends TestCase
         $item = $this->service()->create($brand, ['category' => 'poster', 'title' => 'TZ History Poster'], $content);
         $this->travelTo(Carbon::parse('2026-10-06 00:00:00', 'UTC'));
         $submission1 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
         $this->service()->publish($item->fresh(), $brand, $submission1->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
         $this->actingAs($marketing)->postJson(
@@ -461,6 +488,7 @@ class BrandChecklistProjectionTest extends TestCase
         $this->travelTo(Carbon::parse('2026-10-06 18:00:00', 'UTC'));
         $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
         $submission2 = ContentItemSubmission::where('content_item_id', $item->id)->where('id', '!=', $submission1->id)->first();
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
         $this->service()->publish($item->fresh(), $brand, $submission2->fresh(), ['facebook_post_url' => 'https://facebook.com/v2'], $smm);
 
@@ -497,6 +525,7 @@ class BrandChecklistProjectionTest extends TestCase
         $submission1->update(['file_path' => 'content-items/v1.jpg', 'disk' => 'local']);
         Storage::disk('local')->put('content-items/v1.jpg', 'v1-bytes');
 
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
         $this->service()->publish($item->fresh(), $brand, $submission1->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
         $this->actingAs($marketing)->postJson(
@@ -605,6 +634,7 @@ class BrandChecklistProjectionTest extends TestCase
             $item = $this->service()->create($brand, ['category' => $cat, 'title' => "Item $i"], $creator);
             $submission = $this->service()->submit($item->fresh(), ['link_url' => "https://example.com/$i.jpg"], $creator);
             if ($i % 2 === 0) {
+                $this->approveLatest($item);
                 $this->service()->collect($item->fresh(), $smm);
                 $this->service()->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => "https://facebook.com/$i"], $smm);
             }
@@ -791,6 +821,7 @@ class BrandChecklistProjectionTest extends TestCase
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Published Solo'], $content);
         $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
 
         $this->travelTo(Carbon::parse('2026-10-06 06:15:00', 'UTC'));
@@ -816,6 +847,7 @@ class BrandChecklistProjectionTest extends TestCase
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'No Post URL Solo'], $content);
         $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
         $this->service()->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/solo'], $smm);
 
@@ -845,6 +877,7 @@ class BrandChecklistProjectionTest extends TestCase
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Reviewed Solo'], $content);
         $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
         $published = $this->service()->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/solo'], $smm);
         $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published]))->assertOk();
@@ -866,6 +899,7 @@ class BrandChecklistProjectionTest extends TestCase
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Revise Solo'], $content);
         $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
         $this->service()->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/solo'], $smm);
         $this->actingAs($marketing)->postJson(
@@ -891,6 +925,7 @@ class BrandChecklistProjectionTest extends TestCase
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Two Publications'], $content);
         $submission1 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
         $this->service()->publish($item->fresh(), $brand, $submission1->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
         $this->actingAs($marketing)->postJson(
@@ -899,6 +934,7 @@ class BrandChecklistProjectionTest extends TestCase
 
         $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
         $submission2 = ContentItemSubmission::where('content_item_id', $item->id)->where('id', '!=', $submission1->id)->first();
+        $this->approveLatest($item);
         $this->service()->collect($item->fresh(), $smm);
         $this->service()->publish($item->fresh(), $brand, $submission2->fresh(), ['facebook_post_url' => 'https://facebook.com/v2'], $smm);
 
