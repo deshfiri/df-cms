@@ -103,7 +103,7 @@ class DesignerActivityReportingTest extends TestCase
         $this->atDhaka('2026-10-06 10:00');
         $item = $this->newItem($brand, $t['design'], ContentItem::CATEGORY_POSTER);
         $this->submitVersion($item, $t['design']);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Logo too small'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Logo too small'], $t['marketing']);
         $this->atDhaka('2026-10-06 11:00');
         $this->submitVersion($item, $t['design']);
 

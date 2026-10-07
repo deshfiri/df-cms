@@ -15,6 +15,7 @@ use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
 /**
@@ -26,6 +27,7 @@ use Tests\TestCase;
  */
 class Phase5ContentIntegrityTest extends TestCase
 {
+    use ContentWorkflowFixtures;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -92,28 +94,28 @@ class Phase5ContentIntegrityTest extends TestCase
 
         // Round 1.
         $item = $service->create($brand, ['category' => 'raw_content', 'title' => 'Versioned item'], $content);
-        $submission1 = $service->submit($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
-        $service->approveForHandover($item->fresh(), $item->fresh()->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
+        $submission1 = $this->submitItem($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->approveHandover($item->fresh(), $item->fresh()->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
         $collection1 = $service->collect($item->fresh(), $smm);
         $published1 = $service->publish($item->fresh(), $brand, $submission1->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
 
-        $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published1]))->assertOk();
+        $this->reviewPublication($brand, $published1, $marketing)->assertOk();
         $published1->refresh();
         $this->assertNotNull($published1->reviewed_at);
         $reviewedAtRound1 = $published1->reviewed_at;
 
         // Revision reopens the item — round 1's rows must not move.
-        $service->requestRevision($item->fresh(), ['note' => 'Please redo'], $marketing);
+        $this->reviseItem($item->fresh(), ['note' => 'Please redo'], $marketing);
         $this->assertSame(ContentItem::STATUS_NEEDS_REVISION, $item->fresh()->status);
         $this->assertSame($submission1->id, $collection1->fresh()->submission_id);
         $this->assertSame('https://facebook.com/v1', $published1->fresh()->facebook_post_url);
         $this->assertEquals($reviewedAtRound1->timestamp, $published1->fresh()->reviewed_at->timestamp);
 
         // Round 2 — a fresh submission needs its own fresh collect + publish.
-        $submission2 = $service->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
+        $submission2 = $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
         $this->assertNotEquals($submission1->id, $submission2->id);
 
-        $service->approveForHandover($item->fresh(), $item->fresh()->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
+        $this->approveHandover($item->fresh(), $item->fresh()->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
         $collection2 = $service->collect($item->fresh(), $smm);
         $this->assertNotEquals($collection1->id, $collection2->id);
         $this->assertSame($submission2->id, $collection2->submission_id);

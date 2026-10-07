@@ -947,7 +947,10 @@ if ($('#mkReviewRows').length) {
         const $row = $(this).closest('tr');
         const id = $row.data('id');
         const $btn = $(this).prop('disabled', true);
-        $.post('/marketing/brands/' + BRAND_ID + '/published-contents/' + id + '/review')
+        // Claim the final review first (idempotent for the current owner), then review.
+        // A stage someone else owns is refused with a clear message.
+        $.post('/marketing/brands/' + BRAND_ID + '/published-contents/' + id + '/claim')
+            .then(() => $.post('/marketing/brands/' + BRAND_ID + '/published-contents/' + id + '/review'))
             .done(function () {
                 $row.fadeOut(200, function () {
                     $(this).remove();
@@ -968,8 +971,11 @@ if ($('#mkReviewRows').length) {
     // Never touches this published-content row itself: only the ContentItem
     // moves to needs_revision; reviewed_at/reviewed_by, facebook_post_url
     // and every prior submission/collection stay exactly as they are.
+    let revisionPublicationId = null;
+
     $('#mkReviewRows').on('click', '.mk-revision-btn', function () {
         const $row = $(this).closest('tr');
+        revisionPublicationId = $row.data('id');
         $('#mkRevisionBrand').val(BRAND_ID);
         $('#mkRevisionItem').val($row.data('item'));
         $('#mkRevisionTitle').text('Request revision — ' + $row.data('title'));
@@ -982,9 +988,13 @@ if ($('#mkReviewRows').length) {
         if (note.length < 3) { Swal.fire('Reason required', 'Say what needs to change before sending it back.', 'warning'); return; }
 
         const $btn = $(this).prop('disabled', true);
-        $.post('/marketing/brands/' + $('#mkRevisionBrand').val() + '/content-items/' + $('#mkRevisionItem').val() + '/request-revision', {
+        // A published item is sent back by its final reviewer, so claim that review first.
+        const claimed = revisionPublicationId
+            ? $.post('/marketing/brands/' + BRAND_ID + '/published-contents/' + revisionPublicationId + '/claim')
+            : $.Deferred().resolve().promise();
+        claimed.then(() => $.post('/marketing/brands/' + $('#mkRevisionBrand').val() + '/content-items/' + $('#mkRevisionItem').val() + '/request-revision', {
             note: note,
-        }).done(function () {
+        })).done(function () {
             bootstrap.Modal.getInstance('#mkRevisionModal').hide();
             Swal.fire({ icon: 'success', title: 'Sent back for revision', timer: 1500, showConfirmButton: false });
             loadReview();

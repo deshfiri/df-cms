@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
 /**
@@ -35,6 +36,7 @@ use Tests\TestCase;
  */
 class WorkflowHandoffNotificationTest extends TestCase
 {
+    use ContentWorkflowFixtures;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -120,8 +122,8 @@ class WorkflowHandoffNotificationTest extends TestCase
     private function carryToPublished(Brand $brand, User $content, User $marketing, User $smm, string $category = 'raw_content'): array
     {
         $item = $this->service()->create($brand, ['category' => $category, 'title' => 'Item '.uniqid()], $content);
-        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
-        $this->service()->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
+        $submission = $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->approveHandover($item->fresh(), $submission->fresh(), $marketing);
         $this->service()->collect($item->fresh(), $smm);
         $published = $this->service()->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
 
@@ -140,7 +142,7 @@ class WorkflowHandoffNotificationTest extends TestCase
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
-        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
         Notification::assertSentTo($marketing, ContentReadyForPrePublishCheck::class);
         Notification::assertNotSentTo($smm, ContentReadyForPrePublishCheck::class);
@@ -157,7 +159,7 @@ class WorkflowHandoffNotificationTest extends TestCase
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'advertising_content', 'title' => 'Ad'], $content);
-        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
         Notification::assertSentTo($marketing, ContentReadyForPrePublishCheck::class);
         Notification::assertNotSentTo($smm, ContentReadyForPrePublishCheck::class);
@@ -173,7 +175,7 @@ class WorkflowHandoffNotificationTest extends TestCase
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'poster', 'title' => 'Poster'], $design);
-        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $design);
+        $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $design);
 
         Notification::assertSentTo($marketing, ContentReadyForPrePublishCheck::class, function ($notification) {
             $data = $notification->toDatabase($notification);
@@ -192,9 +194,10 @@ class WorkflowHandoffNotificationTest extends TestCase
         $content = $this->user('Content', ['manage raw-content']);
         $brand = $this->readyBrand($manager);
 
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
-        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo.'], $manager);
+        $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo.'], $marketing);
 
         Notification::assertSentTo($content, ChecklistRevisionRequested::class);
     }
@@ -206,9 +209,10 @@ class WorkflowHandoffNotificationTest extends TestCase
         $design = $this->user('Design', ['manage designer-content']);
         $brand = $this->readyBrand($manager);
 
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
         $item = $this->service()->create($brand, ['category' => 'poster', 'title' => 'Poster'], $design);
-        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $design);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo.'], $manager);
+        $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $design);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo.'], $marketing);
 
         Notification::assertSentTo($design, ChecklistRevisionRequested::class);
     }
@@ -225,9 +229,9 @@ class WorkflowHandoffNotificationTest extends TestCase
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
-        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo.'], $manager);
-        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
+        $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo.'], $marketing);
+        $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
 
         Notification::assertSentToTimes($marketing, ContentReadyForPrePublishCheck::class, 2);
         Notification::assertSentTo($marketing, ContentReadyForPrePublishCheck::class, function ($notification) {
@@ -249,8 +253,8 @@ class WorkflowHandoffNotificationTest extends TestCase
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
-        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
-        $this->service()->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
+        $submission = $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->approveHandover($item->fresh(), $submission->fresh(), $marketing);
 
         Notification::assertSentTo($smm, ContentApprovedForPublishing::class, function ($notification) {
             $data = $notification->toDatabase($notification);
@@ -271,15 +275,15 @@ class WorkflowHandoffNotificationTest extends TestCase
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
-        $v1 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
-        $this->service()->approveForHandover($item->fresh(), $v1->fresh(), $marketing);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo.'], $marketing);
-        $v2 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
+        $v1 = $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->approveHandover($item->fresh(), $v1->fresh(), $marketing);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo.'], $marketing);
+        $v2 = $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
 
         // V1's own approval does not carry over — V2 is not yet eligible.
         $this->assertFalse($v2->fresh()->approval()->exists());
 
-        $this->service()->approveForHandover($item->fresh(), $v2->fresh(), $marketing);
+        $this->approveHandover($item->fresh(), $v2->fresh(), $marketing);
 
         Notification::assertSentToTimes($smm, ContentApprovedForPublishing::class, 2);
         Notification::assertSentTo($smm, ContentApprovedForPublishing::class, function ($notification) {
@@ -299,10 +303,10 @@ class WorkflowHandoffNotificationTest extends TestCase
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
-        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $submission = $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
-        $first = $this->service()->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
-        $second = $this->service()->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
+        $first = $this->approveHandover($item->fresh(), $submission->fresh(), $marketing);
+        $second = $this->approveHandover($item->fresh(), $submission->fresh(), $marketing);
 
         $this->assertSame($first->id, $second->id);
         $this->assertSame(1, ContentItemSubmissionApproval::where('submission_id', $submission->id)->count());
@@ -338,7 +342,7 @@ class WorkflowHandoffNotificationTest extends TestCase
 
         ['published' => $published] = $this->carryToPublished($brand, $content, $marketing, $smm);
 
-        $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published]))->assertOk();
+        $this->reviewPublication($brand, $published, $marketing)->assertOk();
 
         $notification = $manager->notifications()->where('type', ContentPublishedAndReviewed::class)->first();
         $this->assertNotNull($notification);
@@ -361,14 +365,14 @@ class WorkflowHandoffNotificationTest extends TestCase
         // V2 submitted directly (no revision request against V1 — this is
         // the one path that leaves V1 still formally reviewable: nothing
         // ever marked its publication revision_requested).
-        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
+        $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
 
         $manager->notifications()->delete();
 
         // V1's own publication can still legally be reviewed (no revision
         // was ever requested against it) — but it is no longer the item's
         // latest submission, so this must not claim V2's cycle is complete.
-        $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $v1Published]))->assertOk();
+        $this->reviewPublication($brand, $v1Published, $marketing)->assertOk();
 
         $this->assertSame(0, $manager->notifications()->where('type', ContentPublishedAndReviewed::class)->count());
     }
@@ -386,11 +390,10 @@ class WorkflowHandoffNotificationTest extends TestCase
         ['item' => $item, 'submission' => $submission1, 'published' => $published1] =
             $this->carryToPublished($brand, $content, $marketing, $smm);
 
-        $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published1]))->assertOk();
+        $this->reviewPublication($brand, $published1, $marketing)->assertOk();
         $this->assertSame(1, $manager->notifications()->where('type', ContentPublishedAndReviewed::class)->count());
 
-        $this->actingAs($marketing)->postJson(
-            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
+        $this->actingAsStageOwner($marketing, $item)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
         )->assertOk();
         // Timestamp columns are second-precision (see PublishedContent::
         // isRevisionRequested()'s own docblock) — without this, the revision
@@ -398,13 +401,13 @@ class WorkflowHandoffNotificationTest extends TestCase
         // second and the tie-break would wrongly pull this revision into
         // V2's own review window.
         $this->travel(1)->seconds();
-        $v2 = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
+        $v2 = $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
         $submission2 = ContentItemSubmission::where('content_item_id', $item->id)->where('id', '!=', $submission1->id)->first();
-        $this->service()->approveForHandover($item->fresh(), $submission2->fresh(), $marketing);
+        $this->approveHandover($item->fresh(), $submission2->fresh(), $marketing);
         $this->service()->collect($item->fresh(), $smm);
         $published2 = $this->service()->publish($item->fresh(), $brand, $submission2->fresh(), ['facebook_post_url' => 'https://facebook.com/v2'], $smm);
 
-        $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published2]))->assertOk();
+        $this->reviewPublication($brand, $published2, $marketing)->assertOk();
 
         $this->assertSame(2, $manager->notifications()->where('type', ContentPublishedAndReviewed::class)->count());
         $latest = $manager->notifications()->where('type', ContentPublishedAndReviewed::class)->latest('id')->first();
@@ -423,9 +426,9 @@ class WorkflowHandoffNotificationTest extends TestCase
 
         ['published' => $published] = $this->carryToPublished($brand, $content, $marketing, $smm);
 
-        $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published]))->assertOk();
+        $this->reviewPublication($brand, $published, $marketing)->assertOk();
         // Retried/double-submitted request against the same, now-reviewed row.
-        $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published]))->assertOk();
+        $this->reviewPublication($brand, $published, $marketing)->assertOk();
 
         $this->assertSame(1, $manager->notifications()->where('type', ContentPublishedAndReviewed::class)->count());
     }
@@ -445,7 +448,7 @@ class WorkflowHandoffNotificationTest extends TestCase
         $this->expectException(ValidationException::class);
 
         try {
-            $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+            $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
         } finally {
             Notification::assertNothingSent();
         }
@@ -458,7 +461,7 @@ class WorkflowHandoffNotificationTest extends TestCase
         $marketing = $this->user('Marketing', ['manage publishing-review']);
         $brand = $this->readyBrand($manager);
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
-        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $submission = $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
         $brand->checklist->update(['on_hold_at' => now(), 'on_hold_reason' => 'Overdue invoice']);
 
@@ -466,7 +469,7 @@ class WorkflowHandoffNotificationTest extends TestCase
         $this->expectException(ValidationException::class);
 
         try {
-            $this->service()->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
+            $this->approveHandover($item->fresh(), $submission->fresh(), $marketing);
         } finally {
             Notification::assertNothingSent();
             $this->assertNull($submission->fresh()->approval);
@@ -514,7 +517,7 @@ class WorkflowHandoffNotificationTest extends TestCase
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
-        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
         $this->assertSame(
             1,
@@ -532,7 +535,7 @@ class WorkflowHandoffNotificationTest extends TestCase
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
-        $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
         $notification = $marketing->notifications()->where('type', ContentReadyForPrePublishCheck::class)->first();
         $this->assertSame(route('panels.marketing'), $notification->data['url']);
@@ -551,7 +554,7 @@ class WorkflowHandoffNotificationTest extends TestCase
         $brand = $this->readyBrand($manager);
 
         $item = $this->service()->create($brand, ['category' => 'raw_content', 'title' => 'Raw'], $content);
-        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $submission = $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
         $notification = new ContentReadyForPrePublishCheck($item->fresh(), $submission, 1, $content);
 
@@ -594,7 +597,7 @@ class WorkflowHandoffNotificationTest extends TestCase
         // this same request instead of an isolated queued-job failure.
         Notification::shouldReceive('send')->once()->andThrow(new \RuntimeException('Reverb unreachable'));
 
-        $submission = $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $submission = $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
         // The submission already committed before the notification was ever
         // attempted — notifySafely() must have caught and swallowed the

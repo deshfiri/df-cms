@@ -4,14 +4,19 @@ namespace App\Http\Controllers;
 
 use App\Models\AdvertisingExpenditure;
 use App\Models\Brand;
+use App\Models\ContentItemStageOwner;
 use App\Models\PaymentCategory;
 use App\Models\PendingChange;
+use App\Models\PerformancePointEvent;
 use App\Models\PublishedContent;
+use App\Models\User;
 use App\Notifications\ContentPublishedAndReviewed;
 use App\Services\ActivityLogService;
 use App\Services\AdvertisingExpenditureService;
 use App\Services\Concerns\NotifiesStaff;
 use App\Services\InvoiceService;
+use App\Services\Performance\PerformancePointService;
+use App\Services\Workflow\StageOwnershipService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -31,7 +36,32 @@ class MarketingBillingController extends Controller
         private readonly InvoiceService $invoices,
         private readonly AdvertisingExpenditureService $expenditures,
         private readonly ActivityLogService $activityLog,
+        private readonly PerformancePointService $points,
+        private readonly StageOwnershipService $ownership,
     ) {}
+
+    /**
+     * A valid final review earns two points to two different people: the
+     * Marketing reviewer who completed the cycle, and the SMM user who published
+     * the content, because their publication was accepted. Neither point is
+     * derived from the whole panel or role.
+     */
+    private function awardFinalReviewPoints(PublishedContent $published, User $reviewer): void
+    {
+        $this->points->award(
+            PerformancePointEvent::EVENT_MARKETING_FINAL_REVIEW,
+            PerformancePointEvent::SOURCE_PUBLICATION, $published->id,
+            $reviewer, $published->brand_id, $reviewer,
+        );
+
+        if ($published->publishedBy) {
+            $this->points->award(
+                PerformancePointEvent::EVENT_SMM_PUBLISH_SUCCESS,
+                PerformancePointEvent::SOURCE_PUBLICATION, $published->id,
+                $published->publishedBy, $published->brand_id, $reviewer,
+            );
+        }
+    }
 
     /**
      * A content-charge Invoice only — never touches PaymentService, so
@@ -235,11 +265,26 @@ class MarketingBillingController extends Controller
                 ]);
             }
 
+            // Only the Marketing user who owns this publication's final review may
+            // complete it. An unowned publication must be claimed first.
+            $this->ownership->requireOwner(
+                ContentItemStageOwner::STAGE_FINAL_REVIEW,
+                StageOwnershipService::finalReview($locked->id),
+                $locked->item, $request->user(), ['publication_id' => $locked->id],
+            );
+
             $locked->update(['reviewed_at' => now(), 'reviewed_by' => $request->user()->id]);
 
             $this->activityLog->log('Publishing Review', 'Reviewed', $brand->client_id, ['reviewed_at' => null, 'reviewed_by' => null], [
                 'published_content_id' => $locked->id, 'reviewed_by' => $request->user()->name,
             ]);
+
+            // Final-review points count only for a review of the item's CURRENT
+            // version: the same gate that decides whether the Manager hears the
+            // cycle is complete. A stale or superseded review awards nothing.
+            if (! $locked->submission->isSuperseded()) {
+                $this->awardFinalReviewPoints($locked, $request->user());
+            }
 
             return false;
         });

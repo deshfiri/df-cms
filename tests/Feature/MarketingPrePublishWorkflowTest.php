@@ -154,7 +154,9 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $item = $this->newItem($brand, $t['content']);
         $v1 = $this->submitVersion($item, $t['content']);
 
-        $this->actingAs($t['marketing'])
+        $this->claimPrePublish($item, $v1, $t['marketing']);
+
+        $this->actingAsHandoverOwner($t['marketing'], $item, $v1)
             ->postJson($this->approveUrl($brand, $item, $v1))
             ->assertOk()
             ->assertJsonPath('data.submission_id', $v1->id);
@@ -204,7 +206,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $item = $this->newItem($brand, $t['content'], ContentItem::CATEGORY_RAW_CONTENT);
         $this->submitVersion($item, $t['content']);
 
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Fix the caption'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Fix the caption'], $t['marketing']);
 
         $this->assertSame(ContentItem::STATUS_NEEDS_REVISION, $item->fresh()->status);
         Notification::assertSentTo($t['content'], ChecklistRevisionRequested::class);
@@ -219,7 +221,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $item = $this->newItem($brand, $t['content'], ContentItem::CATEGORY_ADVERTISING_CONTENT);
         $this->submitVersion($item, $t['content']);
 
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Wrong offer'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Wrong offer'], $t['marketing']);
 
         $this->assertSame(ContentItem::STATUS_NEEDS_REVISION, $item->fresh()->status);
         Notification::assertSentTo($t['content'], ChecklistRevisionRequested::class);
@@ -233,7 +235,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $item = $this->newItem($brand, $t['design'], ContentItem::CATEGORY_POSTER);
         $this->submitVersion($item, $t['design']);
 
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Logo too small'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Logo too small'], $t['marketing']);
 
         Notification::assertSentTo($t['design'], ChecklistRevisionRequested::class);
         Notification::assertNotSentTo($t['content'], ChecklistRevisionRequested::class);
@@ -245,7 +247,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $brand = $this->readyBrand($t['manager']);
         $item = $this->newItem($brand, $t['content']);
         $v1 = $this->submitVersion($item, $t['content']);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['marketing']);
 
         try {
             $this->service()->collect($item->fresh(), $t['smm']);
@@ -267,7 +269,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $brand = $this->readyBrand($t['manager']);
         $item = $this->newItem($brand, $t['content']);
         $this->submitVersion($item, $t['content']);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['marketing']);
 
         $v2 = $this->submitVersion($item, $t['content']);
 
@@ -284,7 +286,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $brand = $this->readyBrand($t['manager']);
         $item = $this->newItem($brand, $t['content']);
         $this->submitVersion($item, $t['content']);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['marketing']);
         $this->submitVersion($item, $t['content']);
 
         Notification::assertNothingSentTo($t['smm']);
@@ -301,7 +303,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $v1 = $this->submitVersion($item, $t['content']);
         $this->approve($item, $v1, $t['marketing']);
         $this->collect($item, $t['smm']);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'SMM found an issue'], $t['smm']);
+        $this->reviseItem($item->fresh(), ['note' => 'SMM found an issue'], $t['smm']);
 
         $v2 = $this->submitVersion($item, $t['content']);
 
@@ -319,7 +321,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $v1 = $this->submitVersion($item, $t['content']);
         $this->approve($item, $v1, $t['marketing']);
         $this->collect($item, $t['smm']);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo'], $t['smm']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['smm']);
         $v2 = $this->submitVersion($item, $t['content']);
 
         $this->approve($item, $v2, $t['marketing']);
@@ -374,8 +376,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $this->collect($item, $t['smm']);
         $published = $this->publish($item, $brand, $v1, $t['smm']);
 
-        $this->actingAs($t['marketing'])
-            ->postJson(route('marketing.published-contents.review', [$brand, $published]))
+        $this->reviewPublication($brand, $published, $t['marketing'])
             ->assertOk();
 
         $this->assertNotNull($published->fresh()->reviewed_at);
@@ -396,7 +397,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         // timestamps are second-precision, so steps in the same second would
         // look like they belong to the same publication.
         $this->travel(1)->minutes();
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['marketing']);
         $this->travel(1)->minutes();
         $v2 = $this->submitVersion($item, $t['content']);
         $this->approve($item, $v2, $t['marketing']);
@@ -404,8 +405,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $this->travel(1)->minutes();
         $published2 = $this->publish($item, $brand, $v2, $t['smm']);
 
-        $this->actingAs($t['marketing'])
-            ->postJson(route('marketing.published-contents.review', [$brand, $published2]))
+        $this->reviewPublication($brand, $published2, $t['marketing'])
             ->assertOk();
 
         Notification::assertSentTo($t['manager'], ContentPublishedAndReviewed::class,
@@ -426,8 +426,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         // V2 arrives before Marketing gets round to reviewing V1.
         $this->submitVersion($item, $t['content']);
 
-        $this->actingAs($t['marketing'])
-            ->postJson(route('marketing.published-contents.review', [$brand, $published1]))
+        $this->reviewPublication($brand, $published1, $t['marketing'])
             ->assertOk();
 
         Notification::assertNotSentTo($t['manager'], ContentPublishedAndReviewed::class);
@@ -445,6 +444,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $v1 = $this->submitVersion($item, $t['content']);
         $brand->checklist->update(['on_hold_at' => now(), 'on_hold_reason' => 'Ad budget refunded']);
 
+        // Called directly, without a claim: the hold itself is what must refuse it.
         $this->actingAs($t['marketing'])
             ->postJson($this->approveUrl($brand, $item, $v1))
             ->assertStatus(422);
@@ -475,7 +475,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $itemB = $this->newItem($brand, $t['content']);
         $subB = $this->submitVersion($itemB, $t['content']);
 
-        $this->actingAs($t['marketing'])
+        $this->actingAsHandoverOwner($t['marketing'], $itemA, $subB)
             ->postJson($this->approveUrl($brand, $itemA, $subB))
             ->assertNotFound();
     }
@@ -488,8 +488,9 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $item = $this->newItem($brand, $t['content']);
         $v1 = $this->submitVersion($item, $t['content']);
 
-        $this->actingAs($t['marketing'])->postJson($this->approveUrl($brand, $item, $v1))->assertOk();
-        $this->actingAs($t['marketing'])->postJson($this->approveUrl($brand, $item, $v1))->assertOk();
+        $this->claimPrePublish($item, $v1, $t['marketing']);
+        $this->actingAsHandoverOwner($t['marketing'], $item, $v1)->postJson($this->approveUrl($brand, $item, $v1))->assertOk();
+        $this->actingAsHandoverOwner($t['marketing'], $item, $v1)->postJson($this->approveUrl($brand, $item, $v1))->assertOk();
 
         $this->assertSame(1, ContentItemSubmissionApproval::where('submission_id', $v1->id)->count());
         Notification::assertSentToTimes($t['smm'], ContentApprovedForPublishing::class, 1);
@@ -505,8 +506,8 @@ class MarketingPrePublishWorkflowTest extends TestCase
         // Two Marketing users both loaded the item before either approved it.
         $staleA = $item->fresh();
         $staleB = $item->fresh();
-        $first = $this->service()->approveForHandover($staleA, $v1->fresh(), $t['marketing']);
-        $second = $this->service()->approveForHandover($staleB, $v1->fresh(), $t['marketing']);
+        $first = $this->approveHandover($staleA, $v1->fresh(), $t['marketing']);
+        $second = $this->approveHandover($staleB, $v1->fresh(), $t['marketing']);
 
         $this->assertTrue($first->is($second));
         $this->assertSame(1, ContentItemSubmissionApproval::count());
@@ -519,11 +520,11 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $item = $this->newItem($brand, $t['content']);
         $v1 = $this->submitVersion($item, $t['content']);
         $staleCopy = $item->fresh();
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['marketing']);
         $this->submitVersion($item, $t['content']);
 
         $this->expectException(ValidationException::class);
-        $this->service()->approveForHandover($staleCopy, $v1->fresh(), $t['marketing']);
+        $this->approveHandover($staleCopy, $v1->fresh(), $t['marketing']);
     }
 
     // ── 26. SMM-requested revision never bypasses Marketing ───────────────────
@@ -538,7 +539,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $this->approve($item, $v1, $t['marketing']);
         $this->collect($item, $t['smm']);
 
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Image is cropped'], $t['smm']);
+        $this->reviseItem($item->fresh(), ['note' => 'Image is cropped'], $t['smm']);
         Notification::assertSentTo($t['content'], ChecklistRevisionRequested::class);
 
         $v2 = $this->submitVersion($item, $t['content']);
@@ -579,7 +580,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $v1 = $this->submitVersion($item, $t['content']);
         $this->approve($item, $v1, $t['marketing']);
         $this->collect($item, $t['smm']);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo'], $t['smm']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['smm']);
         $v2 = $this->submitVersion($item, $t['content']);
 
         $approval = ContentItemSubmissionApproval::where('submission_id', $v1->id)->firstOrFail();
@@ -617,8 +618,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
             ->assertOk()
             ->assertJsonFragment(['id' => $published->id]);
 
-        $this->actingAs($t['marketing'])
-            ->postJson(route('marketing.published-contents.review', [$brand, $published]))
+        $this->reviewPublication($brand, $published, $t['marketing'])
             ->assertOk();
         $this->assertNotNull($published->fresh()->reviewed_at);
     }
@@ -645,6 +645,7 @@ class MarketingPrePublishWorkflowTest extends TestCase
         $item = $this->newItem($brand, $t['content']);
         $v1 = $this->submitVersion($item, $t['content']);
 
+        // Called directly: the role gate itself must refuse these users, before any claim.
         $this->actingAs($t['content'])->postJson($this->approveUrl($brand, $item, $v1))->assertForbidden();
         $this->actingAs($t['design'])->postJson($this->approveUrl($brand, $item, $v1))->assertForbidden();
         $this->actingAs($t['smm'])->postJson($this->approveUrl($brand, $item, $v1))->assertForbidden();

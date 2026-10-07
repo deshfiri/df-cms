@@ -121,13 +121,12 @@ class ManagerOversightActivityTest extends TestCase
         $this->atDhaka('2026-10-06 09:00');
         $revised = $this->newItem($brandA, $t['content']);
         $this->submitVersion($revised, $t['content']);
-        $this->service()->requestRevision($revised->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($revised->fresh(), ['note' => 'Redo'], $t['marketing']);
         $this->submittedAt('2026-10-06 09:10', $brandA, $t['content']);
         $this->handedOverAt('2026-10-06 09:20', $brandB, $t['content'], $t['marketing']);
         [, $published] = $this->publishedAt('2026-10-06 09:30', $brandB, $t['content'], $t['marketing'], $t['smm']);
         $this->atDhaka('2026-10-06 10:00');
-        $this->actingAs($t['marketing'])
-            ->postJson(route('marketing.published-contents.review', [$brandB, $published]))
+        $this->reviewPublication($brandB, $published, $t['marketing'])
             ->assertOk();
 
         $query = $this->daily('2026-10-06');

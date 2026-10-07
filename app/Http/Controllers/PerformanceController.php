@@ -3,11 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\MonthlyPerformanceSnapshot;
+use App\Models\PerformanceSetting;
 use App\Models\User;
 use App\Services\Performance\PerformanceCalculationService;
+use App\Services\Performance\PerformancePointService;
 use App\Services\WorkloadService;
 use App\Support\PerformanceBoardCache;
+use App\Support\ReportingPeriod;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 
@@ -40,9 +44,9 @@ class PerformanceController extends Controller
     {
         abort_unless(Auth::user()->can('view performance'), 403);
 
-        $period     = $this->resolvePeriod($request);
+        $period = $this->resolvePeriod($request);
         $department = $request->input('department');
-        if ($department && !in_array($department, self::DEPARTMENTS, true)) {
+        if ($department && ! in_array($department, self::DEPARTMENTS, true)) {
             $department = null;
         }
 
@@ -62,12 +66,12 @@ class PerformanceController extends Controller
                     $score = $this->performance->finalScore($user, $period);
 
                     return [
-                        'id'                => $user->id,
-                        'name'              => $user->name,
-                        'department'        => $user->getRoleNames()->first(),
-                        'final_score'       => $score['final_score'],
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'department' => $user->getRoleNames()->first(),
+                        'final_score' => $score['final_score'],
                         'performance_level' => $score['performance_level'],
-                        'scores'            => $score['scores'],
+                        'scores' => $score['scores'],
                     ];
                 })
                 ->sortByDesc(fn ($r) => $r['final_score'] ?? -1)
@@ -86,12 +90,12 @@ class PerformanceController extends Controller
         $scored = $rows->whereNotNull('final_score');
 
         return view('performance.index', [
-            'rows'        => $rows,
-            'period'      => $period,
-            'periods'     => $this->periodOptions(),
+            'rows' => $rows,
+            'period' => $period,
+            'periods' => $this->periodOptions(),
             'departments' => self::DEPARTMENTS,
-            'department'  => $department,
-            'avgScore'    => $scored->isNotEmpty() ? round($scored->avg('final_score'), 1) : null,
+            'department' => $department,
+            'avgScore' => $scored->isNotEmpty() ? round($scored->avg('final_score'), 1) : null,
             'scoredCount' => $scored->count(),
             'topPerformer' => $scored->first(),
         ]);
@@ -111,13 +115,16 @@ class PerformanceController extends Controller
 
         return view('performance.show', [
             'employee' => $user,
-            'period'   => $period,
-            'periods'  => $this->periodOptions(),
-            'result'   => $this->performance->finalScore($user, $period),
+            'period' => $period,
+            'periods' => $this->periodOptions(),
+            'result' => $this->performance->finalScore($user, $period),
+            // Why the workflow points moved this score: the ledger, by event, for this month.
+            'pointsBreakdown' => app(PerformancePointService::class)
+                ->breakdownForUser($user, ReportingPeriod::monthly($period)),
             // The per-task audit trail behind the task KPIs.
-            'credit'   => $this->performance->taskCredit($user, $period),
-            'trend'    => [
-                'labels' => $snapshots->map(fn ($s) => \Illuminate\Support\Carbon::createFromFormat('Y-m', $s->period)->format('M Y'))->all(),
+            'credit' => $this->performance->taskCredit($user, $period),
+            'trend' => [
+                'labels' => $snapshots->map(fn ($s) => Carbon::createFromFormat('Y-m', $s->period)->format('M Y'))->all(),
                 'scores' => $snapshots->map(fn ($s) => (float) $s->final_score)->all(),
             ],
         ]);
@@ -135,7 +142,7 @@ class PerformanceController extends Controller
             ->select('period')->distinct()->orderByDesc('period')->pluck('period');
 
         $period = $request->input('period');
-        if (!$availablePeriods->contains($period)) {
+        if (! $availablePeriods->contains($period)) {
             $period = $availablePeriods->first();
         }
 
@@ -148,10 +155,10 @@ class PerformanceController extends Controller
 
         return view('performance.history', [
             'availablePeriods' => $availablePeriods,
-            'periods'          => $this->periodOptions(),
-            'period'           => $period,
-            'snapshots'        => $snapshots,
-            'generatedAt'      => $snapshots->first()?->generated_at,
+            'periods' => $this->periodOptions(),
+            'period' => $period,
+            'snapshots' => $snapshots,
+            'generatedAt' => $snapshots->first()?->generated_at,
         ]);
     }
 
@@ -173,16 +180,16 @@ class PerformanceController extends Controller
         );
 
         $utils = $rows->pluck('utilization')->filter(fn ($v) => $v !== null);
-        $settings = \App\Models\PerformanceSetting::current();
+        $settings = PerformanceSetting::current();
 
         return view('performance.workload', [
-            'rows'        => $rows,
+            'rows' => $rows,
             'departments' => self::DEPARTMENTS,
-            'department'  => $department,
-            'overloaded'  => $rows->where('status', 'Overloaded')->count(),
-            'configured'  => $rows->where('has_capacity', true)->count(),
-            'avgUtil'     => $utils->isNotEmpty() ? round($utils->avg(), 1) : null,
-            'settings'    => $settings,
+            'department' => $department,
+            'overloaded' => $rows->where('status', 'Overloaded')->count(),
+            'configured' => $rows->where('has_capacity', true)->count(),
+            'avgUtil' => $utils->isNotEmpty() ? round($utils->avg(), 1) : null,
+            'settings' => $settings,
         ]);
     }
 
@@ -190,7 +197,7 @@ class PerformanceController extends Controller
     private function periodOptions(): array
     {
         $options = [];
-        $cursor  = now()->startOfMonth();
+        $cursor = now()->startOfMonth();
 
         for ($i = 0; $i < 12; $i++) {
             $options[$cursor->format('Y-m')] = $cursor->format('M Y');

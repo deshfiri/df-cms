@@ -19,6 +19,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
 /**
@@ -39,6 +40,7 @@ use Tests\TestCase;
  */
 class Phase5ConcurrencyTest extends TestCase
 {
+    use ContentWorkflowFixtures;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -104,13 +106,13 @@ class Phase5ConcurrencyTest extends TestCase
         $service = app(ContentItemService::class);
 
         $item = $service->create($brand, ['category' => 'raw_content', 'title' => 'Race item'], $content);
-        $service->submit($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->submitItem($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
 
         // Two SMM users both load the item while it's still AVAILABLE.
         $staleForA = $item->fresh();
         $staleForB = $item->fresh();
 
-        $service->approveForHandover($staleForA, $staleForA->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
+        $this->approveHandover($staleForA, $staleForA->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
         $service->collect($staleForA, $smmA); // wins the race, commits
 
         try {

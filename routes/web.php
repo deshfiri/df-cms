@@ -30,7 +30,6 @@ use App\Http\Controllers\ForbiddenWordController;
 use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\InvoiceController;
-use App\Http\Controllers\LandingController;
 use App\Http\Controllers\ManagerOversightController;
 use App\Http\Controllers\MarketingBillingController;
 use App\Http\Controllers\MarketingController;
@@ -55,7 +54,9 @@ use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SettingController;
+use App\Http\Controllers\SmmConversationController;
 use App\Http\Controllers\SoundSettingsController;
+use App\Http\Controllers\StageOwnershipController;
 use App\Http\Controllers\StorageSettingsController;
 use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TaskController;
@@ -69,17 +70,14 @@ use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
-| Public landing page (Phase 4) — unauthenticated, outside the `auth` group
+| Root entry point — no public catalogue
 |--------------------------------------------------------------------------
 |
-| A guest sees the public landing page; an already-authenticated user still
-| lands on the dashboard (LandingController::index() redirects). Only
-| `is_public` + `is_active` Brands/Products are ever queried here — see the
-| strict data boundary documented on LandingController.
+| The public Brand/Product catalogue is gone. A guest goes to the login page,
+| and an authenticated user goes to the dashboard. Nothing here is public.
 |
 */
-Route::get('/', [LandingController::class, 'index'])->name('landing');
-Route::get('brands/{brand}', [LandingController::class, 'brand'])->name('landing.brand');
+Route::get('/', fn () => redirect(auth()->check() ? route('dashboard') : route('login')))->name('landing');
 
 Auth::routes(['register' => false]);
 
@@ -298,6 +296,15 @@ Route::middleware(['auth'])->group(function () {
     Route::get('panels/smm/available', [PanelController::class, 'smmAvailable'])->name('panels.smm.available');
     Route::get('panels/smm/collected', [PanelController::class, 'smmCollected'])->name('panels.smm.collected');
     Route::get('panels/smm/published', [PanelController::class, 'smmPublished'])->name('panels.smm.published');
+    // SMM client conversations: logged by SMM, verified by Marketing. Evidence is
+    // served only through the controller's protected preview and download.
+    Route::prefix('smm-conversations')->name('smm-conversations.')->group(function () {
+        Route::get('/', [SmmConversationController::class, 'index'])->name('index');
+        Route::post('/', [SmmConversationController::class, 'store'])->name('store');
+        Route::post('{conversation}/decision', [SmmConversationController::class, 'decide'])->name('decide');
+        Route::get('{conversation}/evidence', [SmmConversationController::class, 'evidence'])->name('evidence');
+    });
+
     Route::get('panels/marketing', [PanelController::class, 'marketing'])->name('panels.marketing');
     Route::get('panels/marketing/pending-check', [PanelController::class, 'marketingPendingCheck'])->name('panels.marketing.pending-check');
     Route::get('panels/marketing/workload', [PanelController::class, 'marketingWorkload'])->name('panels.marketing.workload');
@@ -393,6 +400,12 @@ Route::middleware(['auth'])->group(function () {
         Route::post('brands/{brand}/content-items/{contentItem}/submit', [ContentItemController::class, 'submit'])->name('content-items.submit');
         Route::post('brands/{brand}/content-items/{contentItem}/request-revision', [ContentItemController::class, 'requestRevision'])->name('content-items.request-revision');
         Route::post('brands/{brand}/content-items/{contentItem}/submissions/{submission}/approve', [ContentItemController::class, 'approveSubmission'])->name('content-items.submissions.approve');
+
+        // Stage ownership: the Claim buttons, and the Manager's reassignment.
+        Route::post('brands/{brand}/content-items/{contentItem}/submissions/{submission}/claim', [StageOwnershipController::class, 'claimPrePublish'])->name('content-items.submissions.claim');
+        Route::post('brands/{brand}/content-items/{contentItem}/claim-revision', [StageOwnershipController::class, 'claimRevision'])->name('content-items.claim-revision');
+        Route::post('brands/{brand}/content-items/{contentItem}/stage-owners/reassign', [StageOwnershipController::class, 'reassign'])->name('content-items.stage-owners.reassign');
+        Route::post('brands/{brand}/published-contents/{publishedContent}/claim', [StageOwnershipController::class, 'claimReview'])->name('published-contents.claim');
         Route::post('brands/{brand}/content-items/{contentItem}/collect', [ContentItemController::class, 'collect'])->name('content-items.collect');
         Route::post('brands/{brand}/content-items/{contentItem}/publish', [ContentItemController::class, 'publish'])->name('content-items.publish');
         Route::get('brands/{brand}/content-items/{contentItem}/submissions/{submission}/download', [ContentItemController::class, 'downloadSubmission'])->name('content-items.submissions.download');

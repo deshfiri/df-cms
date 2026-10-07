@@ -4,10 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\Brand;
 use App\Models\ContentItem;
+use App\Models\ContentItemStageOwner;
 use App\Models\ContentItemSubmission;
 use App\Models\PublishedContent;
+use App\Models\User;
 use App\Services\Reporting\PanelActivityReport;
 use App\Services\Storage\StoredFileResponse;
+use App\Services\Workflow\StageOwnershipService;
 use App\Support\ReportingPeriod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -70,7 +73,13 @@ class PanelController extends Controller
 
         return view('panels.smm', [
             'period' => $period,
+            'brands' => Brand::whereHas('checklist')
+                ->with(['products' => fn ($q) => $q->select('id', 'brand_id', 'name')->orderBy('name')])
+                ->orderBy('name')
+                ->get(['id', 'name']),
             'activity' => $this->activity->smm($period),
+            // Each SMM user sees their own conversations. Ownership is per user, never per panel.
+            'conversations' => $this->activity->smmConversations($period, $request->user()),
         ]);
     }
 
@@ -141,7 +150,14 @@ class PanelController extends Controller
     {
         abort_unless($request->user()->can('manage publishing-review'), 403);
 
-        return view('panels.marketing', ['brands' => $this->brandsWithChecklist()]);
+        return view('panels.marketing', [
+            'brands' => $this->brandsWithChecklist(),
+            // Who the handover and revision forms may name. The server re-checks eligibility.
+            'smmUsers' => $this->eligibleUsers('Social Media Manager'),
+            'makerUsers' => User::where('is_active', true)
+                ->whereHas('roles', fn ($q) => $q->whereIn('name', ['Content', 'Design']))
+                ->orderBy('name')->get(['id', 'name']),
+        ]);
     }
 
     /**
@@ -163,13 +179,30 @@ class PanelController extends Controller
             ->withCount('submissions')
             ->with(['brand:id,name', 'product:id,name', 'latestSubmissionRelation.submittedBy:id,name'])
             ->latest()
+            ->get();
+
+        // Who owns each version's pre-publish stage, in one query for the whole queue.
+        $owners = ContentItemStageOwner::with('user:id,name')
+            ->whereIn('active_ref', $items->map(fn ($item) => StageOwnershipService::pre_publish($item->latestSubmissionRelation->id))->all())
             ->get()
-            ->map(fn (ContentItem $item) => $this->presentItem($item, [
+            ->keyBy('active_ref');
+
+        $rows = $items->map(function (ContentItem $item) use ($owners, $request) {
+            $owner = $owners->get(StageOwnershipService::pre_publish($item->latestSubmissionRelation->id));
+
+            return $this->presentItem($item, [
                 'submission' => $item->latestSubmissionRelation,
                 'version' => $item->submissions_count,
-            ]));
+                'owner' => $owner ? [
+                    'user_id' => $owner->user_id,
+                    'name' => $owner->user?->name,
+                    'source' => $owner->source,
+                    'is_me' => (int) $owner->user_id === (int) $request->user()->id,
+                ] : null,
+            ]);
+        });
 
-        return response()->json(['data' => $items]);
+        return response()->json(['data' => $rows]);
     }
 
     /**
@@ -289,6 +322,15 @@ class PanelController extends Controller
             'status' => $item->status,
             'created_at' => $item->created_at?->format('d M Y, h:i A'),
         ], $extra);
+    }
+
+    /** Active users holding a role, for assignee pickers. */
+    private function eligibleUsers(string $role)
+    {
+        return User::whereHas('roles', fn ($q) => $q->where('name', $role))
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name']);
     }
 
     private function brandsWithChecklist()

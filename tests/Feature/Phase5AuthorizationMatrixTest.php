@@ -15,6 +15,7 @@ use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
 /**
@@ -26,6 +27,7 @@ use Tests\TestCase;
  */
 class Phase5AuthorizationMatrixTest extends TestCase
 {
+    use ContentWorkflowFixtures;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -99,7 +101,7 @@ class Phase5AuthorizationMatrixTest extends TestCase
         $brand = $this->readyBrand($manager);
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Raw item'], $content);
 
-        $response = $this->actingAs($design)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
+        $response = $this->actingAsMaker($design, $item)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
             'link_url' => 'https://example.com/v1.jpg',
         ]);
 
@@ -128,8 +130,8 @@ class Phase5AuthorizationMatrixTest extends TestCase
         $brand = $this->readyBrand($manager);
         $service = app(ContentItemService::class);
         $item = $service->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
-        $submission = $service->submit($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
-        $service->approveForHandover($item->fresh(), $item->fresh()->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
+        $submission = $this->submitItem($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->approveHandover($item->fresh(), $item->fresh()->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
         $service->collect($item->fresh(), $smm);
 
         $response = $this->actingAs($smm)->postJson(route('marketing.content-items.publish', [$brand, $item]), [

@@ -18,6 +18,7 @@ use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
 /**
@@ -29,6 +30,7 @@ use Tests\TestCase;
  */
 class Phase5IntegrationTest extends TestCase
 {
+    use ContentWorkflowFixtures;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -101,9 +103,9 @@ class Phase5IntegrationTest extends TestCase
             'category' => 'raw_content', 'title' => 'Item '.uniqid(), 'product_id' => $product->id,
         ], $content);
 
-        $submission = app(ContentItemService::class)->submit($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $submission = $this->submitItem($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
 
-        app(ContentItemService::class)->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
+        $this->approveHandover($item->fresh(), $submission->fresh(), $marketing);
         $collection = app(ContentItemService::class)->collect($item->fresh(), $smm);
 
         $published = app(ContentItemService::class)->publish(
@@ -145,9 +147,7 @@ class Phase5IntegrationTest extends TestCase
 
         // Marketing review — the one remaining step in the chain.
         $marketingUser = $marketing;
-        $reviewResponse = $this->actingAs($marketingUser)->postJson(
-            route('marketing.published-contents.review', [$brand, $result['published']])
-        );
+        $reviewResponse = $this->reviewPublication($brand, $result['published'], $marketingUser);
         $reviewResponse->assertOk();
         $this->assertNotNull($result['published']->fresh()->reviewed_at);
 
@@ -207,6 +207,9 @@ class Phase5IntegrationTest extends TestCase
         $this->assertSame($brandB->id, $brandB->checklist->brand_id);
 
         // Putting Brand A on hold must never affect Brand B's checklist.
+        // Brand A's publication is claimed for review before the hold, as a reviewer
+        // would have done. Reviewing an already-owned pre-hold publish stays allowed.
+        $this->claimFinalReview($resultA['published'], $marketing);
         $brandA->checklist->update(['on_hold_at' => now(), 'on_hold_reason' => 'Isolation test hold']);
         $this->assertFalse($brandB->checklist->fresh()->isOnHold());
         $this->assertTrue($brandA->checklist->fresh()->isOnHold());
@@ -226,7 +229,7 @@ class Phase5IntegrationTest extends TestCase
         $this->assertNotEquals($resultA['published']->id, $resultB['published']->id);
 
         // ── Publishing reviews ──
-        $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brandA, $resultA['published']]))->assertOk();
+        $this->reviewPublication($brandA, $resultA['published'], $marketing)->assertOk();
         $this->assertNotNull($resultA['published']->fresh()->reviewed_at);
         $this->assertNull($resultB['published']->fresh()->reviewed_at);
 

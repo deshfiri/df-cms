@@ -73,7 +73,7 @@ class MarketingHandoffRoutingTest extends TestCase
         $item = $this->newItem($brand, $t['content'], ContentItem::CATEGORY_RAW_CONTENT);
         $this->submitVersion($item, $t['content']);
 
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['marketing']);
 
         Notification::assertSentTo($t['content'], ChecklistRevisionRequested::class);
         Notification::assertNotSentTo($t['smm'], ChecklistRevisionRequested::class);
@@ -90,7 +90,7 @@ class MarketingHandoffRoutingTest extends TestCase
         $this->approve($item, $v1, $t['marketing']);
         $this->collect($item, $t['smm']);
 
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Wrong size'], $t['smm']);
+        $this->reviseItem($item->fresh(), ['note' => 'Wrong size'], $t['smm']);
 
         Notification::assertSentTo($t['design'], ChecklistRevisionRequested::class);
         Notification::assertNotSentTo($t['marketing'], ChecklistRevisionRequested::class);
@@ -106,7 +106,7 @@ class MarketingHandoffRoutingTest extends TestCase
         $v1 = $this->submitVersion($item, $t['content']);
         $this->approve($item, $v1, $t['marketing']);
         $this->collect($item, $t['smm']);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'SMM revision'], $t['smm']);
+        $this->reviseItem($item->fresh(), ['note' => 'SMM revision'], $t['smm']);
 
         $this->submitVersion($item, $t['content']);
 
@@ -145,8 +145,7 @@ class MarketingHandoffRoutingTest extends TestCase
         $published = $this->publish($item, $brand, $v1, $t['smm']);
         Notification::assertNothingSentTo($t['manager']);
 
-        $this->actingAs($t['marketing'])
-            ->postJson(route('marketing.published-contents.review', [$brand, $published]))
+        $this->reviewPublication($brand, $published, $t['marketing'])
             ->assertOk();
 
         Notification::assertSentToTimes($t['manager'], ContentPublishedAndReviewed::class, 1);
@@ -161,15 +160,14 @@ class MarketingHandoffRoutingTest extends TestCase
         $brand = $this->readyBrand($t['manager']);
         $item = $this->newItem($brand, $t['content']);
         $v1 = $this->submitVersion($item, $t['content']);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['marketing']);
         $this->travel(1)->minutes();
         $v2 = $this->submitVersion($item, $t['content']);
         $this->approve($item, $v2, $t['marketing']);
         $this->collect($item, $t['smm']);
         $this->travel(1)->minutes();
         $published = $this->publish($item, $brand, $v2, $t['smm']);
-        $this->actingAs($t['marketing'])
-            ->postJson(route('marketing.published-contents.review', [$brand, $published]))
+        $this->reviewPublication($brand, $published, $t['marketing'])
             ->assertOk();
 
         Notification::assertSentToTimes($t['marketing'], ContentReadyForPrePublishCheck::class, 2);

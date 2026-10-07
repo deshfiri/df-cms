@@ -18,6 +18,7 @@ use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
 /**
@@ -31,6 +32,7 @@ use Tests\TestCase;
  */
 class MarketingBrandPageIntegrationTest extends TestCase
 {
+    use ContentWorkflowFixtures;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -236,8 +238,8 @@ class MarketingBrandPageIntegrationTest extends TestCase
         BrandChecklist::firstOrCreate(['brand_id' => $brand->id]);
         $service = app(ContentItemService::class);
         $item = $service->create($brand, ['category' => 'raw_content', 'title' => 'Item '.uniqid()], $content);
-        $submission = $service->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
-        $service->approveForHandover($item->fresh(), $item->fresh()->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
+        $submission = $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->approveHandover($item->fresh(), $item->fresh()->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
         $service->collect($item->fresh(), $smm);
 
         return $service->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/post/'.uniqid()], $smm);
@@ -265,7 +267,7 @@ class MarketingBrandPageIntegrationTest extends TestCase
         $brand = Brand::create(['client_id' => $client->id, 'name' => 'Brand '.uniqid()]);
         $published = $this->publishedItemFor($brand);
 
-        $response = $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published]));
+        $response = $this->reviewPublication($brand, $published, $marketing);
         $response->assertOk();
         $this->assertNotNull($published->fresh()->reviewed_at);
 

@@ -116,6 +116,51 @@
     <div class="card-header py-2"><h6 class="fw-bold mb-0"><i class="bi bi-graph-up me-1"></i>Final score trend</h6></div>
     <div class="card-body"><div style="height:200px"><canvas id="trendChart"></canvas></div></div>
 </div>
+
+{{-- Workflow Performance Points. These are part of this score: each point adds to the final score above. --}}
+@php
+    $pointLabels = [
+        'raw_content_approval' => 'Raw Content Approval',
+        'advertising_content_approval' => 'Advertising Content Approval',
+        'poster_approval' => 'Poster Approval',
+        'marketing_handover' => 'Marketing Handover',
+        'marketing_final_review' => 'Marketing Final Review',
+        'smm_publish_success' => 'SMM Publishing Success',
+        'potential_client' => 'Potential Client',
+    ];
+    $pointsScore = $result['components']['workflowPoints']['score'] ?? 0;
+    $pointsTotal = $result['components']['workflowPoints']['points'] ?? 0;
+@endphp
+<div class="card section-card mb-3">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <h6 class="fw-bold mb-0"><i class="bi bi-stars me-1"></i>Workflow points</h6>
+        <span class="sc-weight">{{ $pointsTotal }} pts &middot; +{{ number_format($pointsScore, 2) }} to score</span>
+    </div>
+    <div class="card-body">
+        <div class="small mb-2" style="color:var(--text3)">
+            Each point earned this month adds {{ config('performance.score_per_point') }} to this score. Points are awarded only to the person who did the work, when it was accepted.
+        </div>
+        @if (empty($pointsBreakdown))
+            <div class="small" style="color:var(--text3)">No workflow points this month.</div>
+        @else
+            <div class="table-responsive">
+                <table class="table table-sm mb-0" style="font-size:.82rem">
+                    <thead><tr><th>Event</th><th class="text-end">Awards</th><th class="text-end">Points</th><th class="text-end">Score</th></tr></thead>
+                    <tbody>
+                        @foreach ($pointsBreakdown as $event => $row)
+                            <tr>
+                                <td>{{ $pointLabels[$event] ?? $event }}</td>
+                                <td class="text-end">{{ $row['count'] }}</td>
+                                <td class="text-end">{{ $row['points'] }}</td>
+                                <td class="text-end">+{{ number_format($row['points'] * config('performance.score_per_point'), 2) }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
+    </div>
+</div>
 @endif
 
 <div class="row g-3">

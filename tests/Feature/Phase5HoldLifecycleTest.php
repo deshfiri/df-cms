@@ -19,6 +19,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
 /**
@@ -30,6 +31,7 @@ use Tests\TestCase;
  */
 class Phase5HoldLifecycleTest extends TestCase
 {
+    use ContentWorkflowFixtures;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -126,17 +128,21 @@ class Phase5HoldLifecycleTest extends TestCase
         // prove it stays reviewable afterward (the one read-mostly exception).
         $service = app(ContentItemService::class);
         $prehold = $service->create($brand, ['category' => 'raw_content', 'title' => 'Pre-hold item'], $content);
-        $preholdSubmission = $service->submit($prehold, ['link_url' => 'https://example.com/pre.jpg'], $content);
-        $service->approveForHandover($prehold->fresh(), $preholdSubmission->fresh(), $marketing);
+        $preholdSubmission = $this->submitItem($prehold, ['link_url' => 'https://example.com/pre.jpg'], $content);
+        $this->approveHandover($prehold->fresh(), $preholdSubmission->fresh(), $marketing);
         $service->collect($prehold->fresh(), $smm);
         $prePublished = $service->publish($prehold->fresh(), $brand, $preholdSubmission->fresh(), ['facebook_post_url' => 'https://facebook.com/pre'], $smm);
+        // Claimed before the hold starts. Claims are workflow mutations and so are
+        // blocked during a hold, but reviewing an already-owned pre-hold publish is
+        // still allowed, as it always was.
+        $this->claimFinalReview($prePublished, $marketing);
 
         // A second item, submitted and collected before the hold, so collect/publish/
         // request-revision on IT can be attempted (and refused) once held.
         $heldItem = $service->create($brand, ['category' => 'raw_content', 'title' => 'Held-item'], $content);
-        $heldSubmission = $service->submit($heldItem, ['link_url' => 'https://example.com/held.jpg'], $content);
+        $heldSubmission = $this->submitItem($heldItem, ['link_url' => 'https://example.com/held.jpg'], $content);
 
-        $service->approveForHandover($heldItem->fresh(), $heldSubmission->fresh(), $marketing);
+        $this->approveHandover($heldItem->fresh(), $heldSubmission->fresh(), $marketing);
         $checklist = $brand->checklist->fresh();
         $checklist->update(['on_hold_at' => now(), 'on_hold_reason' => 'Sweep test hold']);
 
@@ -144,13 +150,13 @@ class Phase5HoldLifecycleTest extends TestCase
         $this->expectExceptionViaService(fn () => $service->create($brand->fresh(), ['category' => 'raw_content', 'title' => 'New'], $content));
 
         // Submit — blocked.
-        $this->expectExceptionViaService(fn () => $service->submit($heldItem->fresh(), ['link_url' => 'https://example.com/again.jpg'], $content));
+        $this->expectExceptionViaService(fn () => $this->submitItem($heldItem->fresh(), ['link_url' => 'https://example.com/again.jpg'], $content));
 
         // Collect — blocked.
         $this->expectExceptionViaService(fn () => $service->collect($heldItem->fresh(), $smm));
 
         // Request-revision — blocked.
-        $this->expectExceptionViaService(fn () => $service->requestRevision($prehold->fresh(), ['note' => 'redo'], $marketing));
+        $this->expectExceptionViaService(fn () => $this->reviseItem($prehold->fresh(), ['note' => 'redo'], $marketing));
 
         // Manually collect (bypassing the service's own hold guard) so we can prove
         // publish's OWN hold guard also refuses it, independent of collect's.
@@ -168,7 +174,7 @@ class Phase5HoldLifecycleTest extends TestCase
         $this->assertNotNull($expenditure->id);
 
         // Reviewing a PRE-HOLD publish — the one read-mostly exception — still allowed.
-        $response = $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $prePublished]));
+        $response = $this->reviewPublication($brand, $prePublished, $marketing);
         $response->assertOk();
         $this->assertNotNull($prePublished->fresh()->reviewed_at);
     }

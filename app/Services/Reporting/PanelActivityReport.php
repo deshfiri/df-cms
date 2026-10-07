@@ -4,6 +4,9 @@ namespace App\Services\Reporting;
 
 use App\Models\Brand;
 use App\Models\ContentItem;
+use App\Models\PerformancePointEvent;
+use App\Models\SmmClientConversation;
+use App\Models\User;
 use App\Support\ReportingPeriod;
 use Illuminate\Support\Collection;
 
@@ -82,6 +85,39 @@ final class PanelActivityReport
     public function smm(ReportingPeriod $period): array
     {
         return $this->totals(self::SMM_METRICS, $period);
+    }
+
+    /**
+     * SMM client conversations for a period. Submitted, approved and rejected
+     * are timestamped by the event (submitted_at, reviewed_at). Potential Client
+     * points are the ledger awards by awarded_at. Pending review is current work,
+     * so it is never period-filtered.
+     *
+     * @return array{submitted: int, approved: int, rejected: int, pending_review: int, potential_client_points: int}
+     */
+    public function smmConversations(ReportingPeriod $period, ?User $smm = null): array
+    {
+        [$since, $until] = $period->bounds();
+
+        $owned = fn () => SmmClientConversation::query()
+            ->when($smm !== null, fn ($q) => $q->where('submitted_by', $smm->id));
+
+        $points = PerformancePointEvent::query()
+            ->where('event_type', PerformancePointEvent::EVENT_POTENTIAL_CLIENT)
+            ->when($smm !== null, fn ($q) => $q->where('user_id', $smm->id))
+            ->where('awarded_at', '>=', $since)
+            ->where('awarded_at', '<', $until)
+            ->sum('points');
+
+        return [
+            'submitted' => $owned()->where('submitted_at', '>=', $since)->where('submitted_at', '<', $until)->count(),
+            'approved' => $owned()->where('review_status', SmmClientConversation::STATUS_APPROVED)
+                ->where('reviewed_at', '>=', $since)->where('reviewed_at', '<', $until)->count(),
+            'rejected' => $owned()->where('review_status', SmmClientConversation::STATUS_REJECTED)
+                ->where('reviewed_at', '>=', $since)->where('reviewed_at', '<', $until)->count(),
+            'pending_review' => $owned()->where('review_status', SmmClientConversation::STATUS_PENDING)->count(),
+            'potential_client_points' => (int) $points,
+        ];
     }
 
     /**

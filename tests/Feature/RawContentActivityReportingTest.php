@@ -107,7 +107,7 @@ class RawContentActivityReportingTest extends TestCase
         $this->atDhaka('2026-10-06 10:00');
         $item = $this->newItem($brand, $t['content']);
         $this->submitVersion($item, $t['content']);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['marketing']);
         $this->atDhaka('2026-10-06 10:30');
         $this->submitVersion($item, $t['content']);
 
@@ -158,8 +158,7 @@ class RawContentActivityReportingTest extends TestCase
         [, $published] = $this->publishedAt('2026-10-06 10:00', $brand, $t['content'], $t['marketing'], $t['smm']);
 
         $this->atDhaka('2026-10-06 12:00');
-        $this->actingAs($t['marketing'])
-            ->postJson(route('marketing.published-contents.review', [$brand, $published]))
+        $this->reviewPublication($brand, $published, $t['marketing'])
             ->assertOk();
 
         $this->assertSame(1, $this->activity($t['content'], $this->daily('2026-10-06'))['categories']['raw_content']['completed']);

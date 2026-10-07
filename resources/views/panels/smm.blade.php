@@ -42,6 +42,7 @@
     <li class="nav-item"><a class="nav-link active" data-tab="available">Available</a></li>
     <li class="nav-item"><a class="nav-link" data-tab="collected">Collected</a></li>
     <li class="nav-item"><a class="nav-link" data-tab="published">Published</a></li>
+    <li class="nav-item"><a class="nav-link" data-tab="conversations">Client Conversations</a></li>
 </ul>
 
 <div class="card section-card" id="paneAvailable">
@@ -72,6 +73,55 @@
             <table class="table table-sm align-middle mb-0" style="font-size:.82rem">
                 <thead><tr><th>Brand</th><th>Title</th><th>Facebook post</th><th>Published by</th><th>Published at</th><th>Review</th><th class="text-end">Actions</th></tr></thead>
                 <tbody id="pubRows"><tr><td colspan="7" class="smm-empty">Loading…</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{{-- Client conversations: log one with its screenshot. Current list and form, with the period counts above them. --}}
+<div class="card section-card d-none" id="paneConversations">
+    <div class="card-body">
+        <div class="small mb-2" style="color:var(--text3)">
+            <span class="fw-semibold">{{ $period->label }}</span>:
+            {{ $conversations['submitted'] }} logged · {{ $conversations['approved'] }} potential client · {{ $conversations['rejected'] }} not potential ·
+            {{ $conversations['potential_client_points'] }} points earned.
+            <span class="fw-semibold">Awaiting verification now: {{ $conversations['pending_review'] }}</span>
+        </div>
+        <form id="convForm" class="row g-2 mb-3" enctype="multipart/form-data">
+            <div class="col-md-3">
+                <label class="form-label small fw-semibold">Brand</label>
+                <select name="brand_id" id="convBrand" class="form-select form-select-sm" required>
+                    <option value="">Choose a brand</option>
+                    @foreach ($brands as $b)
+                        <option value="{{ $b->id }}">{{ $b->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-semibold">Product <span class="fw-normal" style="color:var(--text3)">(optional)</span></label>
+                <select name="product_id" id="convProduct" class="form-select form-select-sm">
+                    <option value="">No product</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-semibold">Conversation reference</label>
+                <input name="reference" class="form-control form-control-sm" maxlength="120" required placeholder="Internal thread or conversation ID">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-semibold">Screenshot</label>
+                <input type="file" name="evidence" accept="image/png,image/jpeg,image/webp" class="form-control form-control-sm" required>
+            </div>
+            <div class="col-12">
+                <input name="note" class="form-control form-control-sm" maxlength="500" placeholder="Note for Marketing (optional)">
+            </div>
+            <div class="col-12">
+                <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-upload me-1"></i>Log conversation</button>
+            </div>
+        </form>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0" style="font-size:.82rem">
+                <thead><tr><th>Brand</th><th>Product</th><th>Reference</th><th>Logged</th><th>Screenshot</th><th>Verdict</th></tr></thead>
+                <tbody id="convRows"><tr><td colspan="6" class="smm-empty">Loading…</td></tr></tbody>
             </table>
         </div>
     </div>
@@ -118,7 +168,7 @@
 <script>
 const catLabel = { raw_content: 'Raw content', advertising_content: 'Advertising content', poster: 'Poster' };
 const escSmm = s => $('<div>').text(s == null ? '' : s).html();
-const panes = { available: '#paneAvailable', collected: '#paneCollected', published: '#panePublished' };
+const panes = { available: '#paneAvailable', collected: '#paneCollected', published: '#panePublished', conversations: '#paneConversations' };
 
 $('.smm-tabs .nav-link').on('click', function () {
     $('.smm-tabs .nav-link').removeClass('active');
@@ -129,6 +179,7 @@ $('.smm-tabs .nav-link').on('click', function () {
     if (tab === 'available') loadAvailable();
     if (tab === 'collected') loadCollected();
     if (tab === 'published') loadPublished();
+    if (tab === 'conversations') loadConversations();
 });
 
 function submissionLink(sub, brandId, itemId) {
@@ -156,8 +207,8 @@ function loadAvailable() {
             + '<td><span class="smm-title">' + escSmm(it.title) + '</span></td>'
             + '<td>' + submissionLink(it.submission, it.brand_id, it.id) + '</td>'
             + '<td class="text-end">'
+            // Collecting claims this version for SMM. A revision before collecting is Marketing's to send.
             + '<button class="btn btn-sm btn-primary smm-collect-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '"><i class="bi bi-hand-index"></i> Collect</button>'
-            + '<button class="btn btn-sm btn-outline-danger smm-revision-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + escSmm(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>'
             + '<a class="btn btn-sm btn-outline-secondary" href="/marketing/brands/' + it.brand_id + '/checklist" title="View this brand\'s full content checklist"><i class="bi bi-list-check"></i></a>'
             + '</td></tr>').join(''));
     });
@@ -206,8 +257,8 @@ function loadPublished() {
             + '<td>' + escSmm(p.published_at) + '</td>'
             + '<td>' + reviewBadge(p.review_state)
             + '</td>'
-            + '<td class="text-end">' + (p.review_state === 'revision_requested' ? '' :
-                '<button class="btn btn-sm btn-outline-danger smm-revision-btn me-1" data-id="' + p.content_item_id + '" data-brand="' + p.brand_id + '" data-title="' + escSmm(p.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>')
+            // SMM's part ends at publishing. A revision after publishing belongs to the Marketing reviewer.
+            + '<td class="text-end">'
             + '<a class="btn btn-sm btn-outline-secondary" href="/marketing/brands/' + p.brand_id + '/checklist" title="View this brand\'s full content checklist"><i class="bi bi-list-check"></i></a>'
             + '</td>'
             + '</tr>').join(''));
@@ -276,6 +327,72 @@ $('#smmPublishSave').on('click', function () {
         loadCollected();
     }).fail(x => Swal.fire('Error', x.responseJSON?.message || Object.values(x.responseJSON?.errors || {}).flat().join(' ') || 'Could not publish.', 'error'))
       .always(() => $btn.prop('disabled', false));
+});
+
+// ── Client conversations ────────────────────────────────────────────────────
+// Products for each brand, so the form only offers the brand's own products.
+// The server checks this again, so the dropdown is convenience, not security.
+const smmBrandProducts = @json($brands->mapWithKeys(fn ($b) => [$b->id => $b->products->map(fn ($p) => ['id' => $p->id, 'name' => $p->name])->values()]));
+const newConvKey = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(16).slice(2));
+let convIdempotencyKey = newConvKey();
+
+$('#convBrand').on('change', function () {
+    const list = smmBrandProducts[$(this).val()] || [];
+    $('#convProduct').html('<option value="">No product</option>' + list.map(p => '<option value="' + p.id + '">' + escSmm(p.name) + '</option>').join(''));
+});
+
+function loadConversations() {
+    $.get('{{ route('smm-conversations.index') }}').done(function (r) {
+        const rows = r.data || [];
+        if (!rows.length) { $('#convRows').html('<tr><td colspan="6" class="smm-empty">You have not logged any conversations yet.</td></tr>'); return; }
+        $('#convRows').html(rows.map(c => '<tr>'
+            + '<td>' + escSmm(c.brand) + '</td>'
+            + '<td>' + (c.product ? escSmm(c.product) : '<span style="color:var(--text3)">—</span>') + '</td>'
+            + '<td><span class="smm-title">' + escSmm(c.reference) + '</span></td>'
+            + '<td>' + escSmm(c.submitted_at) + '</td>'
+            + '<td><a href="' + escSmm(c.evidence_url) + '" target="_blank" rel="noopener noreferrer">View</a></td>'
+            + '<td>' + verdictBadge(c.review_status) + (c.reviewed_by ? '<div class="small" style="color:var(--text3)">by ' + escSmm(c.reviewed_by) + '</div>' : '') + '</td>'
+            + '</tr>').join(''));
+    });
+}
+
+function verdictBadge(status) {
+    if (status === 'approved') return '<span class="spill spill-completed">Potential client</span>';
+    if (status === 'rejected') return '<span class="spill spill-cancelled">Not potential</span>';
+    return '<span class="spill spill-hold">Awaiting verification</span>';
+}
+
+function sendConversation(form, confirmDuplicate) {
+    const fd = new FormData(form);
+    fd.append('idempotency_key', convIdempotencyKey);
+    fd.append('_token', $('meta[name=csrf-token]').attr('content'));
+    if (confirmDuplicate) fd.append('confirm_duplicate', '1');
+    return $.ajax({ url: '{{ route('smm-conversations.store') }}', method: 'POST', data: fd, processData: false, contentType: false });
+}
+
+function conversationSaved(form) {
+    Swal.fire({ icon: 'success', title: 'Logged for Marketing', timer: 1200, showConfirmButton: false });
+    form.reset();
+    $('#convProduct').html('<option value="">No product</option>');
+    convIdempotencyKey = newConvKey();
+    loadConversations();
+}
+
+$('#convForm').on('submit', function (e) {
+    e.preventDefault();
+    const form = this;
+    sendConversation(form, false)
+        .done(() => conversationSaved(form))
+        .fail(function (x) {
+            const dup = x.responseJSON?.errors?.duplicate?.[0];
+            if (x.status === 422 && dup) {
+                // Same key on the confirmed retry, so a double-click still logs only once.
+                Swal.fire({ title: 'Possible duplicate', text: dup, icon: 'warning', showCancelButton: true, confirmButtonText: 'Log it anyway' })
+                    .then(r => { if (r.isConfirmed) sendConversation(form, true).done(() => conversationSaved(form)).fail(err => Swal.fire('Error', err.responseJSON?.message || 'Could not log this.', 'error')); });
+                return;
+            }
+            Swal.fire('Not logged', x.responseJSON?.message || Object.values(x.responseJSON?.errors || {}).flat().join(' ') || 'Could not log this.', 'error');
+        });
 });
 
 loadAvailable();

@@ -254,11 +254,9 @@
                         <td class="small" style="color:var(--text3)">{{ $published->item?->category ?? '—' }}</td>
                         <td class="small">{{ $published->published_at?->format('d M Y, h:i A') }}</td>
                         <td class="small" style="color:var(--text3)">{{ $published->publishedBy?->name ?? '—' }}</td>
-                        <td class="text-end">
-                            <button class="btn btn-sm btn-outline-danger ov-revision-btn"
-                                data-brand="{{ $published->item?->brand_id }}"
-                                data-item="{{ $published->content_item_id }}"
-                                data-title="{{ $published->item?->title }}">Request revision</button>
+                        <td class="text-end small" style="color:var(--text3)">
+                            {{-- Oversight only: the Marketing reviewer acts on this from the brand's Publishing Review. --}}
+                            <a href="{{ route('marketing.brand', $published->item?->brand_id) }}">Open brand review</a>
                         </td>
                     </tr>
                 @empty
@@ -319,31 +317,5 @@ $(document).on('click', '.ov-clear-hold', function () {
     });
 });
 
-// Reuses the existing marketing.content-items.request-revision endpoint —
-// no new route, no change to its authorization or business rules.
-$(document).on('click', '.ov-revision-btn', function () {
-    const brand = $(this).data('brand');
-    const item = $(this).data('item');
-    const title = $(this).data('title');
-
-    Swal.fire({
-        title: 'Request revision', text: 'Send "' + title + '" back for rework.',
-        input: 'textarea', inputPlaceholder: 'What needs to change? (required)',
-        icon: 'question', showCancelButton: true, confirmButtonText: 'Send back', confirmButtonColor: '#dc3545',
-        inputValidator: (value) => (!value || value.trim().length < 3) && 'A reason is required.',
-    }).then(function (r) {
-        if (!r.isConfirmed) return;
-
-        $.post('/marketing/brands/' + brand + '/content-items/' + item + '/request-revision', { note: r.value })
-            .done(function () {
-                Swal.fire({ icon: 'success', title: 'Sent back for revision', timer: 1400, showConfirmButton: false })
-                    .then(() => location.reload());
-            })
-            .fail(function (x) {
-                const errors = x.responseJSON && x.responseJSON.errors;
-                Swal.fire('Could not send back', errors ? Object.values(errors).flat().join(' ') : (x.responseJSON?.message || 'Please try again.'), 'error');
-            });
-    });
-});
 </script>
 @endpush

@@ -134,12 +134,12 @@ class SmmActivityReportingTest extends TestCase
         $this->atDhaka('2026-10-06 10:00');
         $waiting = $this->newItem($brand, $t['content']);
         $this->submitVersion($waiting, $t['content']);
-        $this->service()->requestRevision($waiting->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($waiting->fresh(), ['note' => 'Redo'], $t['marketing']);
 
         // SMM sends back an item it had collected. This is an SMM revision.
         $collected = $this->handedOverAt('2026-10-06 10:30', $brand, $t['content'], $t['marketing']);
         $this->collect($collected, $t['smm']);
-        $this->service()->requestRevision($collected->fresh(), ['note' => 'Wrong size'], $t['smm']);
+        $this->reviseItem($collected->fresh(), ['note' => 'Wrong size'], $t['smm']);
 
         $this->assertSame(1, $this->activity($t['smm'], $this->daily('2026-10-06'))['revision_requested']);
     }

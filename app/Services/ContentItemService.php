@@ -6,16 +6,21 @@ use App\Models\Brand;
 use App\Models\ContentItem;
 use App\Models\ContentItemCollection;
 use App\Models\ContentItemRevision;
+use App\Models\ContentItemStageOwner;
 use App\Models\ContentItemSubmission;
 use App\Models\ContentItemSubmissionApproval;
+use App\Models\PerformancePointEvent;
 use App\Models\PublishedContent;
 use App\Models\User;
 use App\Notifications\ChecklistRevisionRequested;
 use App\Notifications\ContentApprovedForPublishing;
 use App\Notifications\ContentReadyForPrePublishCheck;
 use App\Notifications\ContentReadyForPublishingReview;
+use App\Notifications\StageAssignedToYou;
 use App\Services\Concerns\NotifiesStaff;
+use App\Services\Performance\PerformancePointService;
 use App\Services\Storage\UploadStaging;
+use App\Services\Workflow\StageOwnershipService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -34,7 +39,43 @@ class ContentItemService
     public function __construct(
         private readonly ActivityLogService $activityLog,
         private readonly UploadStaging $uploads,
+        private readonly PerformancePointService $points,
+        private readonly StageOwnershipService $ownership,
     ) {}
+
+    /**
+     * The Pre-Publish handover earns two points, to two different people:
+     * the MAKER of this exact submission (their content was approved), and the
+     * Marketing user who approved it (their handover). Each is awarded to the
+     * actual person, never spread across a role.
+     */
+    private function awardApprovalPoints(ContentItem $item, ContentItemSubmission $submission, ContentItemSubmissionApproval $approval, User $actor): void
+    {
+        $maker = $submission->submittedBy;
+        if ($maker) {
+            $this->points->award(
+                $this->approvalEventFor($item->category),
+                PerformancePointEvent::SOURCE_SUBMISSION, $submission->id,
+                $maker, $item->brand_id, $actor,
+            );
+        }
+
+        $this->points->award(
+            PerformancePointEvent::EVENT_MARKETING_HANDOVER,
+            PerformancePointEvent::SOURCE_APPROVAL, $approval->id,
+            $actor, $item->brand_id, $actor,
+        );
+    }
+
+    private function approvalEventFor(string $category): string
+    {
+        return match ($category) {
+            ContentItem::CATEGORY_RAW_CONTENT => PerformancePointEvent::EVENT_RAW_CONTENT_APPROVAL,
+            ContentItem::CATEGORY_ADVERTISING_CONTENT => PerformancePointEvent::EVENT_ADVERTISING_CONTENT_APPROVAL,
+            ContentItem::CATEGORY_POSTER => PerformancePointEvent::EVENT_POSTER_APPROVAL,
+            default => throw new \InvalidArgumentException("No approval point for category [{$category}]."),
+        };
+    }
 
     public function create(Brand $brand, array $data, User $actor): ContentItem
     {
@@ -64,9 +105,18 @@ class ContentItemService
      * row, never an update to a prior one (see Fix C). Moves the item to
      * `available` regardless of what state it was in before.
      */
-    public function submit(ContentItem $item, array $data, User $actor): ContentItemSubmission
+    public function submit(ContentItem $item, array $data, User $actor, ?User $assignTo = null): ContentItemSubmission
     {
         $this->refuseIfOnHold($item);
+
+        // Only the maker who owns this stage may submit it. An unowned revision
+        // must be claimed first. Checked before any file is stored.
+        [$makerRef, $makerLinks] = $this->ownership->makerStage($item);
+        $this->ownership->requireOwner(ContentItemStageOwner::STAGE_MAKER, $makerRef, $item, $actor, $makerLinks);
+
+        if ($assignTo) {
+            $this->assertCanReceive($assignTo, ContentItemStageOwner::STAGE_PRE_PUBLISH, $item);
+        }
 
         if (empty($data['link_url']) && empty($data['file'])) {
             throw ValidationException::withMessages(['file' => 'Attach a file or paste a link.']);
@@ -85,7 +135,7 @@ class ContentItemService
             }
         }
 
-        $submission = DB::transaction(function () use ($item, $data, $actor, $path, $disk) {
+        $submission = DB::transaction(function () use ($item, $data, $actor, $path, $disk, $assignTo) {
             $submission = ContentItemSubmission::create([
                 'content_item_id' => $item->id,
                 'file_path' => $path,
@@ -95,6 +145,16 @@ class ContentItemService
             ]);
 
             $item->update(['status' => ContentItem::STATUS_AVAILABLE]);
+
+            // Direct assignment: the named Marketing user owns this version's
+            // pre-publish check at once. Without one, the stage stays unclaimed.
+            if ($assignTo) {
+                $this->ownership->assign(
+                    ContentItemStageOwner::STAGE_PRE_PUBLISH,
+                    StageOwnershipService::pre_publish($submission->id),
+                    $item, $assignTo, $actor, ['submission_id' => $submission->id],
+                );
+            }
 
             $this->activityLog->log('Content Item', 'Submitted', $item->brand->client_id, null, [
                 'content_item_id' => $item->id, 'submission_id' => $submission->id,
@@ -120,14 +180,28 @@ class ContentItemService
         // nothing here ever mutates an earlier one. Every submission goes to
         // Marketing first now — never straight to SMM, see
         // approveForHandover() below for the only path that gets it there.
-        $this->notifySafely(fn () => $this->notifyStaff(
-            ['Marketing'],
-            new ContentReadyForPrePublishCheck($item, $submission, $item->submissions()->count(), $actor),
-            permission: 'manage publishing-review',
-            except: $actor,
-        ));
+        if ($assignTo) {
+            // Only the assigned user is told it is theirs. Other Marketing users
+            // are not made to look like owners of work that is someone else's.
+            $this->notifySafely(fn () => $assignTo->notify(new StageAssignedToYou($item, ContentItemStageOwner::STAGE_PRE_PUBLISH, $actor)));
+        } else {
+            $this->notifySafely(fn () => $this->notifyStaff(
+                ['Marketing'],
+                new ContentReadyForPrePublishCheck($item, $submission, $item->submissions()->count(), $actor),
+                permission: 'manage publishing-review',
+                except: $actor,
+            ));
+        }
 
         return $submission;
+    }
+
+    /** Refuses a destination user who is not eligible for the stage the work is entering. */
+    private function assertCanReceive(User $target, string $stage, ContentItem $item): void
+    {
+        if (! $this->ownership->eligibleFor($stage, $target, $item->category)) {
+            throw ValidationException::withMessages(['assigned_to' => 'That user is not eligible for this stage.']);
+        }
     }
 
     /**
@@ -145,7 +219,7 @@ class ContentItemService
      * one's already-committed approval, never a second row — the unique
      * index on submission_id is the backstop if the lock is ever bypassed.
      */
-    public function approveForHandover(ContentItem $item, ContentItemSubmission $submission, User $actor): ContentItemSubmissionApproval
+    public function approveForHandover(ContentItem $item, ContentItemSubmission $submission, User $actor, ?User $assignSmmTo = null): ContentItemSubmissionApproval
     {
         $this->refuseIfOnHold($item);
 
@@ -153,7 +227,11 @@ class ContentItemService
             throw ValidationException::withMessages(['submission' => 'That submission does not belong to this item.']);
         }
 
-        [$approval, $alreadyApproved] = DB::transaction(function () use ($item, $submission, $actor) {
+        if ($assignSmmTo) {
+            $this->assertCanReceive($assignSmmTo, ContentItemStageOwner::STAGE_PUBLISH, $item);
+        }
+
+        [$approval, $alreadyApproved] = DB::transaction(function () use ($item, $submission, $actor, $assignSmmTo) {
             // Same per-item lock collect()/publish() already use — two
             // concurrent "Approve" clicks on the same item can't both reach
             // the create() below believing nothing exists yet.
@@ -176,6 +254,14 @@ class ContentItemService
                 ]);
             }
 
+            // Only the Marketing user who owns this version's pre-publish stage may
+            // approve it. The owner is checked here, inside the lock.
+            $this->ownership->requireOwner(
+                ContentItemStageOwner::STAGE_PRE_PUBLISH,
+                StageOwnershipService::pre_publish($submission->id),
+                $item, $actor, ['submission_id' => $submission->id],
+            );
+
             $approval = ContentItemSubmissionApproval::create([
                 'content_item_id' => $item->id,
                 'submission_id' => $submission->id,
@@ -187,6 +273,19 @@ class ContentItemService
                 'content_item_id' => $item->id, 'submission_id' => $submission->id,
             ]);
 
+            // Points commit with the approval they reward, so a rolled-back
+            // approval never leaves a point behind. Duplicate approvals return
+            // above, before this line, and the ledger's unique key backs that up.
+            $this->awardApprovalPoints($item, $submission, $approval, $actor);
+
+            if ($assignSmmTo) {
+                $this->ownership->assign(
+                    ContentItemStageOwner::STAGE_PUBLISH,
+                    StageOwnershipService::publish($submission->id),
+                    $item, $assignSmmTo, $actor, ['submission_id' => $submission->id],
+                );
+            }
+
             return [$approval, false];
         });
 
@@ -194,12 +293,16 @@ class ContentItemService
         // a retried/duplicate request above never reaches this line a
         // second time, so SMM is never told twice about the same handover.
         if (! $alreadyApproved) {
-            $this->notifySafely(fn () => $this->notifyStaff(
-                ['Social Media Manager'],
-                new ContentApprovedForPublishing($item, $submission, $item->submissions()->count(), $actor),
-                permission: 'manage smm-collection',
-                except: $actor,
-            ));
+            if ($assignSmmTo) {
+                $this->notifySafely(fn () => $assignSmmTo->notify(new StageAssignedToYou($item, ContentItemStageOwner::STAGE_PUBLISH, $actor)));
+            } else {
+                $this->notifySafely(fn () => $this->notifyStaff(
+                    ['Social Media Manager'],
+                    new ContentApprovedForPublishing($item, $submission, $item->submissions()->count(), $actor),
+                    permission: 'manage smm-collection',
+                    except: $actor,
+                ));
+            }
         }
 
         return $approval;
@@ -213,9 +316,10 @@ class ContentItemService
      * Design see exactly what still needs their attention; a resubmission
      * moves it to `available` again, same as any fresh submission.
      */
-    public function requestRevision(ContentItem $item, array $data, User $actor): ContentItemRevision
+    public function requestRevision(ContentItem $item, array $data, User $actor, ?User $assignTo = null): ContentItemRevision
     {
         $this->refuseIfOnHold($item);
+        $this->requireRevisionSenderOwnsStage($item, $actor);
 
         // One active revision cycle at a time — a second click (or a second
         // reviewer) while the item is already needs_revision must not pile
@@ -230,7 +334,7 @@ class ContentItemService
 
         $submitter = $item->latestSubmission()?->submittedBy;
 
-        $revision = DB::transaction(function () use ($item, $data, $actor) {
+        $revision = DB::transaction(function () use ($item, $data, $actor, $assignTo) {
             $revision = ContentItemRevision::create([
                 'content_item_id' => $item->id,
                 'requested_by' => $actor->id,
@@ -240,12 +344,38 @@ class ContentItemService
 
             $item->update(['status' => ContentItem::STATUS_NEEDS_REVISION]);
 
+            // The incoming revision belongs to a maker from the start only when
+            // the sender names one. Otherwise an eligible maker claims it.
+            if ($assignTo) {
+                $this->ownership->assign(
+                    ContentItemStageOwner::STAGE_MAKER,
+                    StageOwnershipService::revision($revision->id),
+                    $item, $assignTo, $actor, ['revision_id' => $revision->id],
+                );
+            }
+
             $this->activityLog->log('Content Item', 'Revision Requested', $item->brand->client_id, ['status' => $revision->previous_status], [
                 'content_item_id' => $item->id, 'note' => $revision->note,
+                'assigned_to' => $assignTo?->id,
             ]);
 
             return $revision;
         });
+
+        if ($assignTo) {
+            // The assigned maker is told directly. The submitter is still told,
+            // because they are the one whose version was sent back.
+            $this->notifySafely(fn () => $assignTo->notify(new StageAssignedToYou($item, ContentItemStageOwner::STAGE_MAKER, $actor)));
+        } else {
+            $role = $item->category === ContentItem::CATEGORY_POSTER ? 'Design' : 'Content';
+            $permission = $item->category === ContentItem::CATEGORY_POSTER ? 'manage designer-content' : 'manage raw-content';
+            $this->notifySafely(fn () => $this->notifyStaff(
+                [$role],
+                new ChecklistRevisionRequested($item, $actor, $revision->note),
+                permission: $permission,
+                except: $submitter ?? $actor,
+            ));
+        }
 
         // Asking for yourself back isn't news; only notify someone else.
         if ($submitter && (int) $submitter->id !== (int) $actor->id) {
@@ -253,6 +383,27 @@ class ContentItemService
         }
 
         return $revision;
+    }
+
+    /**
+     * A revision can only be sent by the user who owns the stage the item is in:
+     * the Marketing owner of a waiting version, the SMM owner of a collected one,
+     * or the Marketing reviewer of a published one.
+     */
+    private function requireRevisionSenderOwnsStage(ContentItem $item, User $actor): void
+    {
+        $latest = $item->latestSubmission();
+        if (! $latest) {
+            return;
+        }
+
+        if ($item->status === ContentItem::STATUS_AVAILABLE) {
+            $this->ownership->requireOwner(ContentItemStageOwner::STAGE_PRE_PUBLISH, StageOwnershipService::pre_publish($latest->id), $item, $actor, ['submission_id' => $latest->id]);
+        } elseif ($item->status === ContentItem::STATUS_COLLECTED) {
+            $this->ownership->requireOwner(ContentItemStageOwner::STAGE_PUBLISH, StageOwnershipService::publish($latest->id), $item, $actor, ['submission_id' => $latest->id]);
+        } elseif ($item->status === ContentItem::STATUS_PUBLISHED && ($published = $latest->publishedContents()->latest('id')->first())) {
+            $this->ownership->requireOwner(ContentItemStageOwner::STAGE_FINAL_REVIEW, StageOwnershipService::finalReview($published->id), $item, $actor, ['publication_id' => $published->id]);
+        }
     }
 
     /**
@@ -289,6 +440,15 @@ class ContentItemService
                 ]);
             }
 
+            // Collecting is the SMM publish claim. An unowned version is claimed
+            // by the collector, and an owned one must already belong to them. This
+            // runs inside the item lock, so two collectors cannot both win.
+            $this->ownership->ensureOwnerOrClaim(
+                ContentItemStageOwner::STAGE_PUBLISH,
+                StageOwnershipService::publish($submission->id),
+                $item, $actor, ['submission_id' => $submission->id],
+            );
+
             $collection = ContentItemCollection::create([
                 'content_item_id' => $item->id,
                 'submission_id' => $submission->id,
@@ -319,7 +479,7 @@ class ContentItemService
      * some future caller forgets to check it first (defense in depth; the
      * controller's own abort_if stays too).
      */
-    public function publish(ContentItem $item, Brand $brand, ContentItemSubmission $submission, array $data, User $actor): PublishedContent
+    public function publish(ContentItem $item, Brand $brand, ContentItemSubmission $submission, array $data, User $actor, ?User $assignReviewTo = null): PublishedContent
     {
         $this->refuseIfOnHold($item);
 
@@ -331,7 +491,7 @@ class ContentItemService
             throw ValidationException::withMessages(['submission' => 'That submission does not belong to this item.']);
         }
 
-        $published = DB::transaction(function () use ($item, $submission, $data, $actor) {
+        $published = DB::transaction(function () use ($item, $submission, $data, $actor, $assignReviewTo) {
             // Locked so two SMM users publishing the same item at once can't
             // both succeed against what's already a superseded state.
             $item = ContentItem::whereKey($item->id)->lockForUpdate()->firstOrFail();
@@ -377,6 +537,13 @@ class ContentItemService
                 ]);
             }
 
+            // Only the SMM owner of this version may publish it.
+            $this->ownership->requireOwner(
+                ContentItemStageOwner::STAGE_PUBLISH,
+                StageOwnershipService::publish($submission->id),
+                $item, $actor, ['submission_id' => $submission->id],
+            );
+
             $published = PublishedContent::create([
                 'content_item_id' => $item->id,
                 'submission_id' => $submission->id,
@@ -385,6 +552,16 @@ class ContentItemService
                 'published_by' => $actor->id,
                 'published_at' => now(),
             ]);
+
+            // Optional: name the Marketing reviewer now. Otherwise the publication
+            // stays unclaimed until a reviewer claims it.
+            if ($assignReviewTo) {
+                $this->ownership->assign(
+                    ContentItemStageOwner::STAGE_FINAL_REVIEW,
+                    StageOwnershipService::finalReview($published->id),
+                    $item, $assignReviewTo, $actor, ['publication_id' => $published->id, 'submission_id' => $submission->id],
+                );
+            }
 
             $item->update(['status' => ContentItem::STATUS_PUBLISHED]);
 
@@ -400,12 +577,16 @@ class ContentItemService
         // separate Manager "published & reviewed" notification only fires
         // later, from the review action itself, once Marketing actually
         // reviews it (see MarketingBillingController::reviewPublishedContent()).
-        $this->notifySafely(fn () => $this->notifyStaff(
-            ['Marketing'],
-            new ContentReadyForPublishingReview($item, $published, $item->submissions()->count(), $actor),
-            permission: 'manage publishing-review',
-            except: $actor,
-        ));
+        if ($assignReviewTo) {
+            $this->notifySafely(fn () => $assignReviewTo->notify(new StageAssignedToYou($item, ContentItemStageOwner::STAGE_FINAL_REVIEW, $actor)));
+        } else {
+            $this->notifySafely(fn () => $this->notifyStaff(
+                ['Marketing'],
+                new ContentReadyForPublishingReview($item, $published, $item->submissions()->count(), $actor),
+                permission: 'manage publishing-review',
+                except: $actor,
+            ));
+        }
 
         return $published;
     }

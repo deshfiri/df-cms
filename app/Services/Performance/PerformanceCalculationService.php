@@ -18,7 +18,9 @@ use App\Models\TaskActivity;
 use App\Models\User;
 use App\Services\ClientProgressService;
 use App\Services\TaskInvolvementService;
+use App\Support\ReportingPeriod;
 use Carbon\Carbon;
+use Illuminate\Support\Collection;
 
 class PerformanceCalculationService
 {
@@ -26,7 +28,13 @@ class PerformanceCalculationService
 
     public function __construct(
         private readonly ClientProgressService $clientProgress,
+        private readonly PerformancePointService $points,
     ) {}
+
+    /** @var array<int, array<string, int>> user_id => event => points, for prefetched period only */
+    private array $pointTotalsByUser = [];
+
+    private ?string $pointTotalsPeriod = null;
 
     /** Request-lifetime memo: one query per distinct client, however many employees' workflow items reference it. */
     private array $clientQualifiesCache = [];
@@ -38,14 +46,15 @@ class PerformanceCalculationService
     // per employee — the scoreboard and snapshot command reuse one service
     // instance across the whole user loop, so this collapses N lookups into 1.
     private ?PerformanceSetting $settingsCache = null;
-    private ?\Illuminate\Support\Collection $weightConfigsCache = null;
+
+    private ?Collection $weightConfigsCache = null;
 
     private function settings(): PerformanceSetting
     {
         return $this->settingsCache ??= PerformanceSetting::current();
     }
 
-    private function weightConfigs(): \Illuminate\Support\Collection
+    private function weightConfigs(): Collection
     {
         return $this->weightConfigsCache ??= KpiWeightConfig::all();
     }
@@ -63,19 +72,24 @@ class PerformanceCalculationService
     // page, or any other caller).
 
     private ?string $prefetchPeriod = null;
-    /** @var array<int,\Illuminate\Support\Collection> */
+
+    /** @var array<int,Collection> */
     private array $tasksByUser = [];
-    /** @var array<int,\Illuminate\Support\Collection> */
+
+    /** @var array<int,Collection> */
     private array $tasksGivenByUser = [];
+
     /** @var array<int,SalesTarget> */
     private array $targetsByUser = [];
+
     /** @var array<int,float> */
     private array $salesByUser = [];
-    /** @var array<int,\Illuminate\Support\Collection> */
+
+    /** @var array<int,Collection> */
     private array $ratingsByUser = [];
 
     /**
-     * @param  \Illuminate\Support\Collection<int,User>|array<int,User>  $users
+     * @param  Collection<int,User>|array<int,User>  $users
      */
     public function prefetch($users, string $period): void
     {
@@ -141,21 +155,41 @@ class PerformanceCalculationService
         // Standing sizes, not period-scoped, so one load covers this cohort
         // for every period scored in the same request.
         $this->clientPortfolioByUser = $this->loadClientPortfolios($ids);
-        $this->portfoliosPrefetched  = true;
+        $this->portfoliosPrefetched = true;
+
+        // Workflow Performance Points, one grouped query for the whole cohort.
+        $this->pointTotalsByUser = $this->points->totalsForUsers($ids, ReportingPeriod::monthly($period));
+        $this->pointTotalsPeriod = $period;
 
         $this->prefetchPeriod = $period;
+    }
+
+    /**
+     * The user's workflow Performance Points for a period, as a score
+     * contribution. Points are awarded to the exact responsible user (see
+     * PerformancePointService), so this reads that user's own ledger rows.
+     *
+     * @return array{points: int, score: float, by_event: array<string, int>}
+     */
+    public function workflowPoints(User $user, string $period): array
+    {
+        if ($this->pointTotalsPeriod === $period) {
+            return $this->points->summarize($this->pointTotalsByUser[$user->id] ?? []);
+        }
+
+        return $this->points->summaryForUser($user, ReportingPeriod::monthly($period));
     }
 
     /** @var array<int,array<string,mixed>> */
     private array $clientCareByUser = [];
 
-    /** @var array<int,\Illuminate\Support\Collection<int,DailyTarget>> */
+    /** @var array<int,Collection<int,DailyTarget>> */
     private array $dailyTargetsByUser = [];
 
-    /** @var array<int,\Illuminate\Support\Collection<int,FlowItem>> */
+    /** @var array<int,Collection<int,FlowItem>> */
     private array $flowItemsByUser = [];
 
-    /** @var array<int,\Illuminate\Support\Collection<int,array{client_id:int}>> */
+    /** @var array<int,Collection<int,array{client_id:int}>> */
     private array $stageSubmissionUnitsByUser = [];
 
     /**
@@ -189,7 +223,7 @@ class PerformanceCalculationService
      * The employee's tasks due in the period — from the cohort load when there
      * is one, otherwise fetched for them alone.
      */
-    private function tasksFor(User $user, string $period): \Illuminate\Support\Collection
+    private function tasksFor(User $user, string $period): Collection
     {
         if ($this->prefetched($period)) {
             return $this->tasksByUser[$user->id] ?? collect();
@@ -203,7 +237,7 @@ class PerformanceCalculationService
      * period — from the cohort load when there is one, otherwise fetched for
      * them alone. For Task Giving Quality; see taskGivingQuality().
      */
-    private function tasksGivenFor(User $user, string $period): \Illuminate\Support\Collection
+    private function tasksGivenFor(User $user, string $period): Collection
     {
         if ($this->prefetched($period)) {
             return $this->tasksGivenByUser[$user->id] ?? collect();
@@ -213,10 +247,10 @@ class PerformanceCalculationService
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int,int>  $ids
-     * @return array<int,\Illuminate\Support\Collection<int,Task>>
+     * @param  Collection<int,int>  $ids
+     * @return array<int,Collection<int,Task>>
      */
-    private function loadTasksGiven(\Illuminate\Support\Collection $ids, string $period): array
+    private function loadTasksGiven(Collection $ids, string $period): array
     {
         [$start, $end] = $this->periodBounds($period);
 
@@ -252,15 +286,15 @@ class PerformanceCalculationService
             return null;
         }
 
-        $totalGiven     = $tasks->count();
-        $flawed         = $tasks->where('giver_mistake_count', '>', 0)->count();
+        $totalGiven = $tasks->count();
+        $flawed = $tasks->where('giver_mistake_count', '>', 0)->count();
         $cleanFirstTime = $totalGiven - $flawed;
 
         return [
-            'total_given'      => $totalGiven,
+            'total_given' => $totalGiven,
             'clean_first_time' => $cleanFirstTime,
-            'flawed'           => $flawed,
-            'pct'              => round($cleanFirstTime / $totalGiven * 100, 2),
+            'flawed' => $flawed,
+            'pct' => round($cleanFirstTime / $totalGiven * 100, 2),
         ];
     }
 
@@ -269,7 +303,7 @@ class PerformanceCalculationService
      * Target "workflow" scope — from the cohort load when there is one,
      * otherwise fetched for them alone.
      */
-    private function flowItemsFor(User $user, string $period): \Illuminate\Support\Collection
+    private function flowItemsFor(User $user, string $period): Collection
     {
         if ($this->prefetched($period)) {
             return $this->flowItemsByUser[$user->id] ?? collect();
@@ -279,10 +313,10 @@ class PerformanceCalculationService
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int,int>  $ids
-     * @return array<int,\Illuminate\Support\Collection<int,FlowItem>>
+     * @param  Collection<int,int>  $ids
+     * @return array<int,Collection<int,FlowItem>>
      */
-    private function loadFlowItems(\Illuminate\Support\Collection $ids, string $period): array
+    private function loadFlowItems(Collection $ids, string $period): array
     {
         [$start, $end] = $this->periodBounds($period);
 
@@ -331,9 +365,9 @@ class PerformanceCalculationService
      * equivalent of. This is only ever combined with flowItemsFor()'s
      * output at the Output Volume call sites below.
      *
-     * @return \Illuminate\Support\Collection<int,array{client_id:int}>
+     * @return Collection<int,array{client_id:int}>
      */
-    private function stageSubmissionUnitsFor(User $user, string $period): \Illuminate\Support\Collection
+    private function stageSubmissionUnitsFor(User $user, string $period): Collection
     {
         if ($this->prefetched($period)) {
             return $this->stageSubmissionUnitsByUser[$user->id] ?? collect();
@@ -343,10 +377,10 @@ class PerformanceCalculationService
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int,int>  $ids
-     * @return array<int,\Illuminate\Support\Collection<int,array{client_id:int}>>
+     * @param  Collection<int,int>  $ids
+     * @return array<int,Collection<int,array{client_id:int}>>
      */
-    private function loadStageSubmissionUnits(\Illuminate\Support\Collection $ids, string $period): array
+    private function loadStageSubmissionUnits(Collection $ids, string $period): array
     {
         [$start, $end] = $this->periodBounds($period);
 
@@ -413,7 +447,7 @@ class PerformanceCalculationService
      * the submission itself is the movement, so it's never gated the way a
      * FlowItem's own client-progress needle gates a client still at 0%.
      */
-    private function workflowVolumeCount(\Illuminate\Support\Collection $items): int
+    private function workflowVolumeCount(Collection $items): int
     {
         $standalone = $items->whereNull('client_id')->count();
 
@@ -440,14 +474,14 @@ class PerformanceCalculationService
      * appears at most once here for this one user, however many times it
      * was actually moved.
      */
-    private function rawWorkflowActivityCount(\Illuminate\Support\Collection $items): int
+    private function rawWorkflowActivityCount(Collection $items): int
     {
         return $items->count();
     }
 
     private function clientQualifies(int $clientId): bool
     {
-        if (!array_key_exists($clientId, $this->clientQualifiesCache)) {
+        if (! array_key_exists($clientId, $this->clientQualifiesCache)) {
             // percentFor() eager-loads its own flowItems (ClientProgressService::EAGER_LOAD)
             // when the relation isn't already loaded, so a bare Client is enough here.
             $client = Client::find($clientId);
@@ -479,7 +513,7 @@ class PerformanceCalculationService
      * that's been theirs for under a week is simply in progress, not
      * evidence of anything left untouched.
      */
-    private function workflowScopeWithoutClientAccess(User $user, \Illuminate\Support\Collection $flowItems): array
+    private function workflowScopeWithoutClientAccess(User $user, Collection $flowItems): array
     {
         $mine = $this->rawWorkflowActivityCount($flowItems);
 
@@ -491,9 +525,9 @@ class PerformanceCalculationService
         $stalledCount = $held->where('updated_at', '<', now()->subDays(7))->count();
 
         return [
-            'mine'       => (float) $mine,
+            'mine' => (float) $mine,
             'cohort_max' => (float) $mine,
-            'pct'        => $heldCount > 0 ? round(($heldCount - $stalledCount) / $heldCount * 100, 2) : 100.0,
+            'pct' => $heldCount > 0 ? round(($heldCount - $stalledCount) / $heldCount * 100, 2) : 100.0,
         ];
     }
 
@@ -538,10 +572,10 @@ class PerformanceCalculationService
      * Tasks due in the period that count for each of these users, each a copy
      * carrying that user's `work_share`.
      *
-     * @param  \Illuminate\Support\Collection<int,int>  $ids
-     * @return array<int,\Illuminate\Support\Collection<int,Task>>
+     * @param  Collection<int,int>  $ids
+     * @return array<int,Collection<int,Task>>
      */
-    private function loadTasks(\Illuminate\Support\Collection $ids, string $period): array
+    private function loadTasks(Collection $ids, string $period): array
     {
         [$start, $end] = $this->periodBounds($period);
 
@@ -624,11 +658,11 @@ class PerformanceCalculationService
     {
         $rows = $task->involvements->map(fn ($inv) => [
             'user_id' => (int) $inv->user_id,
-            'points'  => (float) $inv->points,
-            'role'    => match (true) {
+            'points' => (float) $inv->points,
+            'role' => match (true) {
                 in_array((int) $inv->user_id, $holderIds, true) => TaskInvolvementService::ROLE_PRIMARY,
-                (float) $inv->points > 0        => TaskInvolvementService::ROLE_CONTRIBUTOR,
-                default                         => $inv->role === TaskInvolvementService::ROLE_PRIMARY
+                (float) $inv->points > 0 => TaskInvolvementService::ROLE_CONTRIBUTOR,
+                default => $inv->role === TaskInvolvementService::ROLE_PRIMARY
                                                       ? TaskInvolvementService::ROLE_PASSED_THROUGH
                                                       : $inv->role,
             },
@@ -636,7 +670,7 @@ class PerformanceCalculationService
 
         $seenIds = $task->involvements->pluck('user_id')->map(fn ($id) => (int) $id)->all();
         foreach ($holderIds as $holderId) {
-            if (!in_array($holderId, $seenIds, true)) {
+            if (! in_array($holderId, $seenIds, true)) {
                 $rows[] = ['user_id' => $holderId, 'points' => 0.0, 'role' => TaskInvolvementService::ROLE_PRIMARY];
             }
         }
@@ -681,28 +715,28 @@ class PerformanceCalculationService
             ->get(['id', 'title', 'status', 'created_by', 'due_date', 'due_at']);
 
         return $tasks->map(function (Task $task) use ($user) {
-            $mine  = $task->involvements->first(fn ($inv) => (int) $inv->user_id === (int) $user->id);
+            $mine = $task->involvements->first(fn ($inv) => (int) $inv->user_id === (int) $user->id);
             $share = self::workSharesOf($task)[$user->id] ?? 0.0;
             // See creditOf() — feeds Task Completion, On-Time Delivery and
             // Revision Rate alike.
             $clientMultiplier = max(1, (int) $task->clients_count);
 
             return [
-                'task_id'   => $task->id,
-                'title'     => $task->title,
-                'status'    => $task->status,
-                'due'       => $task->due_date?->toDateString(),
-                'role'      => $task->assignees->contains($user->id)
+                'task_id' => $task->id,
+                'title' => $task->title,
+                'status' => $task->status,
+                'due' => $task->due_date?->toDateString(),
+                'role' => $task->assignees->contains($user->id)
                                    ? TaskInvolvementService::ROLE_PRIMARY
                                    : ($mine?->role ?? TaskInvolvementService::ROLE_OTHER),
-                'points'    => (float) ($mine?->points ?? 0),
+                'points' => (float) ($mine?->points ?? 0),
                 'review_points' => (float) ($mine?->review_points ?? 0),
                 'breakdown' => $mine?->breakdown ?? [],
-                'share'     => $share,
+                'share' => $share,
                 'clients_count' => $task->clients_count,
                 'client_multiplier' => $clientMultiplier,
-                'counted'   => $share > 0,
-                'tracked'   => $task->involvements->isNotEmpty(),
+                'counted' => $share > 0,
+                'tracked' => $task->involvements->isNotEmpty(),
             ];
         })->all();
     }
@@ -725,20 +759,20 @@ class PerformanceCalculationService
 
         $tasks = $this->tasksFor($user, $period);
 
-        $total     = $tasks->count();
+        $total = $tasks->count();
         $completed = $tasks->where('status', 'Completed')->count();
         $cancelled = $tasks->where('status', 'Cancelled')->count();
-        $pending   = $tasks->where('status', 'Pending')->count();
-        $onHold    = $tasks->where('status', 'On Hold')->count();
+        $pending = $tasks->where('status', 'Pending')->count();
+        $onHold = $tasks->where('status', 'On Hold')->count();
         $inProgress = $tasks->where('status', 'In Progress')->count();
         // is_overdue honours Task::$settledStatuses, so submitted work waiting on
         // a reviewer is not counted late against the person who handed it in,
         // and an exact deadline is late from that moment, a date-only one from
         // the next day.
-        $overdue   = $tasks->filter(fn (Task $t) => $t->is_overdue)->count();
+        $overdue = $tasks->filter(fn (Task $t) => $t->is_overdue)->count();
 
         $counted = $settings->count_cancelled_against_kpi ? $tasks : $tasks->where('status', '!=', 'Cancelled');
-        $creditedTotal     = self::credit($counted);
+        $creditedTotal = self::credit($counted);
         $creditedCompleted = self::credit($counted->where('status', 'Completed'));
         $completionPct = $counted->isNotEmpty() && $creditedTotal > 0 ? round($creditedCompleted / $creditedTotal * 100, 2) : null;
 
@@ -805,7 +839,7 @@ class PerformanceCalculationService
 
             if ($delay > 0) {
                 $after++;
-                $creditedLate  += $share;
+                $creditedLate += $share;
                 $weightedDelay += $delay * $share;
             } else {
                 $task->completion_date->lt($task->due_date->copy()->startOfDay()) ? $before++ : $onTime++;
@@ -859,10 +893,10 @@ class PerformanceCalculationService
 
             if (is_array($old) && is_array($new) && ($old['due_date'] ?? null) !== ($new['due_date'] ?? null)) {
                 $events[] = [
-                    'changed_at'   => $activity->created_at,
-                    'changed_by'   => $activity->user_id,
+                    'changed_at' => $activity->created_at,
+                    'changed_by' => $activity->user_id,
                     'previous_due' => $old['due_date'] ?? null,
-                    'new_due'      => $new['due_date'] ?? null,
+                    'new_due' => $new['due_date'] ?? null,
                 ];
             }
         }
@@ -891,8 +925,8 @@ class PerformanceCalculationService
         // Rates are share-weighted: a mistake on a task someone did a third of
         // weighs a third as much in their KPI.
         $creditedSubmitted = self::credit($tasks);
-        $creditedRevised   = self::credit($tasks->where('revisions_count', '>', 0));
-        $creditedMistakes  = self::credit($tasks->filter(fn (Task $t) => $t->revisions->isNotEmpty()));
+        $creditedRevised = self::credit($tasks->where('revisions_count', '>', 0));
+        $creditedMistakes = self::credit($tasks->filter(fn (Task $t) => $t->revisions->isNotEmpty()));
         $rate = fn (float $part) => $totalSubmitted > 0 && $creditedSubmitted > 0 ? round($part / $creditedSubmitted * 100, 2) : null;
 
         return [
@@ -916,7 +950,7 @@ class PerformanceCalculationService
             ? ($this->targetsByUser[$user->id] ?? null)
             : SalesTarget::where('user_id', $user->id)->where('period', $period)->first();
 
-        if (!$target) {
+        if (! $target) {
             return null;
         }
 
@@ -998,19 +1032,21 @@ class PerformanceCalculationService
     // all, so it never pulls down someone whose job isn't client work.
 
     public const CLIENT_ADDED_POINTS = 3;
+
     public const UPKEEP_DAYS_CAP_PER_CLIENT = 4;
+
     public const ACTIVE_CLIENT_STATUSES = ['Running', 'Warning'];
 
     /** Activity-log entries that count as looking after a client. */
     public const CLIENT_UPKEEP_ACTIONS = [
-        'Client'                => ['Updated', 'Status Changed'],
-        'Note'                  => ['Created'],
-        'Product'               => ['Update Created'],
-        'Project Update'        => ['Posted'],
-        'Document'              => ['Uploaded'],
-        'Meeting'               => ['Scheduled', 'Completed'],
-        'Brand'                 => ['Created', 'Updated'],
-        'Support Ticket'        => ['Replied'],
+        'Client' => ['Updated', 'Status Changed'],
+        'Note' => ['Created'],
+        'Product' => ['Update Created'],
+        'Project Update' => ['Posted'],
+        'Document' => ['Uploaded'],
+        'Meeting' => ['Scheduled', 'Completed'],
+        'Brand' => ['Created', 'Updated'],
+        'Support Ticket' => ['Replied'],
         'Client Portal Account' => ['Created'],
     ];
 
@@ -1025,10 +1061,10 @@ class PerformanceCalculationService
      * The client-care picture for each of these users, in a fixed handful of
      * queries whatever the headcount.
      *
-     * @param  \Illuminate\Support\Collection<int,int>  $ids
+     * @param  Collection<int,int>  $ids
      * @return array<int,array<string,mixed>|null>
      */
-    private function loadClientCare(\Illuminate\Support\Collection $ids, string $period): array
+    private function loadClientCare(Collection $ids, string $period): array
     {
         [$start, $end] = $this->periodBounds($period);
         $target = max(1, (int) ($this->settings()->client_care_target_points ?? 20));
@@ -1071,11 +1107,11 @@ class PerformanceCalculationService
 
         $result = [];
         foreach ($ids as $userId) {
-            $userId   = (int) $userId;
-            $mine     = $portfolioByUser->get($userId, collect());
-            $mineIds  = $mine->pluck('id')->flip();
-            $active   = $mine->filter(fn ($c) => in_array($c->client_status, self::ACTIVE_CLIENT_STATUSES, true));
-            $addedN   = $addedByUser->get($userId, collect())->count();
+            $userId = (int) $userId;
+            $mine = $portfolioByUser->get($userId, collect());
+            $mineIds = $mine->pluck('id')->flip();
+            $active = $mine->filter(fn ($c) => in_array($c->client_status, self::ACTIVE_CLIENT_STATUSES, true));
+            $addedN = $addedByUser->get($userId, collect())->count();
 
             // Distinct working days per client, on their own clients only.
             $daysByClient = $upkeep->get($userId, collect())
@@ -1087,26 +1123,27 @@ class PerformanceCalculationService
 
             if ($active->isEmpty() && $addedN === 0 && $upkeepDays === 0) {
                 $result[$userId] = null;
+
                 continue;
             }
 
-            $points   = $addedN * self::CLIENT_ADDED_POINTS + $upkeepDays;
+            $points = $addedN * self::CLIENT_ADDED_POINTS + $upkeepDays;
             $activity = round(min(100, $points / $target * 100), 2);
-            $covered  = $active->filter(fn ($c) => $daysByClient->has($c->id))->count();
+            $covered = $active->filter(fn ($c) => $daysByClient->has($c->id))->count();
             $coverage = $active->isNotEmpty() ? round($covered / $active->count() * 100, 2) : null;
 
             $result[$userId] = [
-                'clients_added'       => $addedN,
-                'clients_total'       => $mine->count(),
-                'clients_active'      => $active->count(),
-                'active_maintained'   => $covered,
-                'clients_maintained'  => $daysByClient->count(),
-                'upkeep_days'         => $upkeepDays,
-                'points'              => $points,
-                'target_points'       => $target,
-                'activity_pct'        => $activity,
-                'coverage_pct'        => $coverage,
-                'score'               => $coverage === null ? $activity : round(($coverage + $activity) / 2, 2),
+                'clients_added' => $addedN,
+                'clients_total' => $mine->count(),
+                'clients_active' => $active->count(),
+                'active_maintained' => $covered,
+                'clients_maintained' => $daysByClient->count(),
+                'upkeep_days' => $upkeepDays,
+                'points' => $points,
+                'target_points' => $target,
+                'activity_pct' => $activity,
+                'coverage_pct' => $coverage,
+                'score' => $coverage === null ? $activity : round(($coverage + $activity) / 2, 2),
             ];
         }
 
@@ -1153,33 +1190,33 @@ class PerformanceCalculationService
         // Whole calendar days: Carbon 3's diffInDays() returns a float, and
         // today counting only once (not 1.5) needs both ends on a day
         // boundary — also the "due so far" cutoff for what counts as available.
-        $windowEnd   = ($today->lessThan($end) ? $today : $end)->copy()->startOfDay();
+        $windowEnd = ($today->lessThan($end) ? $today : $end)->copy()->startOfDay();
         $elapsedDays = max(1, (int) $start->diffInDays($windowEnd) + 1);
 
-        $ownTasks  = $this->tasksFor($user, $period)->filter(fn (Task $t) => $t->assignees->contains($user->id));
+        $ownTasks = $this->tasksFor($user, $period)->filter(fn (Task $t) => $t->assignees->contains($user->id));
         $flowItems = $this->flowItemsFor($user, $period);
 
         $scopes = [];
         foreach ($targets as $target) {
             [$available, $completed] = $this->scopeCounts($target->scope, $ownTasks, $flowItems, $windowEnd);
             $targetSoFar = $target->target_quantity * $elapsedDays;
-            $forgiven    = $available < $targetSoFar;
+            $forgiven = $available < $targetSoFar;
 
             $scopes[$target->scope] = [
-                'label'          => DailyTarget::$scopeLabels[$target->scope] ?? $target->scope,
+                'label' => DailyTarget::$scopeLabels[$target->scope] ?? $target->scope,
                 'target_per_day' => $target->target_quantity,
-                'target_so_far'  => $targetSoFar,
-                'available'      => $available,
-                'completed'      => $completed,
-                'forgiven'       => $forgiven,
-                'pct'            => $forgiven ? 100.0 : round(min(100, $targetSoFar > 0 ? $completed / $targetSoFar * 100 : 100), 2),
+                'target_so_far' => $targetSoFar,
+                'available' => $available,
+                'completed' => $completed,
+                'forgiven' => $forgiven,
+                'pct' => $forgiven ? 100.0 : round(min(100, $targetSoFar > 0 ? $completed / $targetSoFar * 100 : 100), 2),
             ];
         }
 
         return [
             'elapsed_days' => $elapsedDays,
-            'scopes'       => $scopes,
-            'pct'          => round(collect($scopes)->avg('pct'), 2),
+            'scopes' => $scopes,
+            'pct' => round(collect($scopes)->avg('pct'), 2),
         ];
     }
 
@@ -1189,7 +1226,7 @@ class PerformanceCalculationService
      *
      * @return array{0:int,1:int}
      */
-    private function scopeCounts(string $scope, \Illuminate\Support\Collection $ownTasks, \Illuminate\Support\Collection $flowItems, Carbon $windowEnd): array
+    private function scopeCounts(string $scope, Collection $ownTasks, Collection $flowItems, Carbon $windowEnd): array
     {
         $dueByWindow = fn ($item) => $item->due_date !== null && $item->due_date->lte($windowEnd);
 
@@ -1233,8 +1270,8 @@ class PerformanceCalculationService
     // once instead of measuring two genuinely different things.
 
     public const VOLUME_SCOPE_LABELS = [
-        'workflow'         => 'Workflow Items',
-        'client_handling'  => 'Client Handling',
+        'workflow' => 'Workflow Items',
+        'client_handling' => 'Client Handling',
     ];
 
     /**
@@ -1286,7 +1323,7 @@ class PerformanceCalculationService
 
         return [
             'scopes' => $scopes,
-            'pct'    => round(collect($scopes)->avg('pct'), 2),
+            'pct' => round(collect($scopes)->avg('pct'), 2),
         ];
     }
 
@@ -1294,9 +1331,9 @@ class PerformanceCalculationService
     private function volumeScope(float $mine, float $cohortMax): array
     {
         return [
-            'mine'       => round($mine, 2),
+            'mine' => round($mine, 2),
             'cohort_max' => round($cohortMax, 2),
-            'pct'        => $cohortMax > 0 ? round(min(100, $mine / $cohortMax * 100), 2) : 0.0,
+            'pct' => $cohortMax > 0 ? round(min(100, $mine / $cohortMax * 100), 2) : 0.0,
         ];
     }
 
@@ -1313,7 +1350,7 @@ class PerformanceCalculationService
      * do" figures (the Theirs/Company's Highest columns) — they no longer
      * feed the percentage at all.
      */
-    private function workflowScopeWithClientAccess(User $user, \Illuminate\Support\Collection $items, string $period): array
+    private function workflowScopeWithClientAccess(User $user, Collection $items, string $period): array
     {
         $mine = $this->workflowVolumeCount($items);
         $cohortMax = $this->cohortMaxWorkflowTouched($period);
@@ -1326,9 +1363,9 @@ class PerformanceCalculationService
         $pct = max(0.0, 100.0 - $stalledCount * self::STALLED_ITEM_PENALTY);
 
         return [
-            'mine'       => round($mine, 2),
+            'mine' => round($mine, 2),
             'cohort_max' => round($cohortMax, 2),
-            'pct'        => round($pct, 2),
+            'pct' => round($pct, 2),
         ];
     }
 
@@ -1384,7 +1421,7 @@ class PerformanceCalculationService
         $max = 0.0;
         foreach ($ids as $userId) {
             $user = $usersById->get($userId);
-            if (!$user || !$this->hasClientAccess($user)) {
+            if (! $user || ! $this->hasClientAccess($user)) {
                 continue;
             }
 
@@ -1409,7 +1446,7 @@ class PerformanceCalculationService
      */
     private function clientPortfolioSize(User $user): ?int
     {
-        if (!$this->hasClientAccess($user)) {
+        if (! $this->hasClientAccess($user)) {
             return null;
         }
 
@@ -1435,10 +1472,10 @@ class PerformanceCalculationService
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int,int>  $ids
+     * @param  Collection<int,int>  $ids
      * @return array<int,int>
      */
-    private function loadClientPortfolios(\Illuminate\Support\Collection $ids): array
+    private function loadClientPortfolios(Collection $ids): array
     {
         return Client::query()
             ->where(fn ($q) => $q
@@ -1481,39 +1518,58 @@ class PerformanceCalculationService
     public function finalScore(User $user, string $period): array
     {
         $taskCompletion = $this->taskCompletion($user, $period);
-        $onTime         = $this->onTimeCompletion($user, $period);
-        $revision       = $this->revisionRate($user, $period);
-        $sales          = $this->salesAchievement($user, $period);
-        $satisfaction   = $this->clientSatisfaction($user, $period);
-        $clientCare     = $this->clientCare($user, $period);
-        $dailyTarget    = $this->dailyTargetAchievement($user, $period);
-        $outputVolume   = $this->outputVolume($user, $period);
-        $taskGiving     = $this->taskGivingQuality($user, $period);
+        $onTime = $this->onTimeCompletion($user, $period);
+        $revision = $this->revisionRate($user, $period);
+        $sales = $this->salesAchievement($user, $period);
+        $satisfaction = $this->clientSatisfaction($user, $period);
+        $clientCare = $this->clientCare($user, $period);
+        $dailyTarget = $this->dailyTargetAchievement($user, $period);
+        $outputVolume = $this->outputVolume($user, $period);
+        $taskGiving = $this->taskGivingQuality($user, $period);
 
         $weightConfig = $this->resolveWeights($user);
         $weights = $weightConfig->toWeightsArray();
 
         $scores = [
             'task_completion' => $taskCompletion['completion_pct'],
-            'on_time'         => $onTime['on_time_rate'],
-            'revision'        => $revision['revision_rate_kpi'] !== null ? round(100 - $revision['revision_rate_kpi'], 2) : null,
-            'sales'           => $sales !== null ? min($sales['pct'] ?? 0, 100) : null,
-            'satisfaction'    => $satisfaction['score'] ?? null,
-            'client_care'     => $clientCare['score'] ?? null,
-            'daily_target'    => $dailyTarget['pct'] ?? null,
-            'output_volume'   => $outputVolume['pct'] ?? null,
-            'task_giving'     => $taskGiving['pct'] ?? null,
+            'on_time' => $onTime['on_time_rate'],
+            'revision' => $revision['revision_rate_kpi'] !== null ? round(100 - $revision['revision_rate_kpi'], 2) : null,
+            'sales' => $sales !== null ? min($sales['pct'] ?? 0, 100) : null,
+            'satisfaction' => $satisfaction['score'] ?? null,
+            'client_care' => $clientCare['score'] ?? null,
+            'daily_target' => $dailyTarget['pct'] ?? null,
+            'output_volume' => $outputVolume['pct'] ?? null,
+            'task_giving' => $taskGiving['pct'] ?? null,
         ];
 
         // A KPI counts when there is data for it and its profile gives it weight;
         // one weighted 0 is shown but can neither lift nor sink the score.
         $applicable = array_filter($scores, fn ($v, $key) => $v !== null && ($weights[$key] ?? 0) > 0, ARRAY_FILTER_USE_BOTH);
 
+        // Workflow Performance Points are added to the score as their own term,
+        // after the KPI weighting. That keeps every existing KPI's weight and
+        // normalization exactly as it was, and a user with no points scores
+        // exactly as before. Each point adds score_per_point, so more points
+        // always means a higher score and a higher rank.
+        $workflowPoints = $this->workflowPoints($user, $period);
+
         if (empty($applicable)) {
+            // A user with no KPI data but some workflow points still gets a score
+            // built from those points, so their awards are never invisible.
+            if ($workflowPoints['points'] === 0) {
+                return [
+                    'final_score' => null, 'performance_level' => null,
+                    'scores' => $scores, 'weights_used' => [], 'strongest' => null, 'weakest' => null,
+                    'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'outputVolume', 'taskGiving', 'workflowPoints'),
+                ];
+            }
+
+            $pointsOnly = round($workflowPoints['score'], 2);
+
             return [
-                'final_score' => null, 'performance_level' => null,
+                'final_score' => $pointsOnly, 'performance_level' => $this->performanceLevel($pointsOnly),
                 'scores' => $scores, 'weights_used' => [], 'strongest' => null, 'weakest' => null,
-                'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'outputVolume', 'taskGiving'),
+                'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'outputVolume', 'taskGiving', 'workflowPoints'),
             ];
         }
 
@@ -1530,7 +1586,7 @@ class PerformanceCalculationService
             $weightedTotal += $score * $normalizedWeight / 100;
         }
 
-        $finalScore = round($weightedTotal, 2);
+        $finalScore = round($weightedTotal + $workflowPoints['score'], 2);
 
         arsort($applicable);
         $strongest = array_key_first($applicable);
@@ -1543,7 +1599,7 @@ class PerformanceCalculationService
             'weights_used' => $weightsUsed,
             'strongest' => $strongest,
             'weakest' => $weakest,
-            'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'outputVolume', 'taskGiving'),
+            'components' => compact('taskCompletion', 'onTime', 'revision', 'sales', 'satisfaction', 'clientCare', 'dailyTarget', 'outputVolume', 'taskGiving', 'workflowPoints'),
         ];
     }
 
@@ -1554,7 +1610,7 @@ class PerformanceCalculationService
             $score >= 80 => 'Very Good',
             $score >= 70 => 'Good',
             $score >= 60 => 'Needs Improvement',
-            default      => 'Poor',
+            default => 'Poor',
         };
     }
 }

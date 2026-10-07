@@ -25,6 +25,7 @@
 <ul class="nav nav-tabs mkt-tabs mb-3">
     <li class="nav-item"><a class="nav-link active" data-tab="pending">Pre-Publish Check</a></li>
     <li class="nav-item"><a class="nav-link" data-tab="workload">Workload Dashboard</a></li>
+    <li class="nav-item"><a class="nav-link" data-tab="conversations">Client Conversations</a></li>
 </ul>
 
 {{-- ── CURRENT WORK: never period-filtered — see ReportingPeriod's own docblock ── --}}
@@ -34,6 +35,18 @@
             <table class="table table-sm align-middle mb-0" style="font-size:.82rem">
                 <thead><tr><th>Brand</th><th>Category</th><th>Title</th><th>Version</th><th>Submitted by</th><th>Submitted</th><th>Content</th><th class="text-end">Actions</th></tr></thead>
                 <tbody id="mktPendingRows"><tr><td colspan="8" class="mkt-empty">Loading…</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{{-- ── CURRENT WORK: SMM client conversations awaiting verification (never period-filtered) ── --}}
+<div class="card section-card d-none" id="paneMktConversations">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0" style="font-size:.82rem">
+                <thead><tr><th>Brand</th><th>Product</th><th>Reference</th><th>Logged by</th><th>Logged</th><th>Screenshot</th><th>Status</th><th class="text-end">Verdict</th></tr></thead>
+                <tbody id="mktConvRows"><tr><td colspan="8" class="mkt-empty">Loading…</td></tr></tbody>
             </table>
         </div>
     </div>
@@ -88,6 +101,13 @@
                 <input type="hidden" id="mktRevisionBrand"><input type="hidden" id="mktRevisionItem">
                 <label class="form-label small fw-semibold">Reason <span class="text-danger">*</span></label>
                 <textarea id="mktRevisionNote" class="form-control form-control-sm" rows="3" placeholder="What needs to change before this can be approved?"></textarea>
+                <label class="form-label small fw-semibold mt-3">Send it to <span class="fw-normal" style="color:var(--text3)">(optional)</span></label>
+                <select id="mktRevisionAssign" class="form-select form-select-sm">
+                    <option value="">Anyone in the Content or Design team (they claim it)</option>
+                    @foreach ($makerUsers as $maker)
+                        <option value="{{ $maker->id }}">{{ $maker->name }}</option>
+                    @endforeach
+                </select>
             </div>
             <div class="modal-footer py-2">
                 <button class="btn btn-sm btn-light" data-bs-dismiss="modal">Cancel</button>
@@ -102,7 +122,8 @@
 <script>
 const catLabel = { raw_content: 'Raw content', advertising_content: 'Advertising content', poster: 'Poster' };
 const escMkt = s => $('<div>').text(s == null ? '' : s).html();
-const panes = { pending: '#paneMktPending', workload: '#paneMktWorkload' };
+const panes = { pending: '#paneMktPending', workload: '#paneMktWorkload', conversations: '#paneMktConversations' };
+const smmUsers = @json($smmUsers->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values());
 
 $('.mkt-tabs .nav-link').on('click', function () {
     $('.mkt-tabs .nav-link').removeClass('active');
@@ -112,6 +133,7 @@ $('.mkt-tabs .nav-link').on('click', function () {
     $(panes[tab]).removeClass('d-none');
     if (tab === 'pending') loadPending();
     if (tab === 'workload') loadWorkload();
+    if (tab === 'conversations') loadConversations();
 });
 
 function submissionLink(sub, brandId, itemId) {
@@ -141,8 +163,10 @@ function loadPending() {
                 + '<td>' + (it.created_at ? escMkt(it.created_at) : '—') + '</td>'
                 + '<td>' + submissionLink(sub, it.brand_id, it.id) + '</td>'
                 + '<td class="text-end">'
-                + '<button class="btn btn-sm btn-success mkt-approve-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-submission="' + (sub ? sub.id : '') + '"><i class="bi bi-check-lg"></i> Approve</button>'
-                + '<button class="btn btn-sm btn-outline-danger mkt-revision-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + escMkt(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>'
+                + ownerBadge(it.owner)
+                + (it.owner ? '' : '<button class="btn btn-sm btn-outline-primary mkt-claim-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-submission="' + (sub ? sub.id : '') + '"><i class="bi bi-hand-index"></i> Claim</button>')
+                + (it.owner?.is_me ? '<button class="btn btn-sm btn-success mkt-approve-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-submission="' + (sub ? sub.id : '') + '"><i class="bi bi-check-lg"></i> Approve</button>' : '')
+                + (it.owner?.is_me ? '<button class="btn btn-sm btn-outline-danger mkt-revision-btn me-1" data-id="' + it.id + '" data-brand="' + it.brand_id + '" data-title="' + escMkt(it.title) + '"><i class="bi bi-arrow-counterclockwise"></i></button>' : '')
                 + '<a class="btn btn-sm btn-outline-secondary" href="/marketing/brands/' + it.brand_id + '/checklist" title="View this brand\'s full content checklist"><i class="bi bi-list-check"></i></a>'
                 + '</td></tr>';
         }).join(''));
@@ -152,13 +176,65 @@ function loadPending() {
 $('#mktPendingRows').on('click', '.mkt-approve-btn', function () {
     const id = $(this).data('id'), brand = $(this).data('brand'), submission = $(this).data('submission');
     if (!submission) { Swal.fire('Error', 'No submission on record for this item.', 'error'); return; }
-    Swal.fire({ title: 'Approve and hand over to SMM?', icon: 'question', showCancelButton: true, confirmButtonText: 'Approve' }).then(r => {
+    // Optional: name one SMM user. Without one, the next SMM user to collect it claims it.
+    const inputOptions = Object.fromEntries(smmUsers.map(u => [u.id, u.name]));
+    Swal.fire({
+        title: 'Approve and hand over to SMM?', icon: 'question', showCancelButton: true, confirmButtonText: 'Approve',
+        input: 'select', inputOptions: inputOptions, inputPlaceholder: 'Anyone in SMM may claim it',
+    }).then(r => {
         if (!r.isConfirmed) return;
-        $.post('/marketing/brands/' + brand + '/content-items/' + id + '/submissions/' + submission + '/approve', {
+        const assign = r.value ? { assign_smm_user_id: r.value } : {};
+        $.post('/marketing/brands/' + brand + '/content-items/' + id + '/submissions/' + submission + '/approve', Object.assign({
             _token: $('meta[name=csrf-token]').attr('content'),
-        })
+        }, assign))
             .done(function () { Swal.fire({ icon: 'success', title: 'Approved', timer: 1200, showConfirmButton: false }); loadPending(); })
             .fail(x => Swal.fire('Error', x.responseJSON?.message || Object.values(x.responseJSON?.errors || {}).flat().join(' ') || 'Could not approve.', 'error'));
+    });
+});
+
+// Who owns this stage. Only the owner may act on it; an unowned stage must be claimed first.
+function ownerBadge(owner) {
+    if (!owner) return '<span class="spill spill-hold me-1">Unclaimed</span>';
+    const text = owner.is_me ? 'You own this' : 'Owned by ' + escMkt(owner.name);
+    return '<span class="spill ' + (owner.is_me ? 'spill-completed' : 'spill-running') + ' me-1">' + text + '</span>';
+}
+
+$('#mktPendingRows').on('click', '.mkt-claim-btn', function () {
+    const id = $(this).data('id'), brand = $(this).data('brand'), submission = $(this).data('submission');
+    $.post('/marketing/brands/' + brand + '/content-items/' + id + '/submissions/' + submission + '/claim', {
+        _token: $('meta[name=csrf-token]').attr('content'),
+    })
+        .done(function () { Swal.fire({ icon: 'success', title: 'Claimed — it is yours now', timer: 1200, showConfirmButton: false }); loadPending(); })
+        .fail(x => Swal.fire('Not claimed', x.responseJSON?.message || Object.values(x.responseJSON?.errors || {}).flat().join(' ') || 'Could not claim this.', 'warning'));
+});
+
+// ── Client conversations: verify SMM evidence (current work, never period-filtered) ──
+function loadConversations() {
+    $.get('{{ route('smm-conversations.index') }}', { status: 'pending' }).done(function (r) {
+        const rows = r.data || [];
+        if (!rows.length) { $('#mktConvRows').html('<tr><td colspan="8" class="mkt-empty">No conversations waiting for verification.</td></tr>'); return; }
+        $('#mktConvRows').html(rows.map(c => '<tr>'
+            + '<td>' + escMkt(c.brand) + '</td>'
+            + '<td>' + (c.product ? escMkt(c.product) : '—') + '</td>'
+            + '<td><span class="mkt-title">' + escMkt(c.reference) + '</span>' + (c.note ? '<div class="small" style="color:var(--text3)">' + escMkt(c.note) + '</div>' : '') + '</td>'
+            + '<td>' + escMkt(c.submitted_by) + '</td>'
+            + '<td>' + escMkt(c.submitted_at) + '</td>'
+            + '<td><a href="' + escMkt(c.evidence_url) + '" target="_blank" rel="noopener">View</a> · <a href="' + escMkt(c.evidence_download_url) + '">Download</a></td>'
+            + '<td><span class="spill spill-hold">Pending</span></td>'
+            + '<td class="text-end">'
+            + '<button class="btn btn-sm btn-success mkt-conv-btn me-1" data-id="' + c.id + '" data-decision="approved"><i class="bi bi-check-lg"></i> Potential client</button>'
+            + '<button class="btn btn-sm btn-outline-danger mkt-conv-btn" data-id="' + c.id + '" data-decision="rejected"><i class="bi bi-x-lg"></i> Not potential</button>'
+            + '</td></tr>').join(''));
+    });
+}
+
+$('#mktConvRows').on('click', '.mkt-conv-btn', function () {
+    const id = $(this).data('id'), decision = $(this).data('decision');
+    Swal.fire({ title: decision === 'approved' ? 'Approve as a Potential Client?' : 'Not a Potential Client?', icon: 'question', showCancelButton: true, confirmButtonText: 'Confirm' }).then(r => {
+        if (!r.isConfirmed) return;
+        $.post('/smm-conversations/' + id + '/decision', { decision: decision, _token: $('meta[name=csrf-token]').attr('content') })
+            .done(function () { Swal.fire({ icon: 'success', title: 'Recorded', timer: 1000, showConfirmButton: false }); loadConversations(); })
+            .fail(x => Swal.fire('Error', x.responseJSON?.message || Object.values(x.responseJSON?.errors || {}).flat().join(' ') || 'Could not record this.', 'error'));
     });
 });
 
@@ -176,7 +252,7 @@ $('#mktRevisionSave').on('click', function () {
 
     const $btn = $(this).prop('disabled', true);
     $.post('/marketing/brands/' + $('#mktRevisionBrand').val() + '/content-items/' + $('#mktRevisionItem').val() + '/request-revision', {
-        note: note, _token: $('meta[name=csrf-token]').attr('content'),
+        note: note, assign_to: $('#mktRevisionAssign').val() || null, _token: $('meta[name=csrf-token]').attr('content'),
     }).done(function () {
         bootstrap.Modal.getInstance('#mktRevisionModal').hide();
         Swal.fire({ icon: 'success', title: 'Sent back', timer: 1200, showConfirmButton: false });

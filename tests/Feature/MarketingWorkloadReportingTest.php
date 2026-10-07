@@ -78,7 +78,7 @@ class MarketingWorkloadReportingTest extends TestCase
         $this->atDhaka('2026-10-06 10:00');
         $item = $this->newItem($brand, $t['content']);
         $this->submitVersion($item, $t['content']);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['marketing']);
         $this->submitVersion($item, $t['content']);
 
         $report = $this->report($t['marketing'], $this->daily('2026-10-06'));
@@ -130,8 +130,7 @@ class MarketingWorkloadReportingTest extends TestCase
         [, $published] = $this->publishedAt('2026-10-06 12:00', $brand, $t['content'], $t['marketing'], $t['smm']);
 
         $this->atDhaka('2026-10-06 16:00');
-        $this->actingAs($t['marketing'])
-            ->postJson(route('marketing.published-contents.review', [$brand, $published]))
+        $this->reviewPublication($brand, $published, $t['marketing'])
             ->assertOk();
 
         $row = $this->row($this->report($t['marketing'], $this->daily('2026-10-06')), $brand);
@@ -148,11 +147,11 @@ class MarketingWorkloadReportingTest extends TestCase
         $this->atDhaka('2026-10-06 10:00');
         $pre = $this->newItem($brand, $t['content']);
         $this->submitVersion($pre, $t['content']);
-        $this->service()->requestRevision($pre->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($pre->fresh(), ['note' => 'Redo'], $t['marketing']);
 
         // Post-publish: Marketing sends a published item back. This is not pre-publish activity.
         [$post] = $this->publishedAt('2026-10-06 11:00', $brand, $t['content'], $t['marketing'], $t['smm']);
-        $this->service()->requestRevision($post, ['note' => 'Caption typo'], $t['marketing']);
+        $this->reviseItem($post, ['note' => 'Caption typo'], $t['marketing']);
 
         $row = $this->row($this->report($t['marketing'], $this->daily('2026-10-06')), $brand);
 
@@ -169,7 +168,7 @@ class MarketingWorkloadReportingTest extends TestCase
         $this->atDhaka('2026-10-06 10:00');
         $item = $this->newItem($brand, $t['content']);
         $this->submitVersion($item, $t['content']);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['marketing']);
         $this->submitVersion($item, $t['content']);
 
         $row = $this->row($this->report($t['marketing'], $this->daily('2026-10-06')), $brand);
@@ -183,7 +182,7 @@ class MarketingWorkloadReportingTest extends TestCase
         $t = $this->team();
         $brand = $this->readyBrand($t['manager']);
         $item = $this->submittedAt('2026-10-06 10:00', $brand, $t['content']);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['marketing']);
         $this->submitVersion($item, $t['content']);
 
         $queue = collect($this->actingAs($t['marketing'])->getJson(route('panels.marketing.pending-check'))->json('data'))
@@ -389,7 +388,7 @@ class MarketingWorkloadReportingTest extends TestCase
         $this->atDhaka('2026-10-06 10:00');
         $item = $this->newItem($brand, $t['content']);
         $this->submitVersion($item, $t['content']);
-        $this->service()->requestRevision($item->fresh(), ['note' => 'Redo'], $t['marketing']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['marketing']);
 
         $this->atDhaka('2026-10-06 11:00');
         $v2 = $this->submitVersion($item, $t['content']);
@@ -417,8 +416,7 @@ class MarketingWorkloadReportingTest extends TestCase
         $this->submitVersion($item, $t['content']); // a real V2 on the same item, making V1 superseded
 
         $this->atDhaka('2026-10-06 11:00');
-        $this->actingAs($t['marketing'])
-            ->postJson(route('marketing.published-contents.review', [$brand, $publishedV1]))
+        $this->reviewPublication($brand, $publishedV1, $t['marketing'])
             ->assertOk();
 
         $row = $this->row($this->report($t['marketing'], $this->daily('2026-10-06')), $brand);

@@ -18,6 +18,7 @@ use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
 /**
@@ -39,6 +40,7 @@ use Tests\TestCase;
  */
 class PublishingReviewRevisionStateTest extends TestCase
 {
+    use ContentWorkflowFixtures;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -103,9 +105,9 @@ class PublishingReviewRevisionStateTest extends TestCase
     {
         $service = app(ContentItemService::class);
         $item = $service->create($brand, ['category' => $category, 'title' => 'Item '.uniqid()], $content);
-        $submission = $service->submit($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $submission = $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/v1.jpg'], $content);
         $marketing = $this->user('Marketing', ['manage publishing-review']);
-        $service->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
+        $this->approveHandover($item->fresh(), $submission->fresh(), $marketing);
         $collection = $service->collect($item->fresh(), $smm);
         $published = $service->publish($item->fresh(), $brand, $submission->fresh(), ['facebook_post_url' => 'https://facebook.com/v1'], $smm);
 
@@ -144,8 +146,7 @@ class PublishingReviewRevisionStateTest extends TestCase
         $brand = $this->readyBrand($manager);
         ['item' => $item, 'published' => $published] = $this->publishedItem($brand, $content, $smm);
 
-        $this->actingAs($marketing)->postJson(
-            route('marketing.content-items.request-revision', [$brand, $item]),
+        $this->actingAsStageOwner($marketing, $item)->postJson(route('marketing.content-items.request-revision', [$brand, $item]),
             ['note' => 'Wrong crop, please redo.']
         )->assertOk();
 
@@ -172,13 +173,11 @@ class PublishingReviewRevisionStateTest extends TestCase
         $brand = $this->readyBrand($manager);
         ['item' => $item] = $this->publishedItem($brand, $content, $smm);
 
-        $this->actingAs($marketing)->postJson(
-            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'First.']
+        $this->actingAsStageOwner($marketing, $item)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'First.']
         )->assertOk();
         $this->assertCount(1, ContentItemRevision::where('content_item_id', $item->id)->get());
 
-        $second = $this->actingAs($marketing)->postJson(
-            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Second — should be refused.']
+        $second = $this->actingAsStageOwner($marketing, $item)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Second — should be refused.']
         );
 
         $second->assertStatus(422);
@@ -197,11 +196,10 @@ class PublishingReviewRevisionStateTest extends TestCase
         $brand = $this->readyBrand($manager);
         ['item' => $item, 'published' => $published] = $this->publishedItem($brand, $content, $smm);
 
-        $this->actingAs($marketing)->postJson(
-            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
+        $this->actingAsStageOwner($marketing, $item)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
         )->assertOk();
 
-        $response = $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published]));
+        $response = $this->reviewPublication($brand, $published, $marketing);
 
         $response->assertStatus(422);
         $published->refresh();
@@ -220,8 +218,7 @@ class PublishingReviewRevisionStateTest extends TestCase
         $brand = $this->readyBrand($manager);
         ['item' => $item, 'published' => $published] = $this->publishedItem($brand, $content, $smm);
 
-        $this->actingAs($marketing)->postJson(
-            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
+        $this->actingAsStageOwner($marketing, $item)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
         )->assertOk();
 
         $response = $this->actingAs($smm)->getJson(route('panels.smm.published'));
@@ -245,8 +242,7 @@ class PublishingReviewRevisionStateTest extends TestCase
             $this->publishedItem($brand, $content, $smm);
 
         // Request revision on V1.
-        $this->actingAs($marketing)->postJson(
-            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
+        $this->actingAsStageOwner($marketing, $item)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
         )->assertOk();
 
         // Each real lifecycle step is a separate human action, always
@@ -256,7 +252,7 @@ class PublishingReviewRevisionStateTest extends TestCase
         $this->travel(1)->seconds();
 
         // Resubmit -> available, NOT auto-collected.
-        $this->actingAs($content)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
+        $this->actingAsMaker($content, $item)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
             'link_url' => 'https://example.com/v2.jpg',
         ])->assertOk();
         $item->refresh();
@@ -269,8 +265,7 @@ class PublishingReviewRevisionStateTest extends TestCase
         $this->travel(1)->seconds();
 
         // Marketing approves V2 before SMM may collect it.
-        $this->actingAs($marketing)->postJson(
-            route('marketing.content-items.submissions.approve', [$brand, $item, $submission2Id])
+        $this->actingAsHandoverOwner($marketing, $item, $submission2Id)->postJson(route('marketing.content-items.submissions.approve', [$brand, $item, $submission2Id])
         )->assertOk();
 
         $this->travel(1)->seconds();
@@ -302,7 +297,7 @@ class PublishingReviewRevisionStateTest extends TestCase
         $this->assertSame('awaiting_review', $smmRows->firstWhere('id', $published2Id)['review_state']);
 
         // V2 can be marked reviewed.
-        $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published2Id]))->assertOk();
+        $this->reviewPublication($brand, $published2Id, $marketing)->assertOk();
 
         $v2 = PublishedContent::find($published2Id);
         $this->assertNotNull($v2->reviewed_at);
@@ -323,17 +318,15 @@ class PublishingReviewRevisionStateTest extends TestCase
         $brand = $this->readyBrand($manager);
         ['item' => $item, 'submission' => $submission1] = $this->publishedItem($brand, $content, $smm);
 
-        $this->actingAs($marketing)->postJson(
-            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
+        $this->actingAsStageOwner($marketing, $item)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
         )->assertOk();
         $this->travel(1)->seconds();
-        $this->actingAs($content)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
+        $this->actingAsMaker($content, $item)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
             'link_url' => 'https://example.com/v2.jpg',
         ])->assertOk();
         $submission2Id = ContentItemSubmission::where('content_item_id', $item->id)->where('id', '!=', $submission1->id)->value('id');
         $this->travel(1)->seconds();
-        $this->actingAs($marketing)->postJson(
-            route('marketing.content-items.submissions.approve', [$brand, $item, $submission2Id])
+        $this->actingAsHandoverOwner($marketing, $item, $submission2Id)->postJson(route('marketing.content-items.submissions.approve', [$brand, $item, $submission2Id])
         )->assertOk();
         $this->travel(1)->seconds();
         $this->actingAs($smm)->postJson(route('marketing.content-items.collect', [$brand, $item]))->assertOk();
@@ -345,8 +338,7 @@ class PublishingReviewRevisionStateTest extends TestCase
         $this->assertSame(ContentItem::STATUS_PUBLISHED, $item->fresh()->status);
 
         // A fresh revision request on V2's own cycle must be allowed.
-        $response = $this->actingAs($marketing)->postJson(
-            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'V2 also needs a fix.']
+        $response = $this->actingAsStageOwner($marketing, $item)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'V2 also needs a fix.']
         );
         $response->assertOk();
         $this->assertCount(2, ContentItemRevision::where('content_item_id', $item->id)->get());
@@ -366,8 +358,8 @@ class PublishingReviewRevisionStateTest extends TestCase
 
         $item->checklist->update(['on_hold_at' => now(), 'on_hold_reason' => 'Payment reversed.']);
 
-        $response = $this->actingAs($marketing)->postJson(
-            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
+        // Called directly, without a claim: the hold itself must refuse the revision.
+        $response = $this->actingAs($marketing)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
         );
 
         $response->assertStatus(422);
@@ -385,12 +377,10 @@ class PublishingReviewRevisionStateTest extends TestCase
         $brand = $this->readyBrand($manager);
         ['item' => $item] = $this->publishedItem($brand, $content, $smm);
 
-        $this->actingAs($content)->postJson(
-            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'nope']
+        $this->actingAs($content)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'nope']
         )->assertForbidden();
 
-        $this->actingAs($design)->postJson(
-            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'nope']
+        $this->actingAs($design)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'nope']
         )->assertForbidden();
     }
 
@@ -403,7 +393,7 @@ class PublishingReviewRevisionStateTest extends TestCase
         $brand = $this->readyBrand($manager);
         ['item' => $item, 'published' => $published] = $this->publishedItem($brand, $content, $smm);
 
-        $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $published]))->assertOk();
+        $this->reviewPublication($brand, $published, $marketing)->assertOk();
         $this->assertNotNull($published->fresh()->reviewed_at);
     }
 
@@ -421,8 +411,7 @@ class PublishingReviewRevisionStateTest extends TestCase
         $page = $this->actingAs($manager)->get(route('manager.oversight'));
         $page->assertViewHas('unreviewed', fn ($list) => $list->firstWhere('id', $published->id) !== null);
 
-        $this->actingAs($marketing)->postJson(
-            route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
+        $this->actingAsStageOwner($marketing, $item)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), ['note' => 'Redo.']
         )->assertOk();
 
         $page = $this->actingAs($manager)->get(route('manager.oversight'));

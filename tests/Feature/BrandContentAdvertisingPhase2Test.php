@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
 /**
@@ -30,6 +31,7 @@ use Tests\TestCase;
  */
 class BrandContentAdvertisingPhase2Test extends TestCase
 {
+    use ContentWorkflowFixtures;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -100,7 +102,7 @@ class BrandContentAdvertisingPhase2Test extends TestCase
             'category' => $category, 'title' => 'Item '.uniqid(),
         ], $content);
 
-        app(ContentItemService::class)->submit($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->submitItem($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
 
         return $item->fresh();
     }
@@ -177,7 +179,7 @@ class BrandContentAdvertisingPhase2Test extends TestCase
         $brand = $this->readyBrand($manager);
         $item = $this->itemWithSubmission($brand, $content);
         $marketing = $this->user('Marketing', ['manage publishing-review']);
-        app(ContentItemService::class)->approveForHandover($item->fresh(), $item->fresh()->latestSubmission(), $marketing);
+        $this->approveHandover($item->fresh(), $item->fresh()->latestSubmission(), $marketing);
 
         $response = $this->actingAs($smm)->postJson(route('marketing.content-items.collect', [$brand, $item]));
 
@@ -219,7 +221,7 @@ class BrandContentAdvertisingPhase2Test extends TestCase
     {
         $item = $this->itemWithSubmission($brand, $content);
         $marketing = $this->user('Marketing', ['manage publishing-review']);
-        app(ContentItemService::class)->approveForHandover($item->fresh(), $item->fresh()->latestSubmission(), $marketing);
+        $this->approveHandover($item->fresh(), $item->fresh()->latestSubmission(), $marketing);
         app(ContentItemService::class)->collect($item->fresh(), $smm);
 
         return $item->fresh();
@@ -250,7 +252,11 @@ class BrandContentAdvertisingPhase2Test extends TestCase
      * publishing what any other SMM collected is the normal case, not an
      * exception. There is deliberately no same-collector requirement.
      */
-    public function test_a_different_smm_user_may_publish_what_another_smm_user_collected(): void
+    /**
+     * The publish stage belongs to the SMM user who collected it. Another SMM user
+     * in the same panel cannot publish it: ownership is per user, never per panel.
+     */
+    public function test_a_different_smm_user_cannot_publish_what_another_smm_user_collected(): void
     {
         $manager = $this->user('Manager', ['manage payments']);
         $content = $this->user('Content', ['manage raw-content']);
@@ -260,7 +266,7 @@ class BrandContentAdvertisingPhase2Test extends TestCase
         $item = $this->itemWithSubmission($brand, $content);
         $submission = $item->latestSubmission();
         $marketing = $this->user('Marketing', ['manage publishing-review']);
-        app(ContentItemService::class)->approveForHandover($item->fresh(), $submission, $marketing);
+        $this->approveHandover($item->fresh(), $submission, $marketing);
 
         app(ContentItemService::class)->collect($item, $smmA);
 
@@ -268,8 +274,8 @@ class BrandContentAdvertisingPhase2Test extends TestCase
             'submission_id' => $submission->id, 'facebook_post_url' => 'https://facebook.com/post/1',
         ]);
 
-        $response->assertOk();
-        $this->assertDatabaseHas('published_contents', ['content_item_id' => $item->id, 'published_by' => $smmB->id]);
+        $response->assertStatus(422);
+        $this->assertDatabaseMissing('published_contents', ['content_item_id' => $item->id]);
         $this->assertDatabaseHas('content_item_collections', ['content_item_id' => $item->id, 'collected_by' => $smmA->id]);
     }
 
@@ -308,7 +314,7 @@ class BrandContentAdvertisingPhase2Test extends TestCase
 
         // A newer submission supersedes the collected one — e.g. content
         // re-submitted before the stale browser tab's publish click lands.
-        app(ContentItemService::class)->submit($item, ['link_url' => 'https://example.com/v2.jpg'], $content);
+        $this->submitItem($item, ['link_url' => 'https://example.com/v2.jpg'], $content);
 
         $response = $this->actingAs($smm)->postJson(route('marketing.content-items.publish', [$brand, $item]), [
             'submission_id' => $staleSubmission->id, 'facebook_post_url' => 'https://facebook.com/post/1',
@@ -345,7 +351,7 @@ class BrandContentAdvertisingPhase2Test extends TestCase
 
         // Someone spots a problem after it was collected and sends it back —
         // that collected submission must not still be publishable.
-        app(ContentItemService::class)->requestRevision($item, ['note' => 'Wrong crop'], $smm);
+        $this->reviseItem($item, ['note' => 'Wrong crop'], $smm);
 
         $response = $this->actingAs($smm)->postJson(route('marketing.content-items.publish', [$brand, $item]), [
             'submission_id' => $submission->id, 'facebook_post_url' => 'https://facebook.com/post/1',
@@ -367,12 +373,14 @@ class BrandContentAdvertisingPhase2Test extends TestCase
             'submission_id' => $firstSubmission->id, 'facebook_post_url' => 'https://facebook.com/post/1',
         ])->assertOk();
 
-        // Revise, resubmit, approve, collect and publish again.
-        app(ContentItemService::class)->requestRevision($item, [], $smm);
-        app(ContentItemService::class)->submit($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
+        // Revise, resubmit, approve, collect and publish again. A published
+        // version is sent back by the Marketing reviewer, not by SMM.
+        $marketingReviewer = $this->user('Marketing', ['manage publishing-review']);
+        $this->reviseItem($item, [], $marketingReviewer);
+        $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/v2.jpg'], $content);
         $secondSubmission = $item->fresh()->latestSubmission();
         $marketing = $this->user('Marketing', ['manage publishing-review']);
-        app(ContentItemService::class)->approveForHandover($item->fresh(), $secondSubmission, $marketing);
+        $this->approveHandover($item->fresh(), $secondSubmission, $marketing);
         app(ContentItemService::class)->collect($item->fresh(), $smm);
 
         $this->actingAs($smm)->postJson(route('marketing.content-items.publish', [$brand, $item->fresh()]), [
@@ -393,11 +401,13 @@ class BrandContentAdvertisingPhase2Test extends TestCase
         $smm = $this->user('Social Media Manager', ['manage smm-collection']);
         $brand = $this->readyBrand($manager);
         $item = $this->itemWithSubmission($brand, $content);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
 
-        app(ContentItemService::class)->requestRevision($item, ['note' => 'Fix it'], $smm);
+        // Pre-publish revisions are Marketing's to send, so Marketing is the requester.
+        $this->reviseItem($item, ['note' => 'Fix it'], $marketing);
 
         Notification::assertSentTo($content, ChecklistRevisionRequested::class);
-        Notification::assertNotSentTo($smm, ChecklistRevisionRequested::class);
+        Notification::assertNotSentTo($marketing, ChecklistRevisionRequested::class);
     }
 
     public function test_a_self_requested_revision_does_not_notify_yourself(): void
@@ -405,10 +415,16 @@ class BrandContentAdvertisingPhase2Test extends TestCase
         $manager = $this->user('Manager', ['manage payments']);
         $content = $this->user('Content', ['manage raw-content']);
         $brand = $this->readyBrand($manager);
-        $item = $this->itemWithSubmission($brand, $content);
+        // The Marketing user who made the version is also the one who sends it back,
+        // so the requester is the submitter and must not be notified about themselves.
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $item = $this->itemWithSubmission($brand, $marketing);
 
-        app(ContentItemService::class)->requestRevision($item, [], $content);
+        $this->reviseItem($item, [], $marketing);
 
-        Notification::assertNothingSent();
+        // The Content user is other staff who can fix an unassigned revision, so they
+        // are told. The requester is never told about their own request.
+        Notification::assertSentTo($content, ChecklistRevisionRequested::class);
+        Notification::assertNotSentTo($marketing, ChecklistRevisionRequested::class);
     }
 }

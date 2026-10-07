@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Brand;
 use App\Models\ContentItem;
 use App\Models\ContentItemSubmission;
+use App\Models\User;
 use App\Services\ContentItemService;
 use App\Services\Storage\StoredFileResponse;
 use Illuminate\Http\JsonResponse;
@@ -68,10 +69,14 @@ class ContentItemController extends Controller
         $data = $request->validate([
             'link_url' => ['nullable', 'string', 'max:2048', 'url'],
             'file' => ['nullable', 'file', 'max:20480'],
+            'assign_to' => ['nullable', 'integer', 'exists:users,id'],
         ]);
         $data['file'] = $request->file('file');
 
-        $submission = $this->service->submit($contentItem, $data, $request->user());
+        // Optional: name the Marketing user who should receive this version directly.
+        $assignTo = isset($data['assign_to']) ? User::findOrFail($data['assign_to']) : null;
+
+        $submission = $this->service->submit($contentItem, $data, $request->user(), $assignTo);
 
         return response()->json(['success' => true, 'data' => $submission->load('submittedBy:id,name')]);
     }
@@ -81,9 +86,13 @@ class ContentItemController extends Controller
         abort_if($contentItem->brand_id !== $brand->id, 404);
         $this->authorizeReviewer($request);
 
-        $data = $request->validate(['note' => ['nullable', 'string', 'max:2000']]);
+        $data = $request->validate([
+            'note' => ['nullable', 'string', 'max:2000'],
+            'assign_to' => ['nullable', 'integer', 'exists:users,id'],
+        ]);
+        $assignTo = isset($data['assign_to']) ? User::findOrFail($data['assign_to']) : null;
 
-        $revision = $this->service->requestRevision($contentItem, $data, $request->user());
+        $revision = $this->service->requestRevision($contentItem, ['note' => $data['note'] ?? null], $request->user(), $assignTo);
 
         return response()->json(['success' => true, 'data' => $revision]);
     }
@@ -103,7 +112,12 @@ class ContentItemController extends Controller
         abort_if($submission->content_item_id !== $contentItem->id, 404);
         abort_unless($request->user()->can('manage publishing-review'), 403);
 
-        $approval = $this->service->approveForHandover($contentItem, $submission, $request->user());
+        $data = $request->validate([
+            'assign_smm_user_id' => ['nullable', 'integer', 'exists:users,id'],
+        ]);
+        $smm = isset($data['assign_smm_user_id']) ? User::findOrFail($data['assign_smm_user_id']) : null;
+
+        $approval = $this->service->approveForHandover($contentItem, $submission, $request->user(), $smm);
 
         return response()->json(['success' => true, 'data' => $approval->load('approvedBy:id,name')]);
     }
@@ -128,10 +142,12 @@ class ContentItemController extends Controller
         $data = $request->validate([
             'submission_id' => ['required', 'integer', Rule::exists('content_item_submissions', 'id')->where('content_item_id', $contentItem->id)],
             'facebook_post_url' => ['required', 'string', 'max:2048', 'url'],
+            'assign_review_to' => ['nullable', 'integer', 'exists:users,id'],
         ]);
 
         $submission = ContentItemSubmission::findOrFail($data['submission_id']);
-        $published = $this->service->publish($contentItem, $brand, $submission, $data, $request->user());
+        $reviewer = isset($data['assign_review_to']) ? User::findOrFail($data['assign_review_to']) : null;
+        $published = $this->service->publish($contentItem, $brand, $submission, $data, $request->user(), $reviewer);
 
         return response()->json(['success' => true, 'data' => $published->load('publishedBy:id,name')]);
     }

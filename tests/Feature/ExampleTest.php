@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -9,20 +10,20 @@ class ExampleTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_the_root_url_shows_a_guest_the_public_landing_page(): void
+    public function test_the_root_url_sends_a_guest_to_the_login_page(): void
     {
-        $response = $this->get('/');
-
-        $response->assertOk();
-        $response->assertViewIs('public.landing');
+        $this->get('/')->assertRedirect(route('login'));
     }
 
     public function test_the_root_url_redirects_an_authenticated_user_to_the_dashboard(): void
     {
-        $user = \App\Models\User::factory()->create(['is_active' => true]);
+        $user = User::factory()->create(['is_active' => true]);
 
-        $response = $this->actingAs($user)->get('/');
+        $this->actingAs($user)->get('/')->assertRedirect(route('dashboard'));
+    }
 
-        $response->assertRedirect(route('dashboard'));
+    public function test_the_public_brand_catalogue_urls_no_longer_exist(): void
+    {
+        $this->get('/brands/1')->assertNotFound();
     }
 }

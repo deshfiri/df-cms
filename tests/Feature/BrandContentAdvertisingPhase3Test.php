@@ -18,6 +18,7 @@ use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
 /**
@@ -29,6 +30,7 @@ use Tests\TestCase;
  */
 class BrandContentAdvertisingPhase3Test extends TestCase
 {
+    use ContentWorkflowFixtures;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -342,9 +344,9 @@ class BrandContentAdvertisingPhase3Test extends TestCase
     private function publishedContentFor(Brand $brand, User $content, User $smm): PublishedContent
     {
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
-        app(ContentItemService::class)->submit($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
+        $this->submitItem($item, ['link_url' => 'https://example.com/v1.jpg'], $content);
         $item = $item->fresh();
-        app(ContentItemService::class)->approveForHandover($item, $item->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
+        $this->approveHandover($item, $item->latestSubmission(), $this->user('Marketing', ['manage publishing-review']));
         app(ContentItemService::class)->collect($item, $smm);
         $item = $item->fresh();
 
@@ -364,7 +366,7 @@ class BrandContentAdvertisingPhase3Test extends TestCase
         $reviewMe = $this->publishedContentFor($brand, $content, $smm);
         $leaveAlone = $this->publishedContentFor($brand, $content, $smm);
 
-        $response = $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $reviewMe]));
+        $response = $this->reviewPublication($brand, $reviewMe, $marketing);
 
         $response->assertOk();
         $this->assertNotNull($reviewMe->fresh()->reviewed_at);
@@ -381,7 +383,7 @@ class BrandContentAdvertisingPhase3Test extends TestCase
 
         $reviewed = $this->publishedContentFor($brand, $content, $smm);
         $unreviewed = $this->publishedContentFor($brand, $content, $smm);
-        $this->actingAs($marketing)->postJson(route('marketing.published-contents.review', [$brand, $reviewed]))->assertOk();
+        $this->reviewPublication($brand, $reviewed, $marketing)->assertOk();
 
         $response = $this->actingAs($marketing)->getJson(route('marketing.published-contents.unreviewed', $brand));
 

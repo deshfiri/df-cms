@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
 /**
@@ -37,6 +38,7 @@ use Tests\TestCase;
  */
 class Phase6HardeningTest extends TestCase
 {
+    use ContentWorkflowFixtures;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -263,7 +265,7 @@ class Phase6HardeningTest extends TestCase
         $uploads->shouldReceive('pushLater')->once()->with(\Mockery::type(ContentItemSubmission::class));
         $this->app->instance(UploadStaging::class, $uploads);
 
-        app(ContentItemService::class)->submit($item->fresh(), [
+        $this->submitItem($item->fresh(), [
             'file' => UploadedFile::fake()->image('test.jpg'),
         ], $content);
     }
@@ -280,7 +282,7 @@ class Phase6HardeningTest extends TestCase
         $uploads->shouldReceive('pushLater')->never();
         $this->app->instance(UploadStaging::class, $uploads);
 
-        app(ContentItemService::class)->submit($item->fresh(), [
+        $this->submitItem($item->fresh(), [
             'link_url' => 'https://example.com/v1.jpg',
         ], $content);
     }
@@ -290,7 +292,7 @@ class Phase6HardeningTest extends TestCase
     private function itemWithFileSubmission(Brand $brand, User $content): array
     {
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item '.uniqid()], $content);
-        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+        $submission = $this->submitItem($item->fresh(), [
             'file' => UploadedFile::fake()->create('report.pdf', 10),
         ], $content);
 
@@ -300,7 +302,7 @@ class Phase6HardeningTest extends TestCase
     private function itemWithImageSubmission(Brand $brand, User $content, string $name = 'photo.jpg'): array
     {
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item '.uniqid()], $content);
-        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+        $submission = $this->submitItem($item->fresh(), [
             'file' => UploadedFile::fake()->image($name),
         ], $content);
 
@@ -378,7 +380,7 @@ class Phase6HardeningTest extends TestCase
         $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
         $brand = $this->readyBrand($manager);
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Link item'], $content);
-        $submission = app(ContentItemService::class)->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $submission = $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
         $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.download', [$brand, $item->fresh(), $submission]));
 
@@ -481,8 +483,8 @@ class Phase6HardeningTest extends TestCase
         $brand = $this->readyBrand($manager);
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Versioned'], $content);
 
-        $v1 = app(ContentItemService::class)->submit($item->fresh(), ['file' => UploadedFile::fake()->image('v1.png', 20, 20)], $content);
-        $v2 = app(ContentItemService::class)->submit($item->fresh(), ['file' => UploadedFile::fake()->image('v2.png', 40, 40)], $content);
+        $v1 = $this->submitItem($item->fresh(), ['file' => UploadedFile::fake()->image('v1.png', 20, 20)], $content);
+        $v2 = $this->submitItem($item->fresh(), ['file' => UploadedFile::fake()->image('v2.png', 40, 40)], $content);
 
         $responseV1 = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $v1]));
         $responseV2 = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $v2]));
@@ -531,7 +533,7 @@ class Phase6HardeningTest extends TestCase
         $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
         $brand = $this->readyBrand($manager);
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
-        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+        $submission = $this->submitItem($item->fresh(), [
             'file' => UploadedFile::fake()->createWithContent('malicious.jpg', 'This is plain text content, not an image file at all.'),
         ], $content);
 
@@ -548,7 +550,7 @@ class Phase6HardeningTest extends TestCase
         $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
         $brand = $this->readyBrand($manager);
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
-        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+        $submission = $this->submitItem($item->fresh(), [
             'file' => UploadedFile::fake()->createWithContent('image.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),
         ], $content);
 
@@ -563,7 +565,7 @@ class Phase6HardeningTest extends TestCase
         $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
         $brand = $this->readyBrand($manager);
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Link item'], $content);
-        $submission = app(ContentItemService::class)->submit($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
+        $submission = $this->submitItem($item->fresh(), ['link_url' => 'https://example.com/x.jpg'], $content);
 
         $response = $this->actingAs($content)->get(route('marketing.content-items.submissions.preview', [$brand, $item->fresh(), $submission]));
 
@@ -611,7 +613,7 @@ class Phase6HardeningTest extends TestCase
     private function itemWithPdfSubmission(Brand $brand, User $content, string $name = 'document.pdf', ?string $bytes = null): array
     {
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item '.uniqid()], $content);
-        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+        $submission = $this->submitItem($item->fresh(), [
             'file' => UploadedFile::fake()->createWithContent($name, $bytes ?? "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF"),
         ], $content);
 
@@ -685,7 +687,7 @@ class Phase6HardeningTest extends TestCase
         $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
         $brand = $this->readyBrand($manager);
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
-        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+        $submission = $this->submitItem($item->fresh(), [
             'file' => UploadedFile::fake()->createWithContent('malicious.pdf', 'This is plain text content, not a PDF file at all.'),
         ], $content);
 
@@ -706,7 +708,7 @@ class Phase6HardeningTest extends TestCase
         $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
         $brand = $this->readyBrand($manager);
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
-        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+        $submission = $this->submitItem($item->fresh(), [
             'file' => UploadedFile::fake()->image('fake.pdf'),
         ], $content);
 
@@ -722,7 +724,7 @@ class Phase6HardeningTest extends TestCase
         $content = $this->user('Content', ['manage raw-content', 'view raw-content-panel']);
         $brand = $this->readyBrand($manager);
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
-        $submission = app(ContentItemService::class)->submit($item->fresh(), [
+        $submission = $this->submitItem($item->fresh(), [
             'file' => UploadedFile::fake()->createWithContent('image.pdf', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),
         ], $content);
 
@@ -789,10 +791,10 @@ class Phase6HardeningTest extends TestCase
         $brand = $this->readyBrand($manager);
         $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Versioned PDF'], $content);
 
-        $v1 = app(ContentItemService::class)->submit($item->fresh(), [
+        $v1 = $this->submitItem($item->fresh(), [
             'file' => UploadedFile::fake()->createWithContent('v1.pdf', "%PDF-1.4\n%version-one\n%%EOF"),
         ], $content);
-        $v2 = app(ContentItemService::class)->submit($item->fresh(), [
+        $v2 = $this->submitItem($item->fresh(), [
             'file' => UploadedFile::fake()->createWithContent('v2.pdf', "%PDF-1.4\n%version-two-with-more-bytes\n%%EOF"),
         ], $content);
 

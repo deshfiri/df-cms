@@ -7,15 +7,21 @@ use App\Models\BrandChecklist;
 use App\Models\Category;
 use App\Models\Client;
 use App\Models\ContentItem;
+use App\Models\ContentItemSubmission;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentCategory;
+use App\Models\Refund;
 use App\Models\User;
+use App\Services\ContentItemService;
+use App\Services\InvoiceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
 /**
@@ -26,14 +32,15 @@ use Tests\TestCase;
  */
 class BrandContentAdvertisingPhase1Test extends TestCase
 {
+    use ContentWorkflowFixtures;
     use RefreshDatabase;
 
     protected function setUp(): void
     {
         parent::setUp();
         foreach (['view clients', 'manage clients', 'manage payments', 'manage products',
-                  'view raw-content-panel', 'manage raw-content', 'view designer-panel', 'manage designer-content',
-                  'view smm-panel', 'manage smm-collection', 'manage publishing-review', 'view brand-checklist-overview'] as $perm) {
+            'view raw-content-panel', 'manage raw-content', 'view designer-panel', 'manage designer-content',
+            'view smm-panel', 'manage smm-collection', 'manage publishing-review', 'view brand-checklist-overview'] as $perm) {
             Permission::firstOrCreate(['name' => $perm, 'guard_name' => 'web']);
         }
         PaymentCategory::firstOrCreate(['name' => 'Social Media Ads'], ['is_active' => true, 'sort_order' => 10]);
@@ -42,10 +49,10 @@ class BrandContentAdvertisingPhase1Test extends TestCase
 
     private function client(string $name = 'Test Client'): Client
     {
-        $category = Category::create(['name' => 'Cat ' . uniqid(), 'slug' => 'cat-' . uniqid(), 'status' => true]);
+        $category = Category::create(['name' => 'Cat '.uniqid(), 'slug' => 'cat-'.uniqid(), 'status' => true]);
 
         return Client::create([
-            'dfid_number' => 'DF' . uniqid(), 'client_name' => $name, 'brand_name' => 'Brand',
+            'dfid_number' => 'DF'.uniqid(), 'client_name' => $name, 'brand_name' => 'Brand',
             'category_id' => $category->id,
         ]);
     }
@@ -67,7 +74,7 @@ class BrandContentAdvertisingPhase1Test extends TestCase
         return Invoice::create([
             'client_id' => $client->id, 'brand_id' => $brand->id,
             'payment_category_id' => PaymentCategory::where('name', $categoryName)->value('id'),
-            'invoice_number' => 'INV-' . uniqid(), 'total_payable' => 1000, 'status' => Invoice::STATUS_UNPAID,
+            'invoice_number' => 'INV-'.uniqid(), 'total_payable' => 1000, 'status' => Invoice::STATUS_UNPAID,
             'issued_by' => $issuer->id, 'issued_date' => now(),
         ]);
     }
@@ -79,7 +86,7 @@ class BrandContentAdvertisingPhase1Test extends TestCase
             'payment_category_id' => $invoice->payment_category_id, 'amount' => $amount,
             'status' => 'Paid', 'payment_date' => now(), 'created_by' => $recorder->id,
         ]);
-        app(\App\Services\InvoiceService::class)->recalculateStatus($invoice);
+        app(InvoiceService::class)->recalculateStatus($invoice);
 
         return $payment;
     }
@@ -146,19 +153,19 @@ class BrandContentAdvertisingPhase1Test extends TestCase
         $this->invoice($client, $brand, 'Content Production', $manager);
         $this->assertDatabaseHas('brand_checklists', ['brand_id' => $brand->id, 'on_hold_at' => null]);
 
-        $item = app(\App\Services\ContentItemService::class)->create($brand, [
+        $item = app(ContentItemService::class)->create($brand, [
             'category' => 'raw_content', 'title' => 'Pre-hold item',
         ], $content);
 
         // Simulate a fully-completed refund the way RefundService leaves things:
         // the payment's committed refund total equals the payment, and the
         // invoice's status is recalculated from what's actually still paid.
-        \App\Models\Refund::create([
+        Refund::create([
             'payment_id' => $payment->id, 'invoice_id' => $budget->id, 'client_id' => $client->id,
-            'refund_number' => 'RF-' . uniqid(), 'amount' => 1000, 'status' => \App\Models\Refund::STATUS_COMPLETED,
+            'refund_number' => 'RF-'.uniqid(), 'amount' => 1000, 'status' => Refund::STATUS_COMPLETED,
             'reason' => 'Test', 'requested_by' => $manager->id,
         ]);
-        app(\App\Services\InvoiceService::class)->recalculateStatus($budget->fresh());
+        app(InvoiceService::class)->recalculateStatus($budget->fresh());
 
         $checklist = BrandChecklist::where('brand_id', $brand->id)->first();
         $this->assertNotNull($checklist->on_hold_at);
@@ -179,7 +186,7 @@ class BrandContentAdvertisingPhase1Test extends TestCase
         $charge = $this->invoice($client, $brand, 'Content Production', $manager);
         $this->assertDatabaseHas('brand_checklists', ['brand_id' => $brand->id, 'on_hold_at' => null]);
 
-        app(\App\Services\InvoiceService::class)->update($charge, ['status' => Invoice::STATUS_CANCELLED], $manager);
+        app(InvoiceService::class)->update($charge, ['status' => Invoice::STATUS_CANCELLED], $manager);
 
         $checklist = BrandChecklist::where('brand_id', $brand->id)->first();
         $this->assertNotNull($checklist->on_hold_at);
@@ -198,8 +205,8 @@ class BrandContentAdvertisingPhase1Test extends TestCase
         BrandChecklist::where('brand_id', $brand->id)->first()
             ->update(['on_hold_at' => now(), 'on_hold_reason' => 'Test hold']);
 
-        $this->expectException(\Illuminate\Validation\ValidationException::class);
-        app(\App\Services\ContentItemService::class)->create($brand, [
+        $this->expectException(ValidationException::class);
+        app(ContentItemService::class)->create($brand, [
             'category' => 'raw_content', 'title' => 'Should be blocked',
         ], $content);
     }
@@ -283,10 +290,10 @@ class BrandContentAdvertisingPhase1Test extends TestCase
         $content = $this->user('Content', ['manage raw-content']);
         [, $brand] = $this->readyBrand($manager);
 
-        $item = app(\App\Services\ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
         $this->assertSame(ContentItem::STATUS_PENDING, $item->status);
 
-        $response = $this->actingAs($content)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
+        $response = $this->actingAsMaker($content, $item)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
             'link_url' => 'https://example.com/asset.jpg',
         ]);
 
@@ -302,14 +309,14 @@ class BrandContentAdvertisingPhase1Test extends TestCase
         $content = $this->user('Content', ['manage raw-content']);
         [, $brand] = $this->readyBrand($manager);
 
-        $item = app(\App\Services\ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
 
-        $response = $this->actingAs($content)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
+        $response = $this->actingAsMaker($content, $item)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
             'file' => UploadedFile::fake()->create('asset.jpg', 100),
         ]);
 
         $response->assertOk();
-        $submission = \App\Models\ContentItemSubmission::where('content_item_id', $item->id)->first();
+        $submission = ContentItemSubmission::where('content_item_id', $item->id)->first();
         $this->assertNotNull($submission->file_path);
         $this->assertNotNull($submission->disk);
     }
@@ -319,11 +326,11 @@ class BrandContentAdvertisingPhase1Test extends TestCase
         $manager = $this->user('Manager', ['manage payments']);
         $content = $this->user('Content', ['manage raw-content']);
         [, $brand] = $this->readyBrand($manager);
-        $item = app(\App\Services\ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
 
         $brand->checklist->update(['on_hold_at' => now(), 'on_hold_reason' => 'Test hold']);
 
-        $response = $this->actingAs($content)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
+        $response = $this->actingAsMaker($content, $item)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
             'link_url' => 'https://example.com/asset.jpg',
         ]);
 
@@ -336,32 +343,34 @@ class BrandContentAdvertisingPhase1Test extends TestCase
         $content = $this->user('Content', ['manage raw-content']);
         $smm = $this->user('Social Media Manager', ['manage smm-collection']);
         [, $brand] = $this->readyBrand($manager);
-        $item = app(\App\Services\ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
 
-        $this->actingAs($content)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
+        $this->actingAsMaker($content, $item)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
             'link_url' => 'https://example.com/v1.jpg',
         ])->assertOk();
-        $firstSubmissionId = \App\Models\ContentItemSubmission::where('content_item_id', $item->id)->first()->id;
+        $firstSubmissionId = ContentItemSubmission::where('content_item_id', $item->id)->first()->id;
 
-        $response = $this->actingAs($smm)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), [
+        // A waiting version is Marketing's pre-publish stage, so Marketing sends it back.
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $response = $this->actingAsStageOwner($marketing, $item)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), [
             'note' => 'Wrong crop, please redo.',
         ]);
         $response->assertOk();
 
         $this->assertSame(ContentItem::STATUS_NEEDS_REVISION, $item->fresh()->status);
         $this->assertDatabaseHas('content_item_revisions', [
-            'content_item_id' => $item->id, 'previous_status' => ContentItem::STATUS_AVAILABLE, 'requested_by' => $smm->id,
+            'content_item_id' => $item->id, 'previous_status' => ContentItem::STATUS_AVAILABLE, 'requested_by' => $marketing->id,
         ]);
         // The original submission is untouched — not deleted, not overwritten.
         $this->assertDatabaseHas('content_item_submissions', ['id' => $firstSubmissionId, 'link_url' => 'https://example.com/v1.jpg']);
 
         // Resubmission creates a SECOND row and moves the item back to available.
-        $this->actingAs($content)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
+        $this->actingAsMaker($content, $item)->postJson(route('marketing.content-items.submit', [$brand, $item]), [
             'link_url' => 'https://example.com/v2.jpg',
         ])->assertOk();
 
         $this->assertSame(ContentItem::STATUS_AVAILABLE, $item->fresh()->status);
-        $this->assertSame(2, \App\Models\ContentItemSubmission::where('content_item_id', $item->id)->count());
+        $this->assertSame(2, ContentItemSubmission::where('content_item_id', $item->id)->count());
         $this->assertDatabaseHas('content_item_submissions', ['id' => $firstSubmissionId, 'link_url' => 'https://example.com/v1.jpg']);
     }
 
@@ -371,7 +380,7 @@ class BrandContentAdvertisingPhase1Test extends TestCase
         $content = $this->user('Content', ['manage raw-content']);
         $otherContent = $this->user('Content', ['manage raw-content']);
         [, $brand] = $this->readyBrand($manager);
-        $item = app(\App\Services\ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
+        $item = app(ContentItemService::class)->create($brand, ['category' => 'raw_content', 'title' => 'Item'], $content);
 
         $response = $this->actingAs($otherContent)->postJson(route('marketing.content-items.request-revision', [$brand, $item]), [
             'note' => 'Not allowed',

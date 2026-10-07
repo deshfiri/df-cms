@@ -6,14 +6,20 @@ use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Client;
 use App\Models\ContentItem;
+use App\Models\ContentItemRevision;
+use App\Models\ContentItemStageOwner;
 use App\Models\ContentItemSubmission;
+use App\Models\ContentItemSubmissionApproval;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentCategory;
+use App\Models\PublishedContent;
 use App\Models\User;
 use App\Services\ContentItemService;
 use App\Services\InvoiceService;
+use App\Services\Workflow\StageOwnershipService;
 use Carbon\Carbon;
+use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
@@ -189,12 +195,125 @@ trait ContentWorkflowFixtures
     /** A fresh submission or resubmission. Always goes to Marketing first. */
     protected function submitVersion(ContentItem $item, User $submitter): ContentItemSubmission
     {
-        return $this->service()->submit($item->fresh(), ['link_url' => 'https://example.com/'.uniqid().'.jpg'], $submitter);
+        return $this->submitItem($item, ['link_url' => 'https://example.com/'.uniqid().'.jpg'], $submitter);
     }
 
     protected function approve(ContentItem $item, ContentItemSubmission $submission, User $marketing): void
     {
-        $this->service()->approveForHandover($item->fresh(), $submission->fresh(), $marketing);
+        $this->approveHandover($item, $submission, $marketing);
+    }
+
+    /**
+     * Claims the pre-publish stage for this exact version, then approves it. Real
+     * users claim before they approve, and a test should do the same. This is the
+     * only route that goes through the claim.
+     */
+    protected function approveHandover(ContentItem $item, ContentItemSubmission $submission, User $marketing, ?User $smm = null): ContentItemSubmissionApproval
+    {
+        $this->claimPrePublish($item, $submission, $marketing);
+
+        return $this->service()->approveForHandover($item->fresh(), $submission->fresh(), $marketing, $smm);
+    }
+
+    /** Claims a version's pre-publish stage for a Marketing user, as the Claim button does. */
+    protected function claimPrePublish(ContentItem $item, ContentItemSubmission $submission, User $marketing): void
+    {
+        $this->ownership()->ensureOwnerOrClaim(
+            ContentItemStageOwner::STAGE_PRE_PUBLISH,
+            StageOwnershipService::pre_publish($submission->id),
+            $item->fresh(), $marketing, ['submission_id' => $submission->id],
+        );
+    }
+
+    /** Claims the maker's stage when the item is awaiting a fix, then submits. */
+    protected function submitItem(ContentItem $item, array $data, User $actor, ?User $assignTo = null): ContentItemSubmission
+    {
+        [$ref, $links] = $this->ownership()->makerStage($item->fresh());
+        if (str_starts_with($ref, 'revision:')) {
+            $this->ownership()->ensureOwnerOrClaim(ContentItemStageOwner::STAGE_MAKER, $ref, $item->fresh(), $actor, $links);
+        }
+
+        return $this->service()->submit($item->fresh(), $data, $actor, $assignTo);
+    }
+
+    /** Claims whichever stage the item is in, then sends it back for revision. */
+    protected function reviseItem(ContentItem $item, array $data, User $actor, ?User $assignTo = null): ContentItemRevision
+    {
+        $this->claimCurrentStage($item, $actor);
+
+        return $this->service()->requestRevision($item->fresh(), $data, $actor, $assignTo);
+    }
+
+    /** Claims the stage the item is currently in, as the Claim button would. */
+    protected function claimCurrentStage(ContentItem $item, User $actor): void
+    {
+        $item = $item->fresh();
+        $latest = $item->latestSubmission();
+
+        if (! $latest) {
+            return;
+        }
+
+        if ($item->status === ContentItem::STATUS_AVAILABLE) {
+            $this->ownership()->ensureOwnerOrClaim(ContentItemStageOwner::STAGE_PRE_PUBLISH, StageOwnershipService::pre_publish($latest->id), $item, $actor, ['submission_id' => $latest->id]);
+        } elseif ($item->status === ContentItem::STATUS_COLLECTED) {
+            $this->ownership()->ensureOwnerOrClaim(ContentItemStageOwner::STAGE_PUBLISH, StageOwnershipService::publish($latest->id), $item, $actor, ['submission_id' => $latest->id]);
+        } elseif ($item->status === ContentItem::STATUS_PUBLISHED && ($published = $latest->publishedContents()->latest('id')->first())) {
+            $this->claimFinalReview($published, $actor);
+        }
+    }
+
+    /** Acts as a user after claiming the stage the item is in, for an HTTP request. */
+    protected function actingAsStageOwner(User $user, ContentItem $item): static
+    {
+        $this->claimCurrentStage($item, $user);
+
+        return $this->actingAs($user);
+    }
+
+    /** Acts as a maker after claiming the revision they are fixing, for an HTTP submit request. */
+    protected function actingAsMaker(User $user, ContentItem $item): static
+    {
+        [$ref, $links] = $this->ownership()->makerStage($item->fresh());
+        if (str_starts_with($ref, 'revision:')) {
+            $this->ownership()->ensureOwnerOrClaim(ContentItemStageOwner::STAGE_MAKER, $ref, $item->fresh(), $user, $links);
+        }
+
+        return $this->actingAs($user);
+    }
+
+    /** Acts as a Marketing user after claiming a version's pre-publish stage, for an HTTP approve request. */
+    protected function actingAsHandoverOwner(User $user, ContentItem $item, ContentItemSubmission|int $submission): static
+    {
+        $submission = $submission instanceof ContentItemSubmission ? $submission : ContentItemSubmission::findOrFail($submission);
+        $this->claimPrePublish($item, $submission, $user);
+
+        return $this->actingAs($user);
+    }
+
+    /** Claims the publication's final review, then posts the Marketing review. */
+    protected function reviewPublication(Brand $brand, PublishedContent|int $published, User $marketing): TestResponse
+    {
+        $published = $published instanceof PublishedContent ? $published : PublishedContent::findOrFail($published);
+        $this->claimFinalReview($published, $marketing);
+
+        return $this->actingAs($marketing)
+            ->postJson(route('marketing.published-contents.review', [$brand, $published]));
+    }
+
+    /** Claims the Marketing final review of a publication, so the review can complete it. */
+    protected function claimFinalReview(PublishedContent $published, User $marketing): void
+    {
+        $this->ownership()->ensureOwnerOrClaim(
+            ContentItemStageOwner::STAGE_FINAL_REVIEW,
+            StageOwnershipService::finalReview($published->id),
+            $published->item->fresh(), $marketing, ['publication_id' => $published->id],
+        );
+    }
+
+    protected function ownership(): StageOwnershipService
+    {
+        return app(StageOwnershipService::class);
     }
 
     protected function collect(ContentItem $item, User $smm): void
