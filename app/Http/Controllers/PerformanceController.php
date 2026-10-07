@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\Cache;
 class PerformanceController extends Controller
 {
     /** Functional teams (Spatie roles double as departments — see DatabaseSeeder). */
-    private const DEPARTMENTS = ['Sales', 'Document', 'Design', 'Website', 'Product', 'Marketing', 'Support', 'Accounts', 'Content'];
+    private const DEPARTMENTS = ['Sales', 'Document', 'Design', 'Website', 'Product', 'Marketing', 'Support', 'Accounts', 'Content', 'Social Media Manager'];
 
     /**
      * Backstop lifetime (seconds) for a cached scoreboard entry. Freshness is
