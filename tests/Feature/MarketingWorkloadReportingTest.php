@@ -14,9 +14,11 @@ use Tests\TestCase;
 /**
  * Marketing's brand-wise workload reporting. Historical EVENT counts are
  * bounded to a Daily/Monthly/Yearly Asia/Dhaka calendar period and each is
- * timestamped by the business event it counts. CURRENT QUEUE counts are never
- * period-filtered. Every time-sensitive test pins its clock with travelTo(),
- * so the results are deterministic.
+ * timestamped by the business event it counts. The Workload Dashboard's
+ * current-backlog TILES (pending_pre_publish/pending_final_review) are never
+ * period-filtered, but the Pre-Publish Check row list now is — see
+ * PanelController::marketingPendingCheck(). Every time-sensitive test pins
+ * its clock with travelTo(), so the results are deterministic.
  */
 class MarketingWorkloadReportingTest extends TestCase
 {
@@ -277,18 +279,55 @@ class MarketingWorkloadReportingTest extends TestCase
 
     // ── 20. A historical filter never hides the current queue ─────────────────
 
-    public function test_a_historical_filter_never_hides_a_current_october_item_waiting_for_marketing(): void
+    public function test_a_historical_filter_never_hides_the_current_pending_pre_publish_tile(): void
+    {
+        $t = $this->team();
+        $brand = $this->readyBrand($t['manager']);
+        $this->submittedAt('2026-10-06 10:00', $brand, $t['content']);
+
+        // The Workload Dashboard's "Pending Pre-Publish" tile is a current,
+        // unfiltered backlog snapshot — unlike the row list below, it is
+        // deliberately never period-filtered (see marketingCurrentQueues()).
+        $report = $this->report($t['marketing'], $this->monthly('2026-09'));
+
+        $this->assertSame(1, $this->row($report, $brand)['pending_pre_publish']);
+        $this->assertSame(1, $report['totals']['pending_pre_publish']);
+    }
+
+    public function test_the_pre_publish_check_row_list_follows_the_selected_period_even_for_current_work(): void
     {
         $t = $this->team();
         $brand = $this->readyBrand($t['manager']);
         $waiting = $this->submittedAt('2026-10-06 10:00', $brand, $t['content']);
 
-        $report = $this->report($t['marketing'], $this->monthly('2026-09'));
+        $queueIds = fn (array $query) => collect($this->actingAs($t['marketing'])
+            ->getJson(route('panels.marketing.pending-check', $query))->json('data'))->pluck('id')->all();
 
-        $this->assertSame(1, $this->row($report, $brand)['pending_pre_publish']);
-        $this->assertSame(1, $report['totals']['pending_pre_publish']);
-        $this->assertContains($waiting->id, collect($this->actingAs($t['marketing'])
-            ->getJson(route('panels.marketing.pending-check'))->json('data'))->pluck('id')->all());
+        // September — this item was not submitted then — hides it, even
+        // though it is still fully actionable today.
+        $this->assertNotContains($waiting->id, $queueIds($this->monthly('2026-09')));
+        // October — when it was actually submitted — shows it.
+        $this->assertContains($waiting->id, $queueIds($this->monthly('2026-10')));
+    }
+
+    /** V2 belongs to the period V2 was submitted in, not V1's period or the item's original created_at. */
+    public function test_the_pre_publish_check_row_list_uses_v2s_own_submission_period_not_v1s(): void
+    {
+        $t = $this->team();
+        $brand = $this->readyBrand($t['manager']);
+        $this->atDhaka('2026-09-10 10:00');
+        $item = $this->newItem($brand, $t['content']);
+        $this->submitVersion($item, $t['content']);
+        $this->reviseItem($item->fresh(), ['note' => 'Redo'], $t['marketing']);
+
+        $this->atDhaka('2026-10-06 10:00');
+        $this->submitVersion($item, $t['content']);
+
+        $queueIds = fn (array $query) => collect($this->actingAs($t['marketing'])
+            ->getJson(route('panels.marketing.pending-check', $query))->json('data'))->pluck('id')->all();
+
+        $this->assertNotContains($item->id, $queueIds($this->monthly('2026-09')), 'V1 was superseded; the row must not surface under Septembers period.');
+        $this->assertContains($item->id, $queueIds($this->monthly('2026-10')), 'V2 was submitted in October, so this is its period.');
     }
 
     public function test_the_marketing_panel_defaults_to_the_asia_dhaka_calendar_not_the_browser(): void

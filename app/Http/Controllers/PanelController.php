@@ -28,8 +28,9 @@ class PanelController extends Controller
     public function __construct(private readonly PanelActivityReport $activity) {}
 
     /**
-     * The queue is always current (unfiltered). The Activity section beside it
-     * is the only part that follows the Daily/Monthly/Yearly selection.
+     * The queue follows the selected Daily/Monthly/Yearly period, same as the
+     * Activity section beside it — see itemsJson() for which timestamp a row
+     * is filtered by.
      */
     public function rawContent(Request $request): View|JsonResponse
     {
@@ -87,12 +88,17 @@ class PanelController extends Controller
     {
         abort_unless($request->user()->can('manage smm-collection'), 403);
 
+        [$since, $until] = ReportingPeriod::fromRequest($request)->bounds();
+
         // The server-side SMM-eligibility gate, read-side: a submission
         // Marketing hasn't approved simply never appears here — the same
         // rule ContentItemService::collect()/publish() enforce on write, so
         // this list and what's actually collectible can never disagree.
+        // Filtered by the exact submission's handover (approved_at), not the
+        // original submission's created_at — a row belongs to the period in
+        // which it became available to SMM, not the period it was first made.
         $items = ContentItem::where('status', ContentItem::STATUS_AVAILABLE)
-            ->whereHas('latestSubmissionRelation.approval')
+            ->whereHas('latestSubmissionRelation.approval', fn ($q) => $q->where('approved_at', '>=', $since)->where('approved_at', '<', $until))
             ->with(['brand:id,name', 'product:id,name', 'latestSubmissionRelation'])
             ->latest()
             ->get()
@@ -105,7 +111,12 @@ class PanelController extends Controller
     {
         abort_unless($request->user()->can('manage smm-collection'), 403);
 
+        [$since, $until] = ReportingPeriod::fromRequest($request)->bounds();
+
+        // Filtered by collected_at — the moment SMM claimed this exact
+        // submission, not when it was originally submitted.
         $items = ContentItem::where('status', ContentItem::STATUS_COLLECTED)
+            ->whereHas('latestCollectionRelation', fn ($q) => $q->where('collected_at', '>=', $since)->where('collected_at', '<', $until))
             ->with(['brand:id,name', 'product:id,name', 'latestCollectionRelation.submission', 'latestCollectionRelation.collectedBy:id,name'])
             ->latest()
             ->get()
@@ -118,14 +129,18 @@ class PanelController extends Controller
     {
         abort_unless($request->user()->can('manage published-content'), 403);
 
+        [$since, $until] = ReportingPeriod::fromRequest($request)->bounds();
+
         $published = PublishedContent::with(['item:id,title,category,brand_id', 'item.brand:id,name', 'submission', 'publishedBy:id,name', 'reviewedBy:id,name'])
             ->when($request->filled('brand_id'), fn ($q) => $q->where('brand_id', $request->brand_id))
+            ->where('published_at', '>=', $since)
+            ->where('published_at', '<', $until)
             ->orderByDesc('published_at')
             ->get();
 
-        // Publication history always stays visible here (see the class
-        // docblock) — review_state only changes the badge, never which
-        // rows appear. See PublishedContent::annotateReviewStates().
+        // review_state only changes the badge, never which rows appear —
+        // see PublishedContent::annotateReviewStates(). Which rows appear at
+        // all is now governed by the selected period, filtered above.
         $published = PublishedContent::annotateReviewStates($published)
             ->map(fn (PublishedContent $p) => [
                 'id' => $p->id,
@@ -161,20 +176,23 @@ class PanelController extends Controller
     }
 
     /**
-     * Marketing's current, actionable pre-publish queue — every item whose
-     * latest submission is sitting at `available` with no approval row yet.
-     * Cross-brand, mirroring Raw Content/Designer/SMM's own "what's on my
-     * plate everywhere" shape. Never period-filtered — see
-     * ReportingPeriod's own docblock and PanelController::marketingWorkload()
-     * for why current actionable work and historical reporting stay two
-     * separate concepts.
+     * Marketing's pre-publish queue — every item whose latest submission is
+     * sitting at `available` with no approval row yet, filtered to the
+     * selected Daily/Monthly/Yearly period by that submission's created_at
+     * (the exact moment it arrived for Marketing to check), cross-brand,
+     * mirroring Raw Content/Designer/SMM's own "what's on my plate
+     * everywhere" shape. See marketingWorkload()/marketingCurrentQueues()
+     * for the separate, deliberately unfiltered current-backlog tile count.
      */
     public function marketingPendingCheck(Request $request): JsonResponse
     {
         abort_unless($request->user()->can('manage publishing-review'), 403);
 
+        [$since, $until] = ReportingPeriod::fromRequest($request)->bounds();
+
         $items = ContentItem::where('status', ContentItem::STATUS_AVAILABLE)
-            ->whereHas('latestSubmissionRelation', fn ($q) => $q->whereDoesntHave('approval'))
+            ->whereHas('latestSubmissionRelation', fn ($q) => $q->whereDoesntHave('approval')
+                ->where('created_at', '>=', $since)->where('created_at', '<', $until))
             ->when($request->filled('brand_id'), fn ($q) => $q->where('brand_id', $request->brand_id))
             ->withCount('submissions')
             ->with(['brand:id,name', 'product:id,name', 'latestSubmissionRelation.submittedBy:id,name'])
@@ -287,11 +305,27 @@ class PanelController extends Controller
         return [$pendingPrePublish, $pendingFinalReview];
     }
 
+    /**
+     * The shared Raw Content / Designer row list, filtered to the selected
+     * Daily/Monthly/Yearly period. A row belongs to the period in which its
+     * latest version was submitted — a resubmission's V2 belongs to the
+     * period V2 was submitted in, not when the item was first created. An
+     * item with no submission yet (freshly created, still pending) falls
+     * back to its own created_at so it isn't simply unreachable by any period.
+     */
     private function itemsJson(Request $request, array $categories): JsonResponse
     {
+        [$since, $until] = ReportingPeriod::fromRequest($request)->bounds();
+
         $items = ContentItem::whereIn('category', $categories)
             ->when($request->filled('brand_id'), fn ($q) => $q->where('brand_id', $request->brand_id))
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->status))
+            ->where(function ($q) use ($since, $until) {
+                $q->whereHas('latestSubmissionRelation', fn ($q2) => $q2->where('created_at', '>=', $since)->where('created_at', '<', $until))
+                    ->orWhere(function ($q2) use ($since, $until) {
+                        $q2->whereDoesntHave('submissions')->where('created_at', '>=', $since)->where('created_at', '<', $until);
+                    });
+            })
             ->with(['brand:id,name', 'product:id,name', 'latestSubmissionRelation'])
             ->latest()
             ->get()

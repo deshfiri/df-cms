@@ -8,7 +8,10 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
-/** Designer panel activity: poster work only, on the same period and queue rules as Raw Content. */
+/**
+ * Designer panel activity: poster work only, on the same period and queue
+ * rules as Raw Content — the item queue now follows the selected period too.
+ */
 class DesignerActivityReportingTest extends TestCase
 {
     use ContentWorkflowFixtures;
@@ -36,9 +39,9 @@ class DesignerActivityReportingTest extends TestCase
     }
 
     /** @return array<int, int> */
-    private function queueIds(User $viewer): array
+    private function queueIds(User $viewer, array $query = []): array
     {
-        return collect($this->actingAs($viewer)->getJson(route('panels.designer'))->json('data'))->pluck('id')->all();
+        return collect($this->actingAs($viewer)->getJson(route('panels.designer', $query))->json('data'))->pluck('id')->all();
     }
 
     private function poster(array $activity): array
@@ -115,16 +118,19 @@ class DesignerActivityReportingTest extends TestCase
         $this->assertSame(1, $poster['revisions_received']);
     }
 
-    // ── 13. Current queue stays accessible ────────────────────────────────────
+    // ── 13. The poster queue follows the selected period, even for current work ──
 
-    public function test_the_current_poster_queue_stays_accessible_while_a_historical_period_is_selected(): void
+    public function test_the_poster_queue_follows_the_selected_period_even_for_current_work(): void
     {
         $t = $this->workflowTeam();
         $brand = $this->readyBrand($t['manager']);
-        $urgent = $this->submittedAt('2026-10-06 10:00', $brand, $t['design'], ContentItem::CATEGORY_POSTER);
+        $octoberPoster = $this->submittedAt('2026-10-06 10:00', $brand, $t['design'], ContentItem::CATEGORY_POSTER);
 
         $this->assertSame(0, $this->poster($this->activity($t['design'], $this->monthly('2026-09')))['submitted']);
-        $this->assertContains($urgent->id, $this->queueIds($t['design']));
+        // A past period hides it, even though it is still fully actionable today.
+        $this->assertNotContains($octoberPoster->id, $this->queueIds($t['design'], $this->monthly('2026-09')));
+        // The period it was actually submitted in shows it.
+        $this->assertContains($octoberPoster->id, $this->queueIds($t['design'], $this->monthly('2026-10')));
     }
 
     // ── 14. Asia/Dhaka boundary ───────────────────────────────────────────────

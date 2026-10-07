@@ -29,7 +29,7 @@
 @endphp
 @include('partials.activity-section', [
     'title' => 'SMM',
-    'caption' => 'Collection and publishing activity in the selected period. The Available, Collected and Published tabs below are always current.',
+    'caption' => 'Collection and publishing activity in the selected period. The Available, Collected, Published and Client Conversations tabs below follow the same period.',
     'period' => $period,
     'rowHeading' => 'Scope',
     'columns' => $smmColumns,
@@ -170,6 +170,16 @@ const catLabel = { raw_content: 'Raw content', advertising_content: 'Advertising
 const escSmm = s => $('<div>').text(s == null ? '' : s).html();
 const panes = { available: '#paneAvailable', collected: '#paneCollected', published: '#panePublished', conversations: '#paneConversations' };
 
+// Same selected period the Activity section above is rendered with — every
+// tab's row list follows it too, so switching tabs never shows a different
+// period than the one chosen above.
+const smmPeriodParams = {
+    period: @json($period->period),
+    date: @json($period->period === 'daily' ? $period->selected : null),
+    month: @json($period->period === 'monthly' ? $period->selected : null),
+    year: @json($period->period === 'yearly' ? $period->selected : null),
+};
+
 $('.smm-tabs .nav-link').on('click', function () {
     $('.smm-tabs .nav-link').removeClass('active');
     $(this).addClass('active');
@@ -197,7 +207,7 @@ function submissionLink(sub, brandId, itemId) {
 }
 
 function loadAvailable() {
-    $.get('{{ route('panels.smm.available') }}').done(function (r) {
+    $.get('{{ route('panels.smm.available') }}', smmPeriodParams).done(function (r) {
         const rows = r.data || [];
         if (!rows.length) { $('#availRows').html('<tr><td colspan="6" class="smm-empty">Nothing waiting to be collected.</td></tr>'); return; }
         $('#availRows').html(rows.map(it => '<tr>'
@@ -215,7 +225,7 @@ function loadAvailable() {
 }
 
 function loadCollected() {
-    $.get('{{ route('panels.smm.collected') }}').done(function (r) {
+    $.get('{{ route('panels.smm.collected') }}', smmPeriodParams).done(function (r) {
         const rows = r.data || [];
         if (!rows.length) { $('#collRows').html('<tr><td colspan="6" class="smm-empty">Nothing collected right now.</td></tr>'); return; }
         $('#collRows').html(rows.map(function (it) {
@@ -242,7 +252,7 @@ function reviewBadge(state) {
 }
 
 function loadPublished() {
-    $.get('{{ route('panels.smm.published') }}').done(function (r) {
+    $.get('{{ route('panels.smm.published') }}', smmPeriodParams).done(function (r) {
         const rows = r.data || [];
         if (!rows.length) { $('#pubRows').html('<tr><td colspan="7" class="smm-empty">Nothing published yet.</td></tr>'); return; }
         // Publication history stays visible here regardless of a later
@@ -342,7 +352,7 @@ $('#convBrand').on('change', function () {
 });
 
 function loadConversations() {
-    $.get('{{ route('smm-conversations.index') }}').done(function (r) {
+    $.get('{{ route('smm-conversations.index') }}', smmPeriodParams).done(function (r) {
         const rows = r.data || [];
         if (!rows.length) { $('#convRows').html('<tr><td colspan="6" class="smm-empty">You have not logged any conversations yet.</td></tr>'); return; }
         $('#convRows').html(rows.map(c => '<tr>'

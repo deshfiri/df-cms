@@ -229,10 +229,15 @@
 </div>
 
 {{-- Unreviewed Published Content — read-only, across every brand; the actual
-     review/revision actions reuse the existing Marketing routes directly. --}}
+     review/revision actions reuse the existing Marketing routes directly.
+     Filtered to the Activity section's selected period above, by
+     published_at — the Marketing tile's count above stays a current,
+     unfiltered backlog and may disagree with this table when a past
+     period is selected. --}}
 <div class="ov-card mt-4">
     <div class="p-3" style="border-bottom:1px solid var(--border)">
         <strong><i class="bi bi-eye me-1"></i>Unreviewed Published Content</strong>
+        <span class="small fw-normal" style="color:var(--text3)">· {{ $period->label }}</span>
     </div>
     <div class="table-responsive">
         <table class="table mb-0 align-middle">

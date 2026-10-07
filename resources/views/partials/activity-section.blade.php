@@ -1,6 +1,7 @@
 {{--
-    Historical activity for the selected Daily / Monthly / Yearly period. It is
-    separate from the current queue below it, which is never filtered by this.
+    Historical activity for the selected Daily / Monthly / Yearly period.
+    Whether the row list below it follows the same period is per-panel — see
+    $caption, which each page sets to describe its own queue correctly.
     Expects: $title, $caption, $period (ReportingPeriod), $rowHeading,
     $columns ([key, label, help]), $rows ([label, values, strong?]).
 --}}

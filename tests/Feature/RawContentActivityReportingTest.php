@@ -9,10 +9,12 @@ use Tests\Concerns\ContentWorkflowFixtures;
 use Tests\TestCase;
 
 /**
- * Raw Content panel activity. The Activity section follows the selected
- * Daily/Monthly/Yearly period, and the current queue never does. Category
- * isolation is explicit: raw_content and advertising_content are separate rows,
- * and the combined row is labelled as combined.
+ * Raw Content panel activity. The Activity section AND the item queue below
+ * it both follow the selected Daily/Monthly/Yearly period — a row belongs to
+ * the period its latest submission (or, pre-submission, its own created_at)
+ * falls in. Category isolation is explicit: raw_content and
+ * advertising_content are separate rows, and the combined row is labelled as
+ * combined.
  */
 class RawContentActivityReportingTest extends TestCase
 {
@@ -41,9 +43,9 @@ class RawContentActivityReportingTest extends TestCase
     }
 
     /** @return array<int, int> */
-    private function queueIds(User $viewer): array
+    private function queueIds(User $viewer, array $query = []): array
     {
-        return collect($this->actingAs($viewer)->getJson(route('panels.raw-content'))->json('data'))->pluck('id')->all();
+        return collect($this->actingAs($viewer)->getJson(route('panels.raw-content', $query))->json('data'))->pluck('id')->all();
     }
 
     // ── 1–3. Daily / Monthly / Yearly ─────────────────────────────────────────
@@ -121,18 +123,21 @@ class RawContentActivityReportingTest extends TestCase
         $this->assertSame(1, collect($this->queueIds($t['content']))->filter(fn ($id) => $id === $item->id)->count());
     }
 
-    // ── 6. Current queue stays accessible in a historical period ──────────────
+    // ── 6. The item queue follows the selected period, even for current work ──
 
-    public function test_the_current_queue_stays_accessible_while_a_historical_period_is_selected(): void
+    public function test_the_item_queue_follows_the_selected_period_even_for_current_work(): void
     {
         $t = $this->workflowTeam();
         $brand = $this->readyBrand($t['manager']);
-        $urgent = $this->submittedAt('2026-10-06 10:00', $brand, $t['content']);
+        $octoberItem = $this->submittedAt('2026-10-06 10:00', $brand, $t['content']);
 
         $september = $this->activity($t['content'], $this->monthly('2026-09'));
-
         $this->assertSame(0, $september['categories']['raw_content']['submitted']);
-        $this->assertContains($urgent->id, $this->queueIds($t['content']));
+
+        // A past period hides it, even though it is still fully actionable today.
+        $this->assertNotContains($octoberItem->id, $this->queueIds($t['content'], $this->monthly('2026-09')));
+        // The period it was actually submitted in shows it.
+        $this->assertContains($octoberItem->id, $this->queueIds($t['content'], $this->monthly('2026-10')));
     }
 
     // ── 7. Asia/Dhaka boundary ────────────────────────────────────────────────

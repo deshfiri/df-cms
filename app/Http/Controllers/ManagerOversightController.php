@@ -40,13 +40,14 @@ class ManagerOversightController extends Controller
 
     public function index(Request $request): View
     {
-        // Computed once and shared — the workload tile's count must never
-        // disagree with the list it's summarizing.
-        $unreviewed = $this->unreviewedPublishedContents();
+        // The workload tile is a current, unfiltered backlog count — it
+        // must never be hidden by an old period, so it's computed on its
+        // own, separately from the row list below.
+        $unreviewedCount = $this->unreviewedPublishedContents()->count();
 
-        // Activity follows the selected period. The current workload and
-        // unreviewed lists above never do, so an old period never hides
-        // today's urgent work.
+        // Activity, and now the "Unreviewed Published Content" row list
+        // itself, follow the selected period — only the workload tile above
+        // stays a current, unfiltered snapshot.
         $period = ReportingPeriod::fromRequest($request);
         $brands = Brand::whereHas('checklist')->orderBy('name')->get(['id', 'name']);
 
@@ -58,8 +59,8 @@ class ManagerOversightController extends Controller
             // item/submission/file breakdown lives on the dedicated
             // checklist detail page (marketing.checklist), not here.
             'categoryCounts' => $this->projection->categoryCounts(),
-            'workload' => $this->departmentWorkload($unreviewed->count()),
-            'unreviewed' => $unreviewed,
+            'workload' => $this->departmentWorkload($unreviewedCount),
+            'unreviewed' => $this->unreviewedPublishedContents($period),
             'period' => $period,
             'activity' => $this->activity->managerOversight($period, $brands),
             'activityBrands' => $brands,
@@ -146,9 +147,10 @@ class ManagerOversightController extends Controller
                 'collected' => $withStatus(ContentItem::$categories, ContentItem::STATUS_COLLECTED),
             ],
             'marketing' => [
-                // Passed in from index() — the same computed list the
-                // "Unreviewed Published Content" table below renders, so
-                // this count never disagrees with what that table shows.
+                // The current, unfiltered backlog — deliberately a separate
+                // query from the "Unreviewed Published Content" table below,
+                // which now follows the selected period and so may show
+                // fewer rows than this count when a past period is selected.
                 'unreviewed_publishes' => $unreviewedPublishes,
                 'pending_corrections' => PendingChange::where('model_type', AdvertisingExpenditure::class)->pending()->count(),
             ],
@@ -161,13 +163,24 @@ class ManagerOversightController extends Controller
      * just global instead of brand-scoped, matching how the rest of this
      * screen (budgets, checklists) is already cross-brand. Read-only; the
      * actual review/revision actions reuse the existing Marketing routes.
+     *
+     * With no $period, this is the full, unfiltered backlog (the workload
+     * tile's count). With a $period, it's filtered to that selected
+     * Daily/Monthly/Yearly window by published_at — the moment each
+     * publication actually happened — for the row list shown on the page.
      */
-    private function unreviewedPublishedContents(): Collection
+    private function unreviewedPublishedContents(?ReportingPeriod $period = null): Collection
     {
-        $items = PublishedContent::whereNull('reviewed_at')
+        $query = PublishedContent::whereNull('reviewed_at')
             ->with(['item:id,title,category,brand_id', 'item.brand:id,name', 'publishedBy:id,name'])
-            ->orderBy('published_at')
-            ->get();
+            ->orderBy('published_at');
+
+        if ($period) {
+            [$since, $until] = $period->bounds();
+            $query->where('published_at', '>=', $since)->where('published_at', '<', $until);
+        }
+
+        $items = $query->get();
 
         // Same exclusion MarketingBillingController::unreviewedPublishedContents()
         // applies — a publication a revision has since been requested

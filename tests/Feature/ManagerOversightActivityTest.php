@@ -13,7 +13,10 @@ use Tests\TestCase;
 /**
  * Manager Oversight activity. Manager is oversight only, so these tests cover
  * reporting and never an approval action. The key guarantee is that Manager
- * and Marketing agree on every shared metric for the same period.
+ * and Marketing agree on every shared metric for the same period. The
+ * "Unreviewed Published Content" row list follows the selected period (by
+ * published_at); only the Department Workload tile above it stays a current,
+ * unfiltered backlog count.
  */
 class ManagerOversightActivityTest extends TestCase
 {
@@ -152,19 +155,27 @@ class ManagerOversightActivityTest extends TestCase
         $this->assertSame(1, $manager['departments']['marketing']['completed'], 'The one review is a completion for both.');
     }
 
-    // ── 30. Current oversight data stays accessible ───────────────────────────
+    // ── 30. The workload tile stays current; the row list follows the period ──
 
-    public function test_unreviewed_publications_stay_visible_while_a_historical_period_is_selected(): void
+    public function test_the_unreviewed_tile_stays_current_while_the_row_list_follows_the_selected_period(): void
     {
         $t = $this->workflowTeam();
         $brand = $this->readyBrand($t['manager']);
         [, $published] = $this->publishedAt('2026-10-06 10:00', $brand, $t['content'], $t['marketing'], $t['smm']);
 
-        $report = $this->oversight($t['manager'], $this->monthly('2026-09'));
+        $september = $this->oversight($t['manager'], $this->monthly('2026-09'));
 
-        $this->assertSame(0, $report['activity']['departments']['marketing']['returned_for_final_check']);
-        $this->assertSame(1, $report['response']->viewData('workload')['marketing']['unreviewed_publishes']);
-        $this->assertTrue($report['response']->viewData('unreviewed')->contains(fn (PublishedContent $p) => $p->id === $published->id));
+        $this->assertSame(0, $september['activity']['departments']['marketing']['returned_for_final_check']);
+        // The workload tile is a current, unfiltered backlog count — it never hides this.
+        $this->assertSame(1, $september['response']->viewData('workload')['marketing']['unreviewed_publishes']);
+        // The row list below it now follows the selected period: September — when
+        // this wasn't published — excludes it, even though it is still fully
+        // actionable today.
+        $this->assertFalse($september['response']->viewData('unreviewed')->contains(fn (PublishedContent $p) => $p->id === $published->id));
+
+        // October — when it was actually published — includes it.
+        $october = $this->oversight($t['manager'], $this->monthly('2026-10'));
+        $this->assertTrue($october['response']->viewData('unreviewed')->contains(fn (PublishedContent $p) => $p->id === $published->id));
     }
 
     // ── 31. Asia/Dhaka boundary ───────────────────────────────────────────────

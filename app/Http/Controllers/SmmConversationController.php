@@ -6,6 +6,7 @@ use App\Models\Brand;
 use App\Models\SmmClientConversation;
 use App\Services\SmmConversationService;
 use App\Services\Storage\StoredFileResponse;
+use App\Support\ReportingPeriod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -21,11 +22,21 @@ class SmmConversationController extends Controller
 {
     public function __construct(private readonly SmmConversationService $conversations) {}
 
-    /** SMM sees its own records. Marketing sees every record, filtered by brand and status. */
+    /**
+     * SMM sees its own records. Marketing sees every record, filtered by
+     * brand and status. Both are filtered to the selected Daily/Monthly/
+     * Yearly period by submitted_at — the moment the conversation itself
+     * was logged, not when it was later reviewed.
+     */
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $query = SmmClientConversation::query()->with(['brand:id,name', 'product:id,name', 'submitter:id,name', 'reviewer:id,name']);
+        [$since, $until] = ReportingPeriod::fromRequest($request)->bounds();
+
+        $query = SmmClientConversation::query()
+            ->with(['brand:id,name', 'product:id,name', 'submitter:id,name', 'reviewer:id,name'])
+            ->where('submitted_at', '>=', $since)
+            ->where('submitted_at', '<', $until);
 
         if ($user->can('manage publishing-review')) {
             $query->when($request->filled('brand_id'), fn ($q) => $q->where('brand_id', $request->integer('brand_id')))

@@ -446,6 +446,35 @@ class SmmClientConversationTest extends TestCase
         $this->assertNotNull($pendingOct->fresh());
     }
 
+    /**
+     * The row list itself (not just the activity metrics tested above) now
+     * follows the selected period, by submitted_at — for both the SMM
+     * submitter's own view and Marketing's review queue.
+     */
+    public function test_the_conversation_row_list_follows_the_selected_period_for_smm_and_marketing(): void
+    {
+        $manager = $this->user('Manager', ['manage payments']);
+        $brand = $this->readyBrand($manager);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $smm = $this->smm();
+
+        $this->atDhaka('2026-09-15 10:00');
+        $septConversation = $this->conversationFor($smm, $brand);
+
+        $this->atDhaka('2026-10-06 10:00');
+        $octConversation = $this->conversationFor($smm, $brand);
+
+        $smmSept = $this->actingAs($smm)->getJson(route('smm-conversations.index', ['period' => 'monthly', 'month' => '2026-09']))->json('data');
+        $smmOct = $this->actingAs($smm)->getJson(route('smm-conversations.index', ['period' => 'monthly', 'month' => '2026-10']))->json('data');
+        $this->assertSame([$septConversation->id], collect($smmSept)->pluck('id')->all());
+        $this->assertSame([$octConversation->id], collect($smmOct)->pluck('id')->all());
+
+        $mktSept = $this->actingAs($marketing)->getJson(route('smm-conversations.index', ['status' => 'pending', 'period' => 'monthly', 'month' => '2026-09']))->json('data');
+        $mktOct = $this->actingAs($marketing)->getJson(route('smm-conversations.index', ['status' => 'pending', 'period' => 'monthly', 'month' => '2026-10']))->json('data');
+        $this->assertSame([$septConversation->id], collect($mktSept)->pluck('id')->all());
+        $this->assertSame([$octConversation->id], collect($mktOct)->pluck('id')->all());
+    }
+
     public function test_conversation_review_stays_available_while_the_brand_checklist_is_on_hold(): void
     {
         $manager = $this->user('Manager', ['manage payments']);

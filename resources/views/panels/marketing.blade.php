@@ -28,7 +28,25 @@
     <li class="nav-item"><a class="nav-link" data-tab="conversations">Client Conversations</a></li>
 </ul>
 
-{{-- ── CURRENT WORK: never period-filtered — see ReportingPeriod's own docblock ── --}}
+{{--
+    Daily | Monthly | Yearly — governs every tab below, not just the Workload
+    Dashboard. Pre-Publish Check and Client Conversations now follow the
+    selected period too, same as every other panel's row lists.
+--}}
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <select id="mktPeriodType" class="form-select form-select-sm" style="width:130px">
+        <option value="daily">Daily</option>
+        <option value="monthly" selected>Monthly</option>
+        <option value="yearly">Yearly</option>
+    </select>
+    {{-- Defaults come from the server's Asia/Dhaka clock — the same calendar the report itself uses — not the browser's. --}}
+    <input type="date" id="mktPeriodDate" value="{{ now('Asia/Dhaka')->format('Y-m-d') }}" class="form-control form-control-sm d-none" style="width:160px">
+    <input type="month" id="mktPeriodMonth" value="{{ now('Asia/Dhaka')->format('Y-m') }}" class="form-control form-control-sm" style="width:160px">
+    <input type="number" id="mktPeriodYear" value="{{ now('Asia/Dhaka')->format('Y') }}" class="form-control form-control-sm d-none" style="width:110px" min="2000" max="2100">
+    <span id="mktPeriodLabel" class="small" style="color:var(--text3)"></span>
+</div>
+
+{{-- ── Pre-Publish Check: filtered to the period selected above ── --}}
 <div class="card section-card" id="paneMktPending">
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -40,7 +58,7 @@
     </div>
 </div>
 
-{{-- ── CURRENT WORK: SMM client conversations awaiting verification (never period-filtered) ── --}}
+{{-- ── SMM client conversations awaiting verification, filtered to the period selected above ── --}}
 <div class="card section-card d-none" id="paneMktConversations">
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -55,19 +73,6 @@
 {{-- ── ACTIVITY / PERFORMANCE: Daily | Monthly | Yearly ── --}}
 <div class="card section-card d-none" id="paneMktWorkload">
     <div class="card-body">
-        <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-            <select id="mktPeriodType" class="form-select form-select-sm" style="width:130px">
-                <option value="daily">Daily</option>
-                <option value="monthly" selected>Monthly</option>
-                <option value="yearly">Yearly</option>
-            </select>
-            {{-- Defaults come from the server's Asia/Dhaka clock — the same calendar the report itself uses — not the browser's. --}}
-            <input type="date" id="mktPeriodDate" value="{{ now('Asia/Dhaka')->format('Y-m-d') }}" class="form-control form-control-sm d-none" style="width:160px">
-            <input type="month" id="mktPeriodMonth" value="{{ now('Asia/Dhaka')->format('Y-m') }}" class="form-control form-control-sm" style="width:160px">
-            <input type="number" id="mktPeriodYear" value="{{ now('Asia/Dhaka')->format('Y') }}" class="form-control form-control-sm d-none" style="width:110px" min="2000" max="2100">
-            <span id="mktPeriodLabel" class="small" style="color:var(--text3)"></span>
-        </div>
-
         <div class="mkt-kpi-grid">
             <div class="mkt-kpi is-primary"><div class="mkt-kpi-label">Received</div><div class="mkt-kpi-value" id="mktTotalReceived">—</div></div>
             <div class="mkt-kpi is-primary"><div class="mkt-kpi-label">Handed Over</div><div class="mkt-kpi-value" id="mktTotalHandedOver">—</div></div>
@@ -131,6 +136,7 @@ $('.mkt-tabs .nav-link').on('click', function () {
     const tab = $(this).data('tab');
     Object.values(panes).forEach(sel => $(sel).addClass('d-none'));
     $(panes[tab]).removeClass('d-none');
+    $('#mktPeriodLabel').text(displayPeriodLabel());
     if (tab === 'pending') loadPending();
     if (tab === 'workload') loadWorkload();
     if (tab === 'conversations') loadConversations();
@@ -149,7 +155,7 @@ function submissionLink(sub, brandId, itemId) {
 }
 
 function loadPending() {
-    $.get('{{ route('panels.marketing.pending-check') }}').done(function (r) {
+    $.get('{{ route('panels.marketing.pending-check') }}', periodParams()).done(function (r) {
         const rows = r.data || [];
         if (!rows.length) { $('#mktPendingRows').html('<tr><td colspan="8" class="mkt-empty">Nothing waiting on Marketing right now.</td></tr>'); return; }
         $('#mktPendingRows').html(rows.map(it => {
@@ -208,9 +214,9 @@ $('#mktPendingRows').on('click', '.mkt-claim-btn', function () {
         .fail(x => Swal.fire('Not claimed', x.responseJSON?.message || Object.values(x.responseJSON?.errors || {}).flat().join(' ') || 'Could not claim this.', 'warning'));
 });
 
-// ── Client conversations: verify SMM evidence (current work, never period-filtered) ──
+// ── Client conversations: verify SMM evidence, filtered to the selected period ──
 function loadConversations() {
-    $.get('{{ route('smm-conversations.index') }}', { status: 'pending' }).done(function (r) {
+    $.get('{{ route('smm-conversations.index') }}', Object.assign({ status: 'pending' }, periodParams())).done(function (r) {
         const rows = r.data || [];
         if (!rows.length) { $('#mktConvRows').html('<tr><td colspan="8" class="mkt-empty">No conversations waiting for verification.</td></tr>'); return; }
         $('#mktConvRows').html(rows.map(c => '<tr>'
@@ -261,7 +267,9 @@ $('#mktRevisionSave').on('click', function () {
       .always(() => $btn.prop('disabled', false));
 });
 
-// ── Workload dashboard ──────────────────────────────────────────────────
+// ── Period picker: shared by Pre-Publish Check, Client Conversations and
+// the Workload Dashboard — see ReportingPeriod's own parameter names
+// (period/date/month/year), unchanged here. ──────────────────────────────
 function syncPeriodInputs() {
     const type = $('#mktPeriodType').val();
     $('#mktPeriodDate').toggleClass('d-none', type !== 'daily');
@@ -269,17 +277,52 @@ function syncPeriodInputs() {
     $('#mktPeriodYear').toggleClass('d-none', type !== 'yearly');
 }
 
-$('#mktPeriodType').on('change', function () { syncPeriodInputs(); loadWorkload(); });
-$('#mktPeriodDate,#mktPeriodMonth,#mktPeriodYear').on('change', loadWorkload);
-
-function loadWorkload() {
+function periodParams() {
     const type = $('#mktPeriodType').val();
     const params = { period: type };
     if (type === 'daily') params.date = $('#mktPeriodDate').val();
     if (type === 'monthly') params.month = $('#mktPeriodMonth').val();
     if (type === 'yearly') params.year = $('#mktPeriodYear').val();
+    return params;
+}
 
-    $.get('{{ route('panels.marketing.workload') }}', params).done(function (r) {
+// Cosmetic only — the real filtering is the server-side query above, built
+// from these same input values. Used for tabs whose endpoint doesn't hand
+// back a formatted label (loadWorkload overwrites this with the server's own).
+function displayPeriodLabel() {
+    const type = $('#mktPeriodType').val();
+    if (type === 'daily') {
+        const d = $('#mktPeriodDate').val();
+        if (!d) return '';
+        const [y, m, day] = d.split('-');
+        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return day + ' ' + months[parseInt(m, 10) - 1] + ' ' + y;
+    }
+    if (type === 'yearly') return $('#mktPeriodYear').val();
+    const m = $('#mktPeriodMonth').val();
+    if (!m) return '';
+    const [y, mm] = m.split('-');
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    return months[parseInt(mm, 10) - 1] + ' ' + y;
+}
+
+function activeMktTab() {
+    return Object.keys(panes).find(k => !$(panes[k]).hasClass('d-none')) || 'pending';
+}
+
+function reloadActiveMktTab() {
+    $('#mktPeriodLabel').text(displayPeriodLabel());
+    const tab = activeMktTab();
+    if (tab === 'pending') loadPending();
+    if (tab === 'workload') loadWorkload();
+    if (tab === 'conversations') loadConversations();
+}
+
+$('#mktPeriodType').on('change', function () { syncPeriodInputs(); reloadActiveMktTab(); });
+$('#mktPeriodDate,#mktPeriodMonth,#mktPeriodYear').on('change', reloadActiveMktTab);
+
+function loadWorkload() {
+    $.get('{{ route('panels.marketing.workload') }}', periodParams()).done(function (r) {
         const rows = r.data || [];
         $('#mktPeriodLabel').text(r.period ? r.period.label : '');
         $('#mktTotalReceived').text(r.totals.received);
@@ -304,6 +347,7 @@ function loadWorkload() {
 }
 
 syncPeriodInputs();
+$('#mktPeriodLabel').text(displayPeriodLabel());
 
 loadPending();
 </script>

@@ -29,7 +29,7 @@
 @endphp
 @include('partials.activity-section', [
     'title' => 'Posters',
-    'caption' => 'Poster work produced in the selected period. The queue below is always current.',
+    'caption' => 'Poster work produced in the selected period. The queue below follows the same period.',
     'period' => $period,
     'rowHeading' => 'Category',
     'columns' => $posterColumns,
@@ -141,10 +141,18 @@ const statusLabel = {
 };
 const escDesigner = s => $('<div>').text(s == null ? '' : s).html();
 
+// Same selected period the Activity section above is rendered with.
+const dsPeriodParams = {
+    period: @json($period->period),
+    date: @json($period->period === 'daily' ? $period->selected : null),
+    month: @json($period->period === 'monthly' ? $period->selected : null),
+    year: @json($period->period === 'yearly' ? $period->selected : null),
+};
+
 function loadItems() {
-    $.get('{{ route('panels.designer') }}', {
+    $.get('{{ route('panels.designer') }}', Object.assign({}, dsPeriodParams, {
         brand_id: $('#filterBrand').val(), status: $('#filterStatus').val(),
-    }).done(function (r) {
+    })).done(function (r) {
         const rows = r.data || [];
         if (!rows.length) { $('#dsRows').html('<tr><td colspan="6" class="ds-empty">No posters match these filters.</td></tr>'); return; }
         $('#dsRows').html(rows.map(function (it) {
