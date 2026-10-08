@@ -803,9 +803,10 @@ class PerformanceCalculationService
      * client, or exactly one, credits exactly as it always did.
      *
      * Feeds every task KPI that measures how much got done or how well:
-     * Task Completion, On-Time Delivery, Revision Rate. Output Volume
-     * deliberately excludes tasks entirely (see its own docblock), so it
-     * never sees this multiplier either way.
+     * Task Completion, On-Time Delivery, Revision Rate — and, scaled by
+     * workloadCreditOf(), Output Volume's task_workload scope (see its own
+     * docblock). This multiplier itself is unchanged by that scope; only a
+     * separate factor for revision-affected work is layered on top of it.
      */
     private static function creditOf(Task $task): float
     {
@@ -1263,16 +1264,45 @@ class PerformanceCalculationService
     // left out of their average. Nobody with nothing to show in ANY scope
     // is measured on Output Volume at all.
     //
-    // Deliberately excludes a "task" scope: Task Completion already scores
-    // every task an assignee is given, so a task scope here would credit
-    // the exact same completed tasks twice — once for the rate, once for
-    // the volume — letting a handful of tasks push both KPIs to 100% at
-    // once instead of measuring two genuinely different things.
+    // Includes a "task_workload" scope: Task Completion already scores a
+    // RATE (did you finish what was yours), which is a different question
+    // from "how much did you actually produce relative to comparable
+    // peers" — the same relationship client_handling already has with a
+    // plain client count. Reading the same credited-task data to answer two
+    // different questions isn't double-counting; see creditedTaskVolume()
+    // and taskVolumeCohortMax() below for exactly how it's compared, and
+    // workloadCreditOf() for why a task needing the employee's own rework
+    // counts for less workload than a clean one (reusing revisionRate()'s
+    // own "Employee Mistake" definition — it never invents a new one, and
+    // the Revision Rate KPI itself is completely unaffected).
+    //
+    // Compared within the employee's own department (tasks vary too much
+    // across roles to compare everyone directly), falling back to a
+    // company-wide baseline when a department has too few people with any
+    // task volume this period to be a meaningful peer group — see
+    // taskVolumeCohortMax(). Weighted twice as heavily as the other scopes
+    // when averaged together, so it can't be diluted away for someone who
+    // also has a client portfolio or workflow items — see outputVolume()'s
+    // combine step.
 
     public const VOLUME_SCOPE_LABELS = [
         'workflow' => 'Workflow Items',
         'client_handling' => 'Client Handling',
+        'task_workload' => 'Task Workload',
     ];
+
+    /** Output Volume's internal weight for each scope when combining them into one pct — see outputVolume(). */
+    private const VOLUME_SCOPE_WEIGHTS = [
+        'workflow' => 1,
+        'client_handling' => 1,
+        'task_workload' => 2,
+    ];
+
+    /** A department needs at least this many people with any task volume this period to be used as the task_workload baseline; below that, cohortMaxTaskVolume() falls back to the company-wide max. */
+    private const MIN_TASK_VOLUME_COHORT = 3;
+
+    /** Bucket key for an employee with no department/role at all. */
+    private const NO_DEPARTMENT = '__none__';
 
     /**
      * Percentage points docked from a client-access employee's "Workflow
@@ -1313,6 +1343,12 @@ class PerformanceCalculationService
             $scopes['client_handling'] = $this->volumeScope($myPortfolio, $this->cohortMaxClientPortfolio());
         }
 
+        $myTaskVolume = $this->creditedTaskVolume($user, $period);
+        if ($myTaskVolume > 0) {
+            $department = $user->getRoleNames()->first();
+            $scopes['task_workload'] = $this->volumeScope($myTaskVolume, $this->taskVolumeCohortMax($period, $department));
+        }
+
         if (empty($scopes)) {
             return null;
         }
@@ -1321,9 +1357,19 @@ class PerformanceCalculationService
             $scopes[$key]['label'] = self::VOLUME_SCOPE_LABELS[$key];
         }
 
+        // Weighted, not a plain average — task_workload counts double so it
+        // can't be diluted away for someone who also has another scope.
+        $weightedSum = 0.0;
+        $totalWeight = 0;
+        foreach ($scopes as $key => $scope) {
+            $weight = self::VOLUME_SCOPE_WEIGHTS[$key] ?? 1;
+            $weightedSum += $scope['pct'] * $weight;
+            $totalWeight += $weight;
+        }
+
         return [
             'scopes' => $scopes,
-            'pct' => round(collect($scopes)->avg('pct'), 2),
+            'pct' => round($weightedSum / $totalWeight, 2),
         ];
     }
 
@@ -1485,6 +1531,118 @@ class PerformanceCalculationService
             ->groupBy(fn ($c) => (int) ($c->assigned_to ?? $c->created_by))
             ->map->count()
             ->all();
+    }
+
+    /** Workload credit per task, for Output Volume's task_workload scope only. */
+    private const CLEAN_TASK_WORKLOAD_CREDIT = 1.0;
+
+    private const REVISION_AFFECTED_WORKLOAD_CREDIT = 0.5;
+
+    /**
+     * A task's workload credit for the task_workload scope — never used by
+     * Task Completion, On-Time Delivery or Revision Rate, which keep using
+     * creditOf()/credit() exactly as before. Reuses revisionRate()'s own
+     * "Employee Mistake" revision flag (the `revisions` relation loadTasks()
+     * already eager-loads, pre-filtered to that reason_category) rather
+     * than inventing a new definition: a task the employee had to rework
+     * themselves still represents real completed work, so it isn't zeroed
+     * out, but it counts for half a clean task's workload credit, so a
+     * volume built mostly from rework can't out-credit a smaller, clean
+     * volume. This does not double-count Revision Rate — that KPI scores a
+     * RATE on its own weight, untouched by this; this only scales how much
+     * WORKLOAD CREDIT a task contributes to a volume comparison in a
+     * different KPI.
+     */
+    private static function workloadCreditOf(Task $task): float
+    {
+        $factor = $task->revisions->isNotEmpty()
+            ? self::REVISION_AFFECTED_WORKLOAD_CREDIT
+            : self::CLEAN_TASK_WORKLOAD_CREDIT;
+
+        return self::creditOf($task) * $factor;
+    }
+
+    /** Sum of workload credit — see workloadCreditOf(). */
+    private static function workloadCredit(iterable $tasks): float
+    {
+        $sum = 0.0;
+        foreach ($tasks as $task) {
+            $sum += self::workloadCreditOf($task);
+        }
+
+        return $sum;
+    }
+
+    /**
+     * This employee's own workload credit this period, for the
+     * task_workload scope — the same eligible ("counted") task set
+     * taskCompletion() uses, scored with workloadCreditOf() instead of
+     * creditOf() so revision-heavy work counts for less.
+     */
+    private function creditedTaskVolume(User $user, string $period): float
+    {
+        $tasks = $this->tasksFor($user, $period);
+        $counted = $this->settings()->count_cancelled_against_kpi ? $tasks : $tasks->where('status', '!=', 'Cancelled');
+
+        return self::workloadCredit($counted);
+    }
+
+    /** @var array<string,array{departments: array<string,array{count:int,max:float}>, company_max: float}> */
+    private array $taskVolumeCohortByPeriod = [];
+
+    /**
+     * The task_workload baseline for an employee in this department this
+     * period — the highest workload credit anyone in the SAME department
+     * turned in, so wildly different task volumes/kinds across roles are
+     * never compared directly. Falls back to the company-wide max when the
+     * department has fewer than MIN_TASK_VOLUME_COHORT people with any task
+     * volume this period, so a tiny department can't trivially hand its one
+     * member a meaningless 100%. Always company-wide within whichever group
+     * applies — independent of whatever cohort prefetch() was called with —
+     * same invariant cohortMaxWorkflowTouched()/cohortMaxClientPortfolio()
+     * already guarantee.
+     */
+    private function taskVolumeCohortMax(string $period, ?string $department): float
+    {
+        $cohort = $this->taskVolumeCohortByPeriod[$period] ??= $this->computeTaskVolumeCohort($period);
+
+        $bucket = $cohort['departments'][$department ?? self::NO_DEPARTMENT] ?? ['count' => 0, 'max' => 0.0];
+
+        return $bucket['count'] >= self::MIN_TASK_VOLUME_COHORT ? $bucket['max'] : $cohort['company_max'];
+    }
+
+    /**
+     * @return array{departments: array<string,array{count:int,max:float}>, company_max: float}
+     */
+    private function computeTaskVolumeCohort(string $period): array
+    {
+        $users = User::where('is_active', true)->with('roles')->get(['id']);
+        if ($users->isEmpty()) {
+            return ['departments' => [], 'company_max' => 0.0];
+        }
+
+        $tasksByUser = $this->loadTasks($users->pluck('id'), $period);
+        $countCancelled = $this->settings()->count_cancelled_against_kpi;
+
+        $departments = [];
+        $companyMax = 0.0;
+
+        foreach ($users as $u) {
+            $tasks = $tasksByUser[$u->id] ?? collect();
+            $counted = $countCancelled ? $tasks : $tasks->where('status', '!=', 'Cancelled');
+            $credited = self::workloadCredit($counted);
+
+            if ($credited <= 0) {
+                continue;
+            }
+
+            $department = $u->getRoleNames()->first() ?? self::NO_DEPARTMENT;
+            $departments[$department]['count'] = ($departments[$department]['count'] ?? 0) + 1;
+            $departments[$department]['max'] = max($departments[$department]['max'] ?? 0.0, $credited);
+            $companyMax = max($companyMax, $credited);
+        }
+
+        return ['departments' => $departments, 'company_max' => $companyMax];
     }
 
     public function resolveWeights(User $user): KpiWeightConfig

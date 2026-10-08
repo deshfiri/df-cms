@@ -74,9 +74,16 @@ class PerformanceController extends Controller
                         'final_score' => $score['final_score'],
                         'performance_level' => $score['performance_level'],
                         'scores' => $score['scores'],
+                        // Tie-break only — two people can both legitimately hit
+                        // 100% on every KPI that applies to them while having
+                        // done very different amounts of work; without this the
+                        // tie fell back to the alphabetical order rows started
+                        // in, not to who actually did more.
+                        'credited_total' => $score['components']['taskCompletion']['credited_total'] ?? 0.0,
                     ];
                 })
-                ->sortByDesc(fn ($r) => $r['final_score'] ?? -1)
+                ->sort(fn ($a, $b) => [$b['final_score'] ?? -1, $b['credited_total'], $b['id']]
+                    <=> [$a['final_score'] ?? -1, $a['credited_total'], $a['id']])
                 ->values();
 
             // Rank only employees that have a computable score; leave the rest unranked.

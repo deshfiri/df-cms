@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Brand;
 use App\Models\PerformancePointEvent;
 use App\Models\SmmClientConversation;
+use App\Models\Task;
 use App\Models\User;
 use App\Services\Performance\PerformanceCalculationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -268,5 +269,56 @@ class PotentialClientRankIntegrationTest extends TestCase
         $octBoard = $this->leaderboard($manager, '2026-10');
         $this->assertNull($this->rowFor($septBoard['rows'], $smm)['final_score']);
         $this->assertEqualsWithDelta($expected, $this->rowFor($octBoard['rows'], $smm)['final_score'], 0.001);
+    }
+
+    // ── Post-merge regression: the scorecard and the leaderboard still agree
+    // once BOTH Task Workload (a KPI-side contribution, inside output_volume)
+    // and Workflow Points (a separate, additive-after-KPI contribution) are
+    // in play for the same employee at once. ──────────────────────────────
+
+    /** A clean, on-time, no-revision completed task for $assignee, due in September 2026. */
+    private function cleanTask(User $assignee, string $title): Task
+    {
+        $task = Task::create([
+            'title' => $title, 'priority' => 'Medium', 'status' => 'Completed', 'type' => 'Other',
+            'due_date' => '2026-09-10', 'completion_date' => '2026-09-10',
+        ]);
+        $task->assignees()->sync([$assignee->id]);
+
+        return $task;
+    }
+
+    public function test_the_individual_scorecard_and_the_leaderboard_agree_when_task_workload_and_workflow_points_both_apply(): void
+    {
+        $manager = $this->user('Manager', ['manage payments', 'view performance']);
+        $marketing = $this->user('Marketing', ['manage publishing-review']);
+        $brand = $this->readyBrand($manager);
+        $smm = $this->smm('SMM Combined');
+
+        $this->atDhaka('2026-09-05 09:00');
+        // Task Workload contribution — folded into the output_volume KPI.
+        $this->cleanTask($smm, 'Clean task 1');
+        $this->cleanTask($smm, 'Clean task 2');
+
+        // Workflow Points contribution — Potential Client, additive after the weighted KPI blend.
+        $this->approve($marketing, $this->log($smm, $brand));
+        $this->approve($marketing, $this->log($smm, $brand));
+
+        $scorecard = $this->actingAs($manager)->get(route('performance.show', $smm).'?period=2026-09');
+        $scorecard->assertOk();
+        $scorecardScore = $scorecard->viewData('result')['final_score'];
+
+        $board = $this->leaderboard($manager, '2026-09');
+        $boardScore = $this->rowFor($board['rows'], $smm)['final_score'];
+
+        $this->assertNotNull($scorecardScore, 'Both contributions together must produce a computable score.');
+        $this->assertEqualsWithDelta($scorecardScore, $boardScore, 0.001, 'The scorecard (show()) and the leaderboard (index()) must compute an identical final_score for the same user and period — both call the same finalScore(), prefetched or not.');
+
+        // And the KPI/points split is exactly what's expected: kpi_score is
+        // the weighted blend (task_workload folded into output_volume, here
+        // the only applicable KPI), workflow points are added on top.
+        $result = $scorecard->viewData('result');
+        $expectedPointsScore = round(2 * (int) config('performance.points.potential_client') * (float) config('performance.score_per_point'), 2);
+        $this->assertEqualsWithDelta($result['kpi_score'] + $expectedPointsScore, $result['final_score'], 0.001);
     }
 }
