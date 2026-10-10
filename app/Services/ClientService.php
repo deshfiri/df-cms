@@ -36,10 +36,15 @@ class ClientService
             $data['created_by']    = Auth::id();
             $data['updated_by']    = Auth::id();
 
+            if (array_key_exists('customer_reason', $data)) {
+                $data['customer_reason'] = $this->normalizeReason($data['customer_reason']);
+            }
+
             $client = $this->clientRepo->create($data);
             $this->workflowRepo->initClientStages($client->id);
 
             $this->activityLog->log('Client', 'Created', $client->id, null, $client->toArray());
+            $this->logReasonChange($client->id, null, $data['customer_reason'] ?? null, Auth::id());
 
             return $client;
         });
@@ -60,6 +65,10 @@ class ClientService
     {
         $actor ??= Auth::user();
 
+        if (array_key_exists('customer_reason', $data)) {
+            $data['customer_reason'] = $this->normalizeReason($data['customer_reason']);
+        }
+
         if (($data['client_status'] ?? null) === 'Terminated' && $client->client_status !== 'Terminated') {
             $this->guardTermination();
         }
@@ -79,8 +88,54 @@ class ClientService
             $updated = $this->clientRepo->update($client, array_merge($data, ['updated_by' => $actor->id]));
             $this->activityLog->log('Client', 'Updated', $client->id, $old, $data, actorId: $actor->id);
 
+            if (array_key_exists('customer_reason', $data)) {
+                $this->logReasonChange($client->id, $old['customer_reason'] ?? null, $data['customer_reason'], $actor->id);
+            }
+
             return $updated;
         });
+    }
+
+    /**
+     * The inline edit on the clients list. Same column and same history entry
+     * as the edit form; saving an unchanged value writes nothing.
+     */
+    public function updateCustomerReason(Client $client, ?string $reason): Client
+    {
+        $reason = $this->normalizeReason($reason);
+        $old    = $this->normalizeReason($client->customer_reason);
+
+        if ($old === $reason) {
+            return $client;
+        }
+
+        return DB::transaction(function () use ($client, $reason, $old) {
+            $updated = $this->clientRepo->update($client, [
+                'customer_reason' => $reason,
+                'updated_by'      => Auth::id(),
+            ]);
+            $this->logReasonChange($client->id, $old, $reason, Auth::id());
+
+            return $updated;
+        });
+    }
+
+    private function normalizeReason(?string $reason): ?string
+    {
+        $reason = trim((string) $reason);
+
+        return $reason === '' ? null : $reason;
+    }
+
+    private function logReasonChange(int $clientId, ?string $old, ?string $new, ?int $actorId): void
+    {
+        $old = $this->normalizeReason($old);
+
+        if ($old === $new) {
+            return;
+        }
+
+        $this->activityLog->log('Client', 'Customer Reason Changed', $clientId, $old, $new, actorId: $actorId);
     }
 
     public function delete(Client $client): void

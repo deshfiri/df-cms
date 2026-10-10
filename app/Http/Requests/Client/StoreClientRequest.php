@@ -27,6 +27,7 @@ class StoreClientRequest extends FormRequest
             'assigned_to'   => ['nullable', 'exists:users,id'],
             'client_status' => ['required', Rule::in(Client::$statuses)],
             'remarks'       => ['nullable', 'string'],
+            'customer_reason' => UpdateCustomerReasonRequest::customerReasonRules(),
             'doc_status'    => ['nullable', 'string', 'max:50'],
         ];
     }

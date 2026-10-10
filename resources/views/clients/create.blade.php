@@ -108,6 +108,12 @@
                             <textarea name="remarks" rows="3" class="form-control"
                                       placeholder="Any additional notes...">{{ old('remarks') }}</textarea>
                         </div>
+                        <div class="col-12">
+                            <label class="form-label fw-semibold small">Customer Reason</label>
+                            <textarea name="customer_reason" rows="2" maxlength="1000"
+                                      class="form-control @error('customer_reason') is-invalid @enderror">{{ old('customer_reason') }}</textarea>
+                            @error('customer_reason')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
                     </div>
 
                     <div class="mt-4 d-flex gap-2">

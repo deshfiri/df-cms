@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\Client\StoreClientRequest;
 use App\Http\Requests\Client\UpdateClientRequest;
+use App\Http\Requests\Client\UpdateCustomerReasonRequest;
 use App\Models\Category;
 use App\Models\Client;
 use App\Models\User;
@@ -205,6 +206,17 @@ class ClientController extends Controller
         return response()->json(['success' => true, 'status' => $updated->client_status]);
     }
 
+    public function updateCustomerReason(UpdateCustomerReasonRequest $request, Client $client): JsonResponse
+    {
+        $updated = $this->clientService->updateCustomerReason($client, $request->validated()['customer_reason'] ?? null);
+
+        return response()->json([
+            'success'         => true,
+            'message'         => 'Customer reason saved.',
+            'customer_reason' => $updated->customer_reason,
+        ]);
+    }
+
     public function bulkDelete(Request $request): JsonResponse
     {
         $this->authorize('delete', Client::class);
@@ -364,8 +376,9 @@ class ClientController extends Controller
             ->addColumn('client_status_badge', fn ($c) => $this->statusBadge($c, $request->user()))
             ->addColumn('product_status', fn ($c) => $c->latestProductStatus ? '<small class="badge bg-info">' . e($c->latestProductStatus) . '</small>' : '-')
             ->addColumn('payment_status', fn ($c) => $this->paymentBadge($c->latestPaymentStatus))
+            ->addColumn('customer_reason', fn ($c) => $this->customerReasonCell($c, $request->user()))
             ->addColumn('actions', fn ($c) => $this->actionButtons($c, $request->user()))
-            ->rawColumns(['dfid', 'client', 'website', 'progress', 'client_status_badge', 'product_status', 'payment_status', 'actions'])
+            ->rawColumns(['dfid', 'client', 'website', 'progress', 'client_status_badge', 'product_status', 'payment_status', 'customer_reason', 'actions'])
             ->with(['counts' => $counts])
             ->make(true);
     }
@@ -431,6 +444,30 @@ class ClientController extends Controller
         $map = ['Paid' => 'success', 'Partial' => 'warning', 'Unpaid' => 'danger'];
 
         return '<span class="badge bg-' . ($map[$status] ?? 'secondary') . '">' . e($status) . '</span>';
+    }
+
+    private function customerReasonCell(Client $client, User $user): string
+    {
+        $reason   = $client->customer_reason;
+        $hasValue = $reason !== null && $reason !== '';
+        $btnStyle = 'background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-size:.65rem';
+
+        $html = '<div class="d-flex align-items-center gap-1">'
+              . ($hasValue
+                  ? '<span class="text-truncate d-inline-block" style="max-width:140px;font-size:.75rem;color:var(--text2)" title="' . e($reason) . '">' . e($reason) . '</span>'
+                  : '<span style="color:var(--text3)">-</span>');
+
+        // The full value rides in a data attribute so both dialogs open with it
+        // untruncated; e() keeps it safe inside the attribute.
+        if ($hasValue) {
+            $html .= '<button type="button" class="btn btn-sm px-1 py-0 btn-customer-reason-show" data-reason="' . e($reason) . '" style="' . $btnStyle . '" title="Show customer reason"><i class="bi bi-eye"></i></button>';
+        }
+
+        if ($user->can('update', $client)) {
+            $html .= '<button type="button" class="btn btn-sm px-1 py-0 btn-customer-reason" data-id="' . $client->id . '" data-reason="' . e($reason ?? '') . '" style="' . $btnStyle . '" title="Edit customer reason"><i class="bi bi-pencil"></i></button>';
+        }
+
+        return $html . '</div>';
     }
 
     private function actionButtons(Client $client, User $user): string

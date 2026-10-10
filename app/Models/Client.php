@@ -13,7 +13,7 @@ class Client extends Model
     protected $fillable = [
         'dfid_number', 'client_name', 'brand_name', 'website', 'page_link', 'contact_email', 'designs_link',
         'category_id', 'joining_date', 'assigned_to', 'client_status',
-        'remarks', 'doc_status', 'created_by', 'updated_by',
+        'remarks', 'customer_reason', 'doc_status', 'created_by', 'updated_by',
     ];
 
     protected function casts(): array

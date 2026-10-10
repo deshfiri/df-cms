@@ -102,6 +102,12 @@
                             <label class="form-label fw-semibold small">Notes / Remarks</label>
                             <textarea name="remarks" rows="3" class="form-control">{{ old('remarks', $client->remarks) }}</textarea>
                         </div>
+                        <div class="col-12">
+                            <label class="form-label fw-semibold small">Customer Reason</label>
+                            <textarea name="customer_reason" rows="2" maxlength="1000"
+                                      class="form-control @error('customer_reason') is-invalid @enderror">{{ old('customer_reason', $client->customer_reason) }}</textarea>
+                            @error('customer_reason')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
                     </div>
                     <div class="mt-4 d-flex gap-2">
                         <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Update Client</button>

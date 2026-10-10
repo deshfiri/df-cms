@@ -144,6 +144,7 @@
                         <th>Status</th>
                         <th>Product</th>
                         <th>Payment</th>
+                        <th>Customer Reason</th>
                         <th width="90" class="text-end pe-3">Actions</th>
                     </tr>
                 </thead>
@@ -241,6 +242,7 @@ $(function () {
             { data: 'client_status_badge', name: 'client_status', searchable: false },
             { data: 'product_status',      orderable: false,  searchable: false },
             { data: 'payment_status',      orderable: false,  searchable: false },
+            { data: 'customer_reason',     orderable: false,  searchable: false },
             { data: 'actions',             orderable: false,  searchable: false },
         ],
         // By DFID, highest first.
@@ -304,6 +306,50 @@ $(function () {
     });
     $(document).on('click', function (e) {
         if (!$(e.target).closest('.status-dd').length) $('.status-dd').removeClass('open');
+    });
+
+    // Show the full customer reason, read-only. Set with .text() so the stored
+    // value is never parsed as HTML; pre-wrap keeps the user's line breaks.
+    $(document).on('click', '.btn-customer-reason-show', function (e) {
+        e.stopPropagation();
+        Swal.fire({
+            title: 'Customer Reason',
+            html: $('<div>').css({ 'white-space': 'pre-wrap', 'text-align': 'left', 'font-size': '.9rem' })
+                    .text($(this).attr('data-reason') || '')[0],
+            confirmButtonText: 'Close'
+        });
+    });
+
+    // Inline customer reason
+    $(document).on('click', '.btn-customer-reason', function (e) {
+        e.stopPropagation();
+        var id = $(this).data('id');
+        Swal.fire({
+            title: 'Customer Reason',
+            input: 'textarea',
+            inputValue: $(this).attr('data-reason') || '',
+            inputPlaceholder: 'Why the customer…',
+            inputAttributes: { maxlength: 1000 },
+            showCancelButton: true,
+            confirmButtonText: 'Save',
+            showLoaderOnConfirm: true,
+            allowOutsideClick: () => !Swal.isLoading(),
+            preConfirm: function (reason) {
+                return new Promise(function (resolve) {
+                    $.post('/clients/' + id + '/customer-reason', { customer_reason: $.trim(reason || '') })
+                     .done(function (res) { resolve(res); })
+                     .fail(function (xhr) {
+                         var errs = xhr.responseJSON?.errors;
+                         Swal.showValidationMessage((errs && errs.customer_reason && errs.customer_reason[0]) || xhr.responseJSON?.message || 'Could not save customer reason.');
+                         resolve(false);
+                     });
+                });
+            }
+        }).then(function (r) {
+            if (!r.isConfirmed || !r.value) return;
+            window.dfTable.ajax.reload(null, false);
+            Swal.fire({ icon: 'success', title: 'Saved', timer: 1200, showConfirmButton: false });
+        });
     });
 
     // Row delete

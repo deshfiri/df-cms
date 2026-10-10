@@ -129,6 +129,7 @@ Route::middleware(['auth'])->group(function () {
     // Client resource
     Route::resource('clients', ClientController::class);
     Route::post('clients/{client}/status', [ClientController::class, 'updateStatus'])->name('clients.status');
+    Route::post('clients/{client}/customer-reason', [ClientController::class, 'updateCustomerReason'])->name('clients.customer-reason');
     Route::get('clients/{client}/quick-view', [ClientController::class, 'quickView'])->name('clients.quick-view');
     Route::post('clients/bulk-delete', [ClientController::class, 'bulkDelete'])->name('clients.bulk-delete');
     Route::post('clients/bulk-assign', [ClientController::class, 'bulkAssign'])->name('clients.bulk-assign');
