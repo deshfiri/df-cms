@@ -613,7 +613,15 @@
                 <div class="tp-dl">
                     <div class="tp-dl-row"><span class="k">Assigned to</span>
                         <span class="v d-flex flex-wrap gap-2">
-                            @forelse($task->assignees as $assignee)
+                            @php
+                                // The requester is shown on its own row below; only list them here
+                                // when they assigned the task to nobody but themselves.
+                                $assignedTo = $task->assignees->where('id', '!=', $task->created_by);
+                                if ($assignedTo->isEmpty()) {
+                                    $assignedTo = $task->assignees;
+                                }
+                            @endphp
+                            @forelse($assignedTo as $assignee)
                                 <span class="tp-person">{!! $avatar($assignee, 22) !!}{{ $assignee->name }}</span>
                             @empty
                                 <span style="color:var(--text3)">Unassigned</span>
