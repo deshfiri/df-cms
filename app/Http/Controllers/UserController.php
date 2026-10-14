@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\UserService;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -38,6 +39,13 @@ class UserController extends Controller
                         . 'data-active="' . ($u->is_active ? '1' : '0') . '" '
                         . 'data-roles="' . e($u->roles->pluck('name')->implode(',')) . '">'
                         . '<i class="bi bi-pencil"></i></button>'
+                        // No delete button on your own row — destroy() refuses it anyway.
+                        . ($u->id !== $request->user()->id
+                            ? ' <button class="btn btn-sm btn-danger btn-delete" '
+                                . 'data-id="' . $u->id . '" '
+                                . 'data-name="' . e($u->name) . '">'
+                                . '<i class="bi bi-trash"></i></button>'
+                            : '')
                     : '')
                 ->rawColumns(['roles_badges', 'status_badge', 'actions'])
                 ->make(true);
@@ -80,6 +88,30 @@ class UserController extends Controller
         ]);
 
         $this->service->update($user, $data);
+
+        return response()->json(['success' => true]);
+    }
+
+    public function destroy(User $user): JsonResponse
+    {
+        abort_unless(Auth::user()->can('manage users'), 403);
+
+        if ($user->id === Auth::id()) {
+            return response()->json(['message' => 'You cannot delete your own account.'], 422);
+        }
+
+        // Removing the last Super Admin would leave nobody able to manage the system.
+        if ($user->hasRole('Super Admin') && User::role('Super Admin')->count() <= 1) {
+            return response()->json(['message' => 'This is the only Super Admin and cannot be deleted.'], 422);
+        }
+
+        try {
+            $this->service->delete($user);
+        } catch (QueryException $e) {
+            report($e);
+
+            return response()->json(['message' => 'This user is still linked to other records and cannot be deleted. Set them to Inactive instead.'], 422);
+        }
 
         return response()->json(['success' => true]);
     }

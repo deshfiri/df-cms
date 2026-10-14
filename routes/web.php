@@ -590,7 +590,7 @@ Route::middleware(['auth'])->group(function () {
 
     // Settings
     Route::resource('categories', CategoryController::class)->except(['create', 'edit', 'show']);
-    Route::resource('users', UserController::class)->only(['index', 'store', 'update']);
+    Route::resource('users', UserController::class)->only(['index', 'store', 'update', 'destroy']);
 
     // General settings (Super Admin only)
     Route::get('settings', [SettingController::class, 'index'])->name('settings.index');

@@ -41,4 +41,18 @@ class UserService
             return $user->fresh();
         });
     }
+
+    /**
+     * Permanently removes the user. Rows tied to them with cascadeOnDelete
+     * (meetings, chats, revisions, …) go with them; nullOnDelete links are cleared.
+     */
+    public function delete(User $user): void
+    {
+        DB::transaction(function () use ($user) {
+            $old = $user->only(['name', 'email', 'is_active']) + ['roles' => $user->roles->pluck('name')->all()];
+            $user->syncRoles([]);
+            $user->delete();
+            $this->activityLog->log('User', 'Deleted', null, $old, null);
+        });
+    }
 }

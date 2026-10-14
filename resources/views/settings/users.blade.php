@@ -34,11 +34,11 @@
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold small">Email</label>
-                        <input type="email" id="uEmail" class="form-control">
+                        <input type="email" id="uEmail" class="form-control" autocomplete="off">
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold small">Password</label>
-                        <input type="password" id="uPass" class="form-control" placeholder="Min 8 chars">
+                        <input type="password" id="uPass" class="form-control" placeholder="Min 8 chars" autocomplete="new-password">
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold small">Roles</label>
@@ -72,11 +72,11 @@
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold small">Email</label>
-                        <input type="email" id="euEmail" class="form-control">
+                        <input type="email" id="euEmail" class="form-control" autocomplete="off">
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold small">New Password</label>
-                        <input type="password" id="euPass" class="form-control" placeholder="Leave blank to keep">
+                        <input type="password" id="euPass" class="form-control" placeholder="Leave blank to keep" autocomplete="new-password">
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold small">Roles</label>
@@ -119,6 +119,10 @@ const table = $('#userTable').DataTable({
     order: [], pageLength: 25,   // newest first (server default)
 });
 
+// The modals' password fields make Chrome treat this page as a login form and
+// drop the saved sign-in email into the table search, silently filtering the list.
+$(table.table().container()).find('input[type=search]').attr('autocomplete', 'off').val('');
+
 $('.select2').select2({ theme: 'bootstrap-5', width: '100%' });
 
 $('#saveUser').on('click', function () {
@@ -151,6 +155,25 @@ $('#updateUser').on('click', function () {
     $.ajax({ url: '/users/' + id, type: 'PUT', data: { name: $('#euName').val(), email: $('#euEmail').val(), password: $('#euPass').val(), roles: $('#euRole').val() || [], is_active: $('#euStatus').val() } })
      .done(function () { bootstrap.Modal.getInstance('#editUserModal').hide(); table.ajax.reload(); })
      .fail(function (r) { Swal.fire('Error', r.responseJSON?.message || 'Failed', 'error'); });
+});
+
+$(document).on('click', '.btn-delete', function () {
+    const id = $(this).data('id');
+    const name = $('<div>').text($(this).data('name')).html();
+
+    Swal.fire({
+        title: 'Delete user?',
+        html: '<strong>' + name + '</strong> will be permanently deleted, along with their meetings, chats and other records linked to them. This cannot be undone.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Delete',
+        confirmButtonColor: '#dc3545',
+    }).then(function (res) {
+        if (!res.isConfirmed) return;
+        $.ajax({ url: '/users/' + id, type: 'DELETE' })
+         .done(function () { table.ajax.reload(null, false); Swal.fire({ icon: 'success', title: 'User deleted', timer: 1500, showConfirmButton: false }); })
+         .fail(function (r) { Swal.fire('Error', r.responseJSON?.message || 'Failed', 'error'); });
+    });
 });
 </script>
 @endpush
